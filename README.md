@@ -1,23 +1,38 @@
 # OverlayAssist targeting modules
 
-## What to copy into your `OverlayAssist` folder
+## Copy to your `OverlayAssist` folder
 
-Only **two** files are required for the self-check fix:
+| File | Purpose |
+|------|---------|
+| **`detector.py`** | Body-structure targeting (one file — not `detection.py`) |
+| **`motion.py`** | Smooth tracking when dummy moves (use with detector) |
+| **`self_check.py`** | Setup self-check (body dummy test; helpers inlined) |
 
-| File | Replaces |
-|------|----------|
-| `detector.py` | Your existing `detector.py` (full body-structure targeting — **one file**, not `detection.py`) |
-| `self_check.py` | Your existing `self_check.py` (body dummy test + debug logging; helpers are **inside** this file) |
-
-Do **not** copy `detection.py` — that name was repo-only. Your project already uses `detector.py`.
-
-Do **not** copy `synthetic_selfcheck.py` — it is inlined into `self_check.py`.
-
-Optional (earlier fixes): `overlay_assist.py`, `motion.py`, `setup_doctor.py` if you use them.
+Optional: `overlay_assist.py`, `setup_doctor.py`
 
 Do **not** replace `aba.py` or `run_windows.bat`.
 
-## Verify
+## In-game: moving dummy, not sky red blobs
+
+Firing-range dummies (your second screenshot) have red on **face, chest, and joints** on a white/grey body — not one solid red blob. The detector must track the **humanoid column**, not whichever red pixel is brightest.
+
+**detector.py** now:
+- Merges left/right red plates into one column
+- Rejects floating sky/UI blobs
+- Aims at **upper chest** on the body bbox (stable while moving)
+
+**motion.py** — in your runtime loop, pass bbox so aim does not jump between red plates:
+
+```python
+motion = tracker.observe_target(
+    t.centroid_x, t.centroid_y, time.time(),
+    bbox_x=t.bbox_x, bbox_y=t.bbox_y, bbox_w=t.bbox_w, bbox_h=t.bbox_h,
+)
+```
+
+If you only copy `detector.py` without `motion.py` or without wiring `observe_target`, ADS tracking will still feel jumpy.
+
+## Verify setup
 
 ```powershell
 python setup_doctor.py
