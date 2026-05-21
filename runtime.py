@@ -214,6 +214,66 @@ class AssistRuntime:
 
         return self._process_debounce.is_running(proc)
 
+
+    def _emit_pull_trace(
+        self,
+        cfg: dict[str, Any],
+        *,
+        frame_cx: float,
+        frame_cy: float,
+        target: Target | None,
+        motion: TargetMotion | None,
+        pr_dx: int,
+        pr_dy: int,
+        pr_mag: float,
+        pr_vel: tuple[float, float],
+        pr_desired: tuple[float, float],
+        gate_allowed: bool,
+        gate_reason: str,
+        mouse_move: tuple[int, int],
+        detection_fresh: bool,
+        stale_det: bool,
+        ads_active: bool,
+    ) -> None:
+        if not self._trace_pull:
+            return
+        from pull_trace import PullTraceFrame, log_trace_frame
+
+        self._trace_frame += 1
+        if motion is not None:
+            mx, my = motion.x, motion.y
+        elif target is not None:
+            mx, my = target.centroid_x, target.centroid_y
+        else:
+            mx, my = frame_cx, frame_cy
+        if target is not None:
+            rx, ry = target.centroid_x, target.centroid_y
+        else:
+            rx, ry = mx, my
+        log_trace_frame(
+            PullTraceFrame(
+                frame=self._trace_frame,
+                raw_target=(rx, ry),
+                motion_target=(mx, my),
+                center=(frame_cx, frame_cy),
+                error=(mx - frame_cx, my - frame_cy),
+                pull_dxdy=(pr_dx, pr_dy),
+                pull_mag=pr_mag,
+                pull_vel=pr_vel,
+                pull_desired=pr_desired,
+                gate_allowed=gate_allowed,
+                gate_reason=gate_reason,
+                mouse_move_called=mouse_move,
+                detection_fresh=detection_fresh,
+                target_lost_frames=self._target_lost_frames,
+                stale_detection=stale_det,
+                has_target=target is not None,
+                ads_active=ads_active,
+            ),
+            cfg,
+        )
+
+
     def _safe_mouse_move(self, dx: int, dy: int) -> MouseGateResult:
         if dx == 0 and dy == 0:
             return MouseGateResult(True, "")
@@ -722,30 +782,46 @@ class AssistRuntime:
                             gate_result = self._safe_mouse_move(pr.dx, pr.dy)
                             if gate_result.allowed:
                                 moved = (pr.dx, pr.dy)
-                        if self._trace_pull and target is not None and motion is not None:
-                            from pull_trace import PullTraceFrame, log_trace_frame
-
-                            self._trace_frame += 1
-                            log_trace_frame(
-                                PullTraceFrame(
-                                    frame=self._trace_frame,
-                                    raw_target=(target.centroid_x, target.centroid_y),
-                                    motion_target=(motion.x, motion.y),
-                                    center=(frame_cx, frame_cy),
-                                    error=(motion.x - frame_cx, motion.y - frame_cy),
-                                    pull_dxdy=(pr.dx, pr.dy),
-                                    pull_mag=pr.magnitude,
-                                    pull_vel=(pr.vel_x, pr.vel_y),
-                                    pull_desired=(pr.desired_x, pr.desired_y),
-                                    gate_allowed=gate_result.allowed,
-                                    gate_reason=gate_result.reason,
-                                    mouse_move_called=moved,
-                                    detection_fresh=detection_fresh,
-                                    target_lost_frames=self._target_lost_frames,
-                                    stale_detection=stale_det,
-                                ),
+                        if self._trace_pull:
+                            self._emit_pull_trace(
                                 cfg,
+                                frame_cx=frame_cx,
+                                frame_cy=frame_cy,
+                                target=target,
+                                motion=motion,
+                                pr_dx=pr.dx,
+                                pr_dy=pr.dy,
+                                pr_mag=pr.magnitude,
+                                pr_vel=(pr.vel_x, pr.vel_y),
+                                pr_desired=(pr.desired_x, pr.desired_y),
+                                gate_allowed=gate_result.allowed,
+                                gate_reason=gate_result.reason,
+                                mouse_move=moved,
+                                detection_fresh=detection_fresh,
+                                stale_det=stale_det,
+                                ads_active=ads_for_assist,
                             )
+
+                    elif ads_for_assist and self._trace_pull and pull_target is None:
+                        gate_result = MouseGateResult(True, "")
+                        self._emit_pull_trace(
+                            cfg,
+                            frame_cx=frame_cx,
+                            frame_cy=frame_cy,
+                            target=target,
+                            motion=motion,
+                            pr_dx=0,
+                            pr_dy=0,
+                            pr_mag=0.0,
+                            pr_vel=(0.0, 0.0),
+                            pr_desired=(0.0, 0.0),
+                            gate_allowed=True,
+                            gate_reason="no pull_target",
+                            mouse_move=(0, 0),
+                            detection_fresh=detection_fresh,
+                            stale_det=stale_det,
+                            ads_active=ads_for_assist,
+                        )
 
                     elif (not ads_for_assist or paused or target is None) and self._pull is not None:
                         self._pull.reset()

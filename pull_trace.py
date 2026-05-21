@@ -1,4 +1,4 @@
-"""Frame-by-frame pull / gate trace logging for live lag audits."""
+"""Frame-by-frame pull / gate trace logging — default ON for live profiles (file only)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Any
 logger = logging.getLogger("overlay_assist.pull_trace")
 
 _configured = False
+_log_path: Path | None = None
 
 
 @dataclass
@@ -21,20 +22,24 @@ class PullTraceFrame:
     error: tuple[float, float]
     pull_dxdy: tuple[int, int]
     pull_mag: float
-    pull_vel: tuple[float, float]
-    pull_desired: tuple[float, float]
-    gate_allowed: bool
-    gate_reason: str
-    mouse_move_called: tuple[int, int]
-    detection_fresh: bool
-    target_lost_frames: int
-    stale_detection: bool
+    pull_vel: tuple[float, float] = (0.0, 0.0)
+    pull_desired: tuple[float, float] = (0.0, 0.0)
+    gate_allowed: bool = True
+    gate_reason: str = ""
+    mouse_move_called: tuple[int, int] = (0, 0)
+    detection_fresh: bool = False
+    target_lost_frames: int = 0
+    stale_detection: bool = False
+    has_target: bool = True
+    ads_active: bool = True
 
 
 def format_trace_line(t: PullTraceFrame) -> str:
     ex, ey = t.error
     return (
         f"frame={t.frame}\n"
+        f"has_target={t.has_target}\n"
+        f"ads_active={t.ads_active}\n"
         f"raw_target=({t.raw_target[0]:.1f},{t.raw_target[1]:.1f})\n"
         f"motion_target=({t.motion_target[0]:.1f},{t.motion_target[1]:.1f})\n"
         f"center=({t.center[0]:.1f},{t.center[1]:.1f})\n"
@@ -52,9 +57,13 @@ def format_trace_line(t: PullTraceFrame) -> str:
     )
 
 
+def trace_log_path() -> Path | None:
+    return _log_path
+
+
 def setup_trace_logging(config: dict[str, Any], *, app_root: Path | None = None) -> bool:
-    """Configure file/console handlers from config. Returns whether trace is enabled."""
-    global _configured
+    """Configure file/console handlers. Live default: file only, no console spam."""
+    global _configured, _log_path
     enabled = bool(config.get("trace_pull", False))
     if not enabled:
         return False
@@ -64,17 +73,18 @@ def setup_trace_logging(config: dict[str, Any], *, app_root: Path | None = None)
     if not log_path.is_absolute():
         log_path = root / log_path
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    _log_path = log_path
 
     logger.setLevel(logging.INFO)
     logger.propagate = False
     logger.handlers.clear()
 
     fmt = logging.Formatter("%(asctime)s %(message)s")
-    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh = logging.FileHandler(log_path, encoding="utf-8", mode="a")
     fh.setFormatter(fmt)
     logger.addHandler(fh)
 
-    if bool(config.get("trace_pull_console", True)):
+    if bool(config.get("trace_pull_console", False)):
         ch = logging.StreamHandler()
         ch.setFormatter(fmt)
         logger.addHandler(ch)
@@ -95,10 +105,29 @@ def should_log_frame(frame_index: int, config: dict[str, Any]) -> bool:
     if max_frames > 0 and frame_index > max_frames:
         return False
     interval = max(1, int(config.get("trace_pull_interval_frames", 1)))
-    return frame_index % interval == 0
+    return (frame_index % interval) == 0
 
 
 def log_trace_frame(t: PullTraceFrame, config: dict[str, Any] | None = None) -> None:
+    if not _configured:
+        return
     if config is not None and not should_log_frame(t.frame, config):
         return
     logger.info("%s", format_trace_line(t))
+
+
+def analyze_trace_file(path: Path, *, tail_blocks: int = 5) -> dict[str, Any]:
+    """Quick parse of recent trace blocks for audits."""
+    if not path.is_file():
+        return {"ok": False, "reason": "missing log"}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    blocks = [b.strip() for b in text.split("frame=") if b.strip()]
+    recent = blocks[-tail_blocks:] if blocks else []
+    gate_blocks = sum(1 for b in recent if "gate_allowed=False" in b)
+    zero_mouse = sum(1 for b in recent if "mouse_move_called=(0,0)" in b and "error=(" in b)
+    return {
+        "ok": True,
+        "blocks": len(blocks),
+        "recent_gate_blocks": gate_blocks,
+        "recent_zero_mouse_with_error": zero_mouse,
+    }

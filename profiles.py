@@ -51,11 +51,11 @@ _APEX_TUNING: dict[str, Any] = {
     "stats_log_interval_frames": 45,
     "mouse_gate_stale_grace_frames": 12,
     "mouse_gate_pull_budget_scale": 3.5,
-    "trace_pull": False,
+    "trace_pull": True,
     "trace_pull_console": False,
     "trace_pull_log_file": "logs/pull_trace.log",
-    "trace_pull_interval_frames": 1,
-    "trace_pull_max_frames": 900,
+    "trace_pull_interval_frames": 2,
+    "trace_pull_max_frames": 0,
 }
 
 PROFILE_APEX_STYLE_DRY_RUN = "apex_style_dry_run"
@@ -86,6 +86,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "capture_fps": 30,
         "ads_input_mode": "disabled",
         "dry_run_force_detect": True,
+        "trace_pull": False,
     },
     PROFILE_APEX_STYLE_LIVE_SAFE: {
         **_APEX_TUNING,
