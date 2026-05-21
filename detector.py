@@ -37,6 +37,7 @@ class RejectReason(str, Enum):
     NO_BODY_STRUCTURE = "no_body_structure"
     SOLID_WALL = "solid_wall"
     OUTSIDE_FOV = "outside_fov"
+    FLOATING_CLUSTER = "floating_cluster"
     LOW_SCORE = "low_body_shape_score"
 
 
@@ -285,9 +286,10 @@ def _classify_parts(parts: list[_RedPart], cluster_h: int, scale: float) -> None
         p.role = PartRole.UNKNOWN
 
 
-def _cluster_parts(parts: list[_RedPart], frame_w: int) -> list[list[_RedPart]]:
+def _cluster_parts(parts: list[_RedPart], frame_w: int, frame_h: int | None = None) -> list[list[_RedPart]]:
     if not parts:
         return []
+    fh = frame_h if frame_h is not None else int(max(p.y + p.h for p in parts))
     x_tol = max(22.0, 0.16 * float(np.median([p.w for p in parts])))
     clusters: list[list[_RedPart]] = []
     for part in sorted(parts, key=lambda p: p.cx):
@@ -303,7 +305,78 @@ def _cluster_parts(parts: list[_RedPart], frame_w: int) -> list[list[_RedPart]]:
                 break
         if not placed:
             clusters.append([part])
-    return clusters
+    return _merge_nearby_clusters(clusters, frame_w, fh)
+
+
+
+
+def _clusters_should_merge(
+    parts_a: list[_RedPart],
+    parts_b: list[_RedPart],
+    scale: float,
+) -> bool:
+    """Merge left/right arm plates into one humanoid column."""
+    bx1, by1, bw1, bh1 = _cluster_bbox(parts_a)
+    bx2, by2, bw2, bh2 = _cluster_bbox(parts_b)
+    cx1 = bx1 + bw1 * 0.5
+    cx2 = bx2 + bw2 * 0.5
+    x_tol = max(48.0 * scale, 0.55 * max(bw1, bw2))
+    if abs(cx1 - cx2) > x_tol:
+        return False
+    y_overlap = min(by1 + bh1, by2 + bh2) - max(by1, by2)
+    if y_overlap >= -8 * scale:
+        return True
+    gap = max(by1 + bh1, by2 + bh2) - min(by1, by2)
+    return gap <= 95 * scale
+
+
+def _merge_nearby_clusters(clusters: list[list[_RedPart]], frame_w: int, frame_h: int) -> list[list[_RedPart]]:
+    if len(clusters) <= 1:
+        return clusters
+    scale = _scale(frame_w, frame_h)
+    merged: list[list[_RedPart]] = []
+    used = [False] * len(clusters)
+    for i, cl in enumerate(clusters):
+        if used[i]:
+            continue
+        acc = list(cl)
+        used[i] = True
+        changed = True
+        while changed:
+            changed = False
+            for j, other in enumerate(clusters):
+                if used[j]:
+                    continue
+                if _clusters_should_merge(acc, other, scale):
+                    acc.extend(other)
+                    used[j] = True
+                    changed = True
+        merged.append(acc)
+    return merged
+
+
+def _is_floating_cluster(
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    frame_h: int,
+    center_y: float,
+    parts: list[_RedPart],
+    scale: float,
+) -> bool:
+    """Reject sky pips / UI blobs above the play space (not grounded humanoids)."""
+    foot_y = by + bh
+    mid_y = by + bh * 0.5
+    if foot_y < frame_h * 0.40 and bh < frame_h * 0.28:
+        return True
+    if mid_y < center_y - frame_h * 0.22 and len(parts) <= 2 and bh < 72 * scale:
+        return True
+    if len(parts) == 1:
+        p = parts[0]
+        if p.circularity >= 0.55 and foot_y < frame_h * 0.48 and p.h < 55 * scale:
+            return True
+    return False
 
 
 def _cluster_bbox(parts: list[_RedPart]) -> tuple[int, int, int, int]:
@@ -479,20 +552,23 @@ def _figure_aim_point(
     bh: int,
     torso_fraction: float = 0.38,
 ) -> tuple[float, float]:
-    heads = [p for p in parts if p.role == PartRole.HEAD]
-    if heads:
-        h = heads[0]
-        return h.cx, h.y + h.h * 0.38
-    torsos = [p for p in parts if p.role == PartRole.TORSO]
-    if torsos:
-        t = max(torsos, key=lambda p: p.area)
-        frac = max(0.22, min(0.52, torso_fraction))
-        return t.cx, t.y + t.h * frac
-    if parts:
-        p = max(parts, key=lambda p: p.area)
-        frac = max(0.22, min(0.52, torso_fraction))
-        return p.cx, p.y + p.h * frac
-    return bx + bw * 0.5, by + bh * 0.36
+    """
+    Stable upper-chest aim on the humanoid column — not a single red plate centroid.
+    Matches firing-range dummies: red on face/joints but pull toward torso line.
+    """
+    frac = max(0.30, min(0.48, torso_fraction))
+    ax = bx + bw * 0.5
+    ay = by + bh * frac
+    if len(parts) >= 2:
+        torsos = [p for p in parts if p.role == PartRole.TORSO]
+        if torsos:
+            t = max(torsos, key=lambda p: p.area)
+            ax = 0.65 * ax + 0.35 * t.cx
+            ay = 0.55 * ay + 0.45 * (t.y + t.h * 0.42)
+        else:
+            cx_parts = float(np.mean([p.cx for p in parts]))
+            ax = 0.7 * ax + 0.3 * cx_parts
+    return ax, ay
 
 
 def analyze_figure(
@@ -508,6 +584,9 @@ def analyze_figure(
 
     v_score, fill = _vertical_profile_score(mask, bx, by, bw, bh)
     hard = _hard_reject(parts, bx, by, bw, bh, frame_w, frame_h, fill)
+    center_y = frame_h * 0.5
+    if hard is None and _is_floating_cluster(bx, by, bw, bh, frame_h, center_y, parts, scale):
+        hard = RejectReason.FLOATING_CLUSTER
     if hard is not None:
         return _FigureAnalysis(
             accepted=False,
@@ -561,6 +640,9 @@ def analyze_figure(
         or (len(parts) == 2 and head_s >= 0.32 and torso_s >= 0.22)
     )
     if len(parts) == 1 and (v_score < 0.35 or fill > 0.88):
+        structure_ok = False
+    foot_y = by + bh
+    if foot_y < frame_h * 0.42 and len(parts) < 3:
         structure_ok = False
 
     accepted = body_shape >= min_accept and structure_ok
@@ -636,7 +718,7 @@ def inspect_frame(
     fov = _build_fov_mask(h, w, cx, cy, fov_radius)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
     parts = _extract_parts(mask, w, h)
-    clusters = _cluster_parts(parts, w)
+    clusters = _cluster_parts(parts, w, h)
     report: dict[str, Any] = {
         "frame": (w, h),
         "mask_pixels": int((mask > 0).sum()),
@@ -680,7 +762,7 @@ def _collect_candidates(
     mask = cv2.bitwise_and(mask, mask, mask=vm)
 
     parts = _extract_parts(mask, w, h)
-    clusters = _cluster_parts(parts, w)
+    clusters = _cluster_parts(parts, w, h)
     max_area = float(h * w) * _MAX_AREA_RATIO
     targets: list[Target] = []
     lines: list[str] = []
@@ -755,10 +837,16 @@ def score_target(
     dist_term = max(0.0, fov_radius - target.distance_to_center) * distance_weight * 0.35
     area_term = min(math.sqrt(target.area), 80.0) * area_weight
     penalty = 0.0
-    if center_y is not None and target.centroid_y < center_y:
-        penalty += (center_y - target.centroid_y) * 1.1
+    if center_y is not None:
+        if target.centroid_y < center_y:
+            penalty += (center_y - target.centroid_y) * 1.4
+        foot_y = target.bbox_y + target.bbox_h
+        if foot_y < center_y + fov_radius * 0.15:
+            penalty += fov_radius * 2.2
     if target.bbox_w >= target.bbox_h:
         penalty += fov_radius * 0.8
+    if target.part_count < 2 and target.body_shape_score < 0.55:
+        penalty += fov_radius * 0.6
     return body_term + dist_term + area_term - penalty
 
 
@@ -776,7 +864,7 @@ def find_best_target(
     fov_center_y: float | None = None,
     *,
     sticky_target: Target | None = None,
-    stickiness_pixels: float = 65.0,
+    stickiness_pixels: float = 90.0,
     distance_weight: float = 2.0,
     area_weight: float = 0.015,
     min_height_px: float = 0.0,

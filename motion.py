@@ -8,10 +8,11 @@ from dataclasses import dataclass
 _MAX_VELOCITY = 2800.0
 _MAX_DT = 0.5
 _MIN_DT = 0.005
-_JUMP_THRESHOLD = 180.0
-_VELOCITY_NOISE_FLOOR = 3.5
-_POSITION_SMOOTH_ALPHA = 0.38
-_SOFT_JUMP_ALPHA = 0.22
+_JUMP_THRESHOLD = 95.0
+_VELOCITY_NOISE_FLOOR = 2.5
+_POSITION_SMOOTH_ALPHA = 0.24
+_SOFT_JUMP_ALPHA = 0.14
+_BBOX_BLEND_ALPHA = 0.32
 
 
 def _finite(v: float, fallback: float = 0.0) -> float:
@@ -85,6 +86,8 @@ class TargetTracker:
         self._smooth_y: float | None = None
         self._last_raw_x: float | None = None
         self._last_raw_y: float | None = None
+        self._bbox_cx: float | None = None
+        self._bbox_cy: float | None = None
 
     def reset(self) -> None:
         self._last = None
@@ -93,6 +96,41 @@ class TargetTracker:
         self._smooth_y = None
         self._last_raw_x = None
         self._last_raw_y = None
+        self._bbox_cx = None
+        self._bbox_cy = None
+
+    def observe_target(
+        self,
+        x: float,
+        y: float,
+        time_sec: float,
+        *,
+        bbox_x: int | None = None,
+        bbox_y: int | None = None,
+        bbox_w: int | None = None,
+        bbox_h: int | None = None,
+    ) -> TargetMotion:
+        """Blend aim with stable bbox column when red plates flicker frame-to-frame."""
+        if (
+            bbox_x is not None
+            and bbox_y is not None
+            and bbox_w is not None
+            and bbox_h is not None
+            and bbox_w > 0
+            and bbox_h > 0
+        ):
+            bx_c = bbox_x + bbox_w * 0.5
+            by_c = bbox_y + bbox_h * 0.38
+            if self._bbox_cx is None or self._bbox_cy is None:
+                self._bbox_cx = bx_c
+                self._bbox_cy = by_c
+            else:
+                a = _BBOX_BLEND_ALPHA
+                self._bbox_cx = a * bx_c + (1.0 - a) * self._bbox_cx
+                self._bbox_cy = a * by_c + (1.0 - a) * self._bbox_cy
+            x = 0.55 * x + 0.45 * self._bbox_cx
+            y = 0.55 * y + 0.45 * self._bbox_cy
+        return self.observe(x, y, time_sec)
 
     def _smooth_position(self, x: float, y: float, *, soft: bool = False) -> tuple[float, float]:
         alpha = _SOFT_JUMP_ALPHA if soft else _POSITION_SMOOTH_ALPHA

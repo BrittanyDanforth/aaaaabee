@@ -228,3 +228,36 @@ class LegacyTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
+
+class FloatingSkyTests(ScenarioTests):
+    def test_high_floating_blob_rejected(self) -> None:
+        frame = np.zeros((self.h, self.w, 3), dtype=np.uint8) + 30
+        cv2.circle(frame, (int(self.cx + 60), int(self.h * 0.14)), 28, RED, -1)
+        r = self._detect(frame, debug=True)
+        self.assertFalse(r.active, r.debug_lines)
+
+    def test_moving_patch_dummy_stays_locked(self) -> None:
+        sticky = None
+        hits = 0
+        for i in range(6):
+            frame = np.full((self.h, self.w, 3), 90, dtype=np.uint8)
+            ox = (i - 3) * 10
+            foot = int(self.cy + 110)
+            for dx, dy, rw, rh in [(0, -90, 20, 18), (-6, -50, 34, 26), (0, -18, 18, 16)]:
+                x, y = int(self.cx + dx + ox), foot + dy
+                cv2.rectangle(frame, (x - rw // 2, y - rh), (x + rw // 2, y), RED, -1)
+            r = detector.find_best_target(
+                frame,
+                HSV_RED,
+                self.fov,
+                60.0,
+                self.cx,
+                self.cy,
+                sticky_target=sticky,
+                stickiness_pixels=90,
+            )
+            if r.active:
+                hits += 1
+                sticky = r.target
+        self.assertGreaterEqual(hits, 5)
