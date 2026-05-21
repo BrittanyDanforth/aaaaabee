@@ -12,13 +12,20 @@ import numpy as np
 
 logger = logging.getLogger("targeting")
 
-_MAX_AREA_RATIO = 0.35
-# Bottom of screen: weapon viewmodel / red-dot sights (common false positives).
+_MAX_AREA_RATIO = 0.28
 _VIEWMODEL_EXCLUDE_FRAC = 0.30
-# Reject aim points too high above crosshair (sky, overhead UI, wall targets).
-_MAX_ABOVE_CENTER_FRAC = 0.42
-_MIN_CONFIDENCE = 0.22
-_STICKY_SWITCH_RATIO = 2.25
+_MAX_ABOVE_CENTER_FRAC = 0.38
+_MIN_CONFIDENCE = 0.32
+_STICKY_SWITCH_RATIO = 2.35
+
+# Standing humanoid: clearly taller than wide, never a screen-wide flat band.
+_MIN_HUMANOID_ASPECT = 1.48
+_MAX_HUMANOID_ASPECT = 6.0
+_MAX_BBOX_WIDTH_FRAC = 0.30
+_MIN_BBOX_HEIGHT_FRAC = 0.06
+_MAX_BBOX_HEIGHT_FRAC = 0.62
+_MAX_CONVEXITY_PANEL = 0.94
+_MAX_STRIPE_SOLIDITY = 0.86
 
 
 @dataclass
@@ -33,6 +40,7 @@ class Target:
     bbox_w: int = 0
     bbox_h: int = 0
     solidity: float = 1.0
+    humanoid_score: float = 0.0
 
 
 @dataclass
@@ -40,6 +48,16 @@ class DetectionResult:
     target: Target | None
     candidates: int
     best_score: float = 0.0
+
+
+@dataclass(frozen=True)
+class _ShapeMetrics:
+    aspect: float
+    solidity: float
+    convexity: float
+    width_frac: float
+    height_frac: float
+    humanoid_score: float
 
 
 def _build_fov_mask(height: int, width: int, center_x: float, center_y: float, radius: int) -> np.ndarray:
@@ -51,7 +69,6 @@ def _build_fov_mask(height: int, width: int, center_x: float, center_y: float, r
 
 
 def _build_viewmodel_exclude_mask(height: int, width: int, exclude_bottom_frac: float) -> np.ndarray:
-    """Zero out the bottom band where the local weapon model lives."""
     frac = max(0.0, min(0.5, exclude_bottom_frac))
     if frac <= 0.0:
         return np.ones((height, width), dtype=np.uint8)
@@ -72,10 +89,108 @@ def build_hsv_mask(frame_bgr: np.ndarray, hsv_ranges: list[dict[str, Any]]) -> n
     if combined is None:
         return np.zeros(frame_bgr.shape[:2], dtype=np.uint8)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    combined = cv2.morphologyEx(combined, cv2.MORPH_OPEN, kernel)
-    combined = cv2.dilate(combined, kernel, iterations=1)
+    combined = cv2.morphologyEx(combined, cv2.MORPH_OPEN, kernel, iterations=2)
     combined = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel)
     return combined
+
+
+def _shape_metrics(
+    contour: np.ndarray,
+    frame_w: int,
+    frame_h: int,
+) -> _ShapeMetrics | None:
+    area = float(cv2.contourArea(contour))
+    if area < 1.0:
+        return None
+    bx, by, bw, bh = cv2.boundingRect(contour)
+    if bw <= 0 or bh <= 0:
+        return None
+
+    aspect = bh / float(bw)
+    solidity = area / float(bw * bh)
+    hull = cv2.convexHull(contour)
+    hull_area = float(cv2.contourArea(hull))
+    convexity = area / hull_area if hull_area > 0 else 0.0
+    width_frac = bw / float(frame_w)
+    height_frac = bh / float(frame_h)
+
+    score = 0.0
+    score += min(1.0, max(0.0, (aspect - 1.2) / 2.2)) * 0.42
+    score += min(1.0, max(0.0, (convexity - 0.55) / 0.35)) * 0.18
+    score += min(1.0, max(0.0, 1.0 - width_frac / _MAX_BBOX_WIDTH_FRAC)) * 0.22
+    score += min(1.0, solidity * 1.1) * 0.08
+    if 0.08 <= height_frac <= 0.45:
+        score += 0.10
+
+    return _ShapeMetrics(
+        aspect=aspect,
+        solidity=solidity,
+        convexity=convexity,
+        width_frac=width_frac,
+        height_frac=height_frac,
+        humanoid_score=score,
+    )
+
+
+def _is_humanoid_contour(
+    contour: np.ndarray,
+    frame_w: int,
+    frame_h: int,
+) -> tuple[bool, int, int, float, float]:
+    """
+    Reject flat architecture: horizontal stripes, screen-wide bands, convex panels.
+    Accept only blobs that look like a standing character (taller-than-wide, limited width).
+    """
+    metrics = _shape_metrics(contour, frame_w, frame_h)
+    if metrics is None:
+        return False, 0, 0, 0.0, 0.0
+
+    bx, by, bw, bh = cv2.boundingRect(contour)
+    aspect = metrics.aspect
+
+    if aspect < _MIN_HUMANOID_ASPECT:
+        return False, bw, bh, metrics.solidity, metrics.humanoid_score
+    if aspect > _MAX_HUMANOID_ASPECT:
+        return False, bw, bh, metrics.solidity, metrics.humanoid_score
+
+    if bw >= bh:
+        return False, bw, bh, metrics.solidity, metrics.humanoid_score
+
+    if metrics.width_frac > _MAX_BBOX_WIDTH_FRAC:
+        return False, bw, bh, metrics.solidity, metrics.humanoid_score
+
+    if metrics.height_frac < _MIN_BBOX_HEIGHT_FRAC:
+        return False, bw, bh, metrics.solidity, metrics.humanoid_score
+    if metrics.height_frac > _MAX_BBOX_HEIGHT_FRAC:
+        return False, bw, bh, metrics.solidity, metrics.humanoid_score
+
+    if metrics.solidity > _MAX_STRIPE_SOLIDITY and aspect < 2.0:
+        return False, bw, bh, metrics.solidity, metrics.humanoid_score
+
+    if metrics.convexity > _MAX_CONVEXITY_PANEL and aspect < 2.4:
+        return False, bw, bh, metrics.solidity, metrics.humanoid_score
+
+    if len(contour) >= 5:
+        try:
+            (_ex, _ey), (axis_major, axis_minor), angle = cv2.fitEllipse(contour)
+            if axis_major > 1.0 and axis_minor > 1.0:
+                norm_angle = abs(angle) % 180.0
+                horizontal = norm_angle < 32.0 or norm_angle > 148.0
+                if horizontal and axis_major > axis_minor * 1.35 and bw > bh * 1.1:
+                    return False, bw, bh, metrics.solidity, metrics.humanoid_score
+        except cv2.error:
+            pass
+
+    perimeter = cv2.arcLength(contour, True)
+    if perimeter > 0:
+        circularity = 4.0 * math.pi * float(cv2.contourArea(contour)) / (perimeter * perimeter)
+        if circularity < 0.08 and metrics.solidity > 0.8:
+            return False, bw, bh, metrics.solidity, metrics.humanoid_score
+
+    if metrics.humanoid_score < 0.38:
+        return False, bw, bh, metrics.solidity, metrics.humanoid_score
+
+    return True, bw, bh, metrics.solidity, metrics.humanoid_score
 
 
 def score_target(
@@ -88,42 +203,40 @@ def score_target(
     vertical_penalty_weight: float = 1.35,
 ) -> float:
     dist_term = max(0.0, fov_radius - target.distance_to_center) * distance_weight
-    area_cap = min(math.sqrt(target.area), math.sqrt(fov_radius * fov_radius * 0.25))
+    area_cap = min(math.sqrt(target.area), math.sqrt(fov_radius * fov_radius * 0.22))
     area_term = area_cap * area_weight
-    solidity_bonus = target.solidity * fov_radius * 0.04
+    solidity_bonus = target.solidity * fov_radius * 0.03
     aspect = target.bbox_h / max(target.bbox_w, 1) if target.bbox_w > 0 else 1.0
-    shape_quality = min(1.0, max(0.0, (aspect - 1.0) / 1.5))
-    shape_bonus = shape_quality * fov_radius * 0.22
+    shape_quality = min(1.0, max(0.0, (aspect - _MIN_HUMANOID_ASPECT) / 1.8))
+    shape_bonus = shape_quality * fov_radius * 0.28
+    humanoid_bonus = target.humanoid_score * fov_radius * 0.35
 
     penalty = 0.0
     if center_y is not None and target.centroid_y < center_y:
         above = center_y - target.centroid_y
         penalty += above * vertical_penalty_weight
         if above > fov_radius * _MAX_ABOVE_CENTER_FRAC:
-            penalty += fov_radius * 2.0
+            penalty += fov_radius * 2.5
 
-    if aspect < 1.05:
-        penalty += fov_radius * 0.35
-    if target.bbox_h > 0 and target.bbox_w > target.bbox_h * 1.2:
-        penalty += fov_radius * 0.25
+    if target.bbox_w > 0 and target.bbox_w >= target.bbox_h:
+        penalty += fov_radius * 1.2
 
-    return dist_term + area_term + solidity_bonus + shape_bonus - penalty
+    return dist_term + area_term + solidity_bonus + shape_bonus + humanoid_bonus - penalty
 
 
 def _normalize_confidence(raw_score: float, fov_radius: float, distance_weight: float) -> float:
-    denom = max(1.0, fov_radius * (distance_weight + 0.5))
+    denom = max(1.0, fov_radius * (distance_weight + 0.65))
     return max(0.0, min(1.0, raw_score / denom))
 
 
 def _aim_point_from_bbox(x: int, y: int, w: int, h: int, torso_fraction: float) -> tuple[float, float]:
-    """Upper-torso aim (Apex-style), not geometric centroid of full blob."""
     frac = max(0.2, min(0.55, torso_fraction))
     return x + w * 0.5, y + h * frac
 
 
 def _merge_nearby_contours(
     contours: list[np.ndarray],
-    merge_gap: int = 30,
+    merge_gap: int = 18,
 ) -> list[np.ndarray]:
     if len(contours) <= 1:
         return contours
@@ -144,12 +257,17 @@ def _merge_nearby_contours(
 
     for i in range(n):
         x1, y1, w1, h1 = bboxes[i]
+        a1 = h1 / max(w1, 1)
         for j in range(i + 1, n):
             x2, y2, w2, h2 = bboxes[j]
             gap_x = max(0, max(x1, x2) - min(x1 + w1, x2 + w2))
             gap_y = max(0, max(y1, y2) - min(y1 + h1, y2 + h2))
-            if gap_x <= merge_gap and gap_y <= merge_gap:
-                union(i, j)
+            if gap_x > merge_gap or gap_y > merge_gap:
+                continue
+            a2 = h2 / max(w2, 1)
+            if (a1 < 1.1 and a2 > 1.5) or (a2 < 1.1 and a1 > 1.5):
+                continue
+            union(i, j)
 
     groups: dict[int, list[int]] = {}
     for i in range(n):
@@ -175,9 +293,6 @@ def _collect_targets(
     cy: float,
     *,
     min_height_px: float = 0.0,
-    min_aspect: float = 0.0,
-    max_aspect: float = 0.0,
-    min_solidity: float = 0.0,
     torso_aim_fraction: float = 0.38,
     distance_weight: float = 2.0,
     area_weight: float = 0.02,
@@ -191,11 +306,10 @@ def _collect_targets(
     mask = cv2.bitwise_and(mask, mask, mask=viewmodel)
 
     raw_contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = _merge_nearby_contours(list(raw_contours), merge_gap=30)
+    contours = _merge_nearby_contours(list(raw_contours), merge_gap=18)
     frame_area = float(h * w)
     max_blob_area = frame_area * _MAX_AREA_RATIO
-    if min_height_px <= 0.0:
-        min_height_px = max(14.0, h * 0.045)
+    min_h = min_height_px if min_height_px > 0 else max(18.0, h * _MIN_BBOX_HEIGHT_FRAC * 0.85)
     targets: list[Target] = []
 
     for contour in contours:
@@ -204,20 +318,12 @@ def _collect_targets(
             continue
         if area > max_blob_area:
             continue
-        bx, by, bw, bh = cv2.boundingRect(contour)
-        if bw <= 0 or bh <= 0:
-            continue
-        aspect = bh / float(bw)
-        if bh < min_height_px:
-            continue
-        if min_aspect > 0 and aspect < min_aspect:
-            continue
-        if max_aspect > 0 and aspect > max_aspect:
-            continue
-        solidity = area / float(bw * bh)
-        if min_solidity > 0 and solidity < min_solidity:
+
+        ok, bw, bh, solidity, humanoid_score = _is_humanoid_contour(contour, w, h)
+        if not ok:
             continue
 
+        bx, by, _bw, _bh = cv2.boundingRect(contour)
         tx, ty = _aim_point_from_bbox(bx, by, bw, bh, torso_aim_fraction)
         if ty < cy - fov_radius * _MAX_ABOVE_CENTER_FRAC:
             continue
@@ -227,7 +333,7 @@ def _collect_targets(
             continue
 
         raw = score_target(
-            Target(tx, ty, area, dist, 0.0, bw, bh, solidity),
+            Target(tx, ty, area, dist, 0.0, bw, bh, solidity, humanoid_score),
             float(fov_radius),
             distance_weight,
             area_weight,
@@ -246,6 +352,7 @@ def _collect_targets(
                 bbox_w=bw,
                 bbox_h=bh,
                 solidity=solidity,
+                humanoid_score=humanoid_score,
             )
         )
     return targets
@@ -264,13 +371,14 @@ def find_best_target(
     distance_weight: float = 2.0,
     area_weight: float = 0.02,
     min_height_px: float = 0.0,
-    min_aspect: float = 1.12,
-    max_aspect: float = 5.5,
-    min_solidity: float = 0.28,
+    min_aspect: float | None = None,
+    max_aspect: float | None = None,
+    min_solidity: float | None = None,
     torso_aim_fraction: float = 0.38,
     min_confidence: float = _MIN_CONFIDENCE,
     exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
 ) -> DetectionResult:
+    _ = (min_aspect, max_aspect, min_solidity)
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
@@ -283,9 +391,6 @@ def find_best_target(
         cx,
         cy,
         min_height_px=min_height_px,
-        min_aspect=min_aspect,
-        max_aspect=max_aspect,
-        min_solidity=min_solidity,
         torso_aim_fraction=torso_aim_fraction,
         distance_weight=distance_weight,
         area_weight=area_weight,
@@ -295,16 +400,16 @@ def find_best_target(
         return DetectionResult(None, 0, 0.0)
 
     def pick_best(pool: list[Target]) -> Target:
-        def key(t: Target) -> float:
-            return score_target(
+        best = max(
+            pool,
+            key=lambda t: score_target(
                 t,
                 float(fov_radius),
                 distance_weight,
                 area_weight,
                 center_y=cy,
-            )
-
-        best = max(pool, key=key)
+            ),
+        )
         raw = score_target(
             best,
             float(fov_radius),
@@ -397,7 +502,7 @@ def draw_debug(
         cv2.line(out, (cx, cy), (tx, ty), (255, 0, 255), 1)
         cv2.putText(
             out,
-            f"conf={target.confidence:.2f} d={target.distance_to_center:.0f}",
+            f"conf={target.confidence:.2f} hum={target.humanoid_score:.2f}",
             (tx + 8, ty - 8),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,

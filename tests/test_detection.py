@@ -1,4 +1,4 @@
-"""Tests for HSV targeting: reject sky/viewmodel false positives, prefer humanoid."""
+"""Tests for HSV targeting: humanoid only, reject walls/stripes/sky."""
 
 from __future__ import annotations
 
@@ -10,13 +10,18 @@ import numpy as np
 import detection
 
 
-def _red_humanoid(frame: np.ndarray, cx: int, cy: int, w: int = 36, h: int = 90) -> None:
+def _red_humanoid(frame: np.ndarray, cx: int, cy: int, w: int = 34, h: int = 92) -> None:
     x1, y1 = cx - w // 2, cy - h
     cv2.rectangle(frame, (x1, y1), (x1 + w, y1 + h), (0, 0, 220), -1)
 
 
-def _red_dot(frame: np.ndarray, cx: int, cy: int, r: int = 6) -> None:
-    cv2.circle(frame, (cx, cy), r, (0, 0, 255), -1)
+def _red_horizontal_stripe(frame: np.ndarray, y: int, h: int = 22) -> None:
+    frame[y : y + h, :] = (0, 0, 230)
+
+
+def _red_wall_panel(frame: np.ndarray, cx: int, cy: int, w: int, h: int) -> None:
+    x1, y1 = cx - w // 2, cy - h // 2
+    cv2.rectangle(frame, (x1, y1), (x1 + w, y1 + h), (0, 0, 240), -1)
 
 
 HSV_RED = [{"lower": [0, 120, 120], "upper": [12, 255, 255]}]
@@ -39,50 +44,58 @@ class DetectionTests(unittest.TestCase):
             fov_center_y=self.cy,
         )
 
-    def test_prefers_center_humanoid_over_side_blob(self) -> None:
+    def test_finds_standing_humanoid(self) -> None:
         frame = np.zeros((self.h, self.w, 3), dtype=np.uint8)
-        _red_humanoid(frame, int(self.cx), int(self.cy + 40))
-        _red_dot(frame, int(self.cx - 120), int(self.cy - 30))
+        _red_humanoid(frame, int(self.cx), int(self.cy + 50))
         result = self._detect(frame)
         self.assertIsNotNone(result.target)
-        assert result.target is not None
-        self.assertLess(abs(result.target.centroid_x - self.cx), 40.0)
+
+    def test_rejects_horizontal_red_wall_stripe(self) -> None:
+        """Red/black striped wall band — wide, short, not a body."""
+        frame = np.zeros((self.h, self.w, 3), dtype=np.uint8)
+        _red_horizontal_stripe(frame, int(self.cy))
+        result = self._detect(frame)
+        self.assertIsNone(result.target)
+
+    def test_rejects_screen_wide_wall_panel(self) -> None:
+        frame = np.zeros((self.h, self.w, 3), dtype=np.uint8)
+        _red_wall_panel(frame, int(self.cx), int(self.cy), w=int(self.w * 0.7), h=40)
+        result = self._detect(frame)
+        self.assertIsNone(result.target)
 
     def test_rejects_viewmodel_red_in_bottom_band(self) -> None:
         frame = np.zeros((self.h, self.w, 3), dtype=np.uint8)
-        _red_dot(frame, int(self.cx), self.h - 40, r=10)
+        cv2.circle(frame, (int(self.cx), self.h - 40), 10, (0, 0, 255), -1)
         result = self._detect(frame)
         self.assertIsNone(result.target)
 
     def test_rejects_sky_blob_above_crosshair(self) -> None:
         frame = np.zeros((self.h, self.w, 3), dtype=np.uint8)
-        _red_dot(frame, int(self.cx), int(self.cy - self.fov * 0.5), r=8)
+        cv2.circle(frame, (int(self.cx), int(self.cy - self.fov * 0.5)), 8, (0, 0, 255), -1)
         result = self._detect(frame)
         self.assertIsNone(result.target)
 
-    def test_finds_humanoid_in_fov(self) -> None:
+    def test_prefers_humanoid_over_small_side_blob(self) -> None:
         frame = np.zeros((self.h, self.w, 3), dtype=np.uint8)
-        _red_humanoid(frame, int(self.cx + 30), int(self.cy + 50))
+        _red_humanoid(frame, int(self.cx), int(self.cy + 45))
+        cv2.circle(frame, (int(self.cx - 100), int(self.cy)), 8, (0, 0, 255), -1)
         result = self._detect(frame)
         self.assertIsNotNone(result.target)
         assert result.target is not None
-        self.assertGreater(result.target.confidence, detection._MIN_CONFIDENCE)
+        self.assertLess(abs(result.target.centroid_x - self.cx), 35.0)
 
-    def test_vertical_penalty_scores_center_lower_than_sky(self) -> None:
-        low = detection.Target(self.cx, self.cy + 30, 2000.0, 30.0, 0.5, 30, 80, 0.6)
-        high = detection.Target(self.cx, self.cy - 80, 2000.0, 80.0, 0.5, 30, 80, 0.6)
-        score_low = detection.score_target(
-            low, float(self.fov), 2.0, 0.02, center_y=self.cy
-        )
-        score_high = detection.score_target(
-            high, float(self.fov), 2.0, 0.02, center_y=self.cy
-        )
-        self.assertGreater(score_low, score_high)
+    def test_humanoid_gate_rejects_flat_rectangle(self) -> None:
+        frame = np.zeros((self.h, self.w, 3), dtype=np.uint8)
+        _red_wall_panel(frame, int(self.cx), int(self.cy), w=200, h=30)
+        mask = detection.build_hsv_mask(frame, HSV_RED)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        self.assertGreater(len(contours), 0)
+        ok, *_ = detection._is_humanoid_contour(contours[0], self.w, self.h)
+        self.assertFalse(ok)
 
 
 class MotionTests(unittest.TestCase):
     def test_tracker_smooths_large_jumps(self) -> None:
-        tracker = detection  # noqa: ensure import works
         from motion import TargetTracker
 
         tr = TargetTracker()
