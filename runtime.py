@@ -100,6 +100,12 @@ class AssistRuntime:
         self._switch_frames = 0
         self._trace_frame = 0
         self._trace_pull = False
+        self._last_debug: dict[str, float | int | str | bool] = {}
+        self._last_pull_dx = 0
+        self._last_pull_dy = 0
+        self._last_gate_allowed = True
+        self._pending_debug_save = False
+        self._last_frame_bgr = None
 
     def _smooth_aim(
         self,
@@ -210,6 +216,10 @@ class AssistRuntime:
                 "benchmark_summary": self._benchmark_summary,
                 "aim_smooth_x": self._last_motion.x if self._last_motion else -1.0,
                 "aim_smooth_y": self._last_motion.y if self._last_motion else -1.0,
+                **self._last_debug,
+                "pull_dx": float(self._last_pull_dx),
+                "pull_dy": float(self._last_pull_dy),
+                "mouse_gate_allowed": bool(self._last_gate_allowed),
             }
 
     def _target_process_ok(self, cfg: dict[str, Any]) -> bool:
@@ -316,6 +326,113 @@ class AssistRuntime:
         )
 
 
+    def update_live_debug(
+        self,
+        *,
+        target: Target | None,
+        capture_ms: float,
+        detect_ms: float,
+        detection_fresh: bool,
+        motion_lag_ms: float = -1.0,
+    ) -> None:
+        if target is None:
+            snap = {
+                "body_shape_score": -1.0,
+                "head_score": -1.0,
+                "torso_score": -1.0,
+                "limb_stack_score": -1.0,
+                "reject_reason": "",
+                "anchor_x": -1.0,
+                "anchor_y": -1.0,
+                "bbox_x": -1,
+                "bbox_y": -1,
+                "bbox_w": -1,
+                "bbox_h": -1,
+                "capture_ms": capture_ms,
+                "detect_ms": detect_ms,
+                "motion_lag_ms": motion_lag_ms,
+                "detection_fresh": detection_fresh,
+            }
+        else:
+            snap = {
+                "body_shape_score": float(target.body_shape_score),
+                "head_score": float(target.head_score),
+                "torso_score": float(target.torso_score),
+                "limb_stack_score": float(target.limb_stack_score),
+                "reject_reason": str(getattr(target, "reject_reason", "") or ""),
+                "anchor_x": float(target.centroid_x),
+                "anchor_y": float(target.centroid_y),
+                "bbox_x": int(target.bbox_x),
+                "bbox_y": int(target.bbox_y),
+                "bbox_w": int(target.bbox_w),
+                "bbox_h": int(target.bbox_h),
+                "capture_ms": capture_ms,
+                "detect_ms": detect_ms,
+                "motion_lag_ms": motion_lag_ms,
+                "detection_fresh": detection_fresh,
+            }
+        with self._lock:
+            self._last_debug = snap
+
+    def request_debug_frame_save(self) -> None:
+        with self._lock:
+            self._pending_debug_save = True
+
+    def _maybe_save_debug_frame(self, frame_bgr, det, cfg, cx, cy, fov) -> None:
+        pending = False
+        with self._lock:
+            pending = self._pending_debug_save
+            self._pending_debug_save = False
+        if not pending:
+            return
+        try:
+            import json
+            from datetime import datetime
+
+            import detector
+
+            out_root = Path(str(cfg.get("debug_frames_dir", "artifacts/debug_frames")))
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_dir = out_root / stamp
+            out_dir.mkdir(parents=True, exist_ok=True)
+            hsv = cfg["hsv_ranges"]
+            min_area = float(cfg["min_target_area_pixels"])
+            candidates, mask, _parts = detector.enumerate_candidates(
+                frame_bgr, hsv, int(fov), min_area, cx, cy,
+                torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
+            )
+            import cv2
+
+            cv2.imwrite(str(out_dir / "01_original.png"), frame_bgr)
+            cv2.imwrite(str(out_dir / "02_hsv_mask.png"), mask)
+            overlay = detector.render_debug_artifacts(
+                frame_bgr,
+                candidates,
+                det.target if hasattr(det, "target") else None,
+                int(fov),
+                cx,
+                cy,
+                show_rejected=bool(cfg.get("debug_show_rejected", True)),
+                show_top_n=3 if cfg.get("debug_show_top_candidates", True) else 0,
+            )
+            cv2.imwrite(str(out_dir / "03_overlay.png"), overlay)
+            meta = {
+                "target": det.target.__dict__ if det.target else None,
+                "candidates": [
+                    {
+                        "idx": c.idx,
+                        "body": c.body_shape_score,
+                        "reject": c.reject_reason,
+                    }
+                    for c in candidates[:12]
+                ],
+            }
+            (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+            logger.info("Saved debug frame artifacts to %s", out_dir)
+        except Exception:
+            logger.exception("debug frame save failed")
+
+
     def _safe_mouse_move(self, dx: int, dy: int) -> MouseGateResult:
         if dx == 0 and dy == 0:
             return MouseGateResult(True, "")
@@ -348,6 +465,7 @@ class AssistRuntime:
             )
             result = evaluate_mouse_gate(cfg, ctx)
             self._last_gate_block = result.reason
+            self._last_gate_allowed = result.allowed
             if not result.allowed or not self.running or stopping:
                 return result
         try:
@@ -502,6 +620,12 @@ class AssistRuntime:
             max_aspect=float(cfg["humanoid_max_aspect"]),
             min_solidity=float(cfg.get("humanoid_min_solidity", 0.25)),
             torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.36)),
+            body_shape_min_score=float(cfg.get("body_shape_min_score", 0.40)),
+            head_score_weight=float(cfg.get("head_score_weight", 0.26)),
+            torso_score_weight=float(cfg.get("torso_score_weight", 0.26)),
+            limb_stack_score_weight=float(cfg.get("limb_stack_score_weight", 0.22)),
+            aim_y_min_fraction=float(cfg.get("aim_body_y_min_fraction", 0.28)),
+            aim_y_max_fraction=float(cfg.get("aim_body_y_max_fraction", 0.52)),
             debug=bool(cfg.get("verbose_logging", False)),
         )
         with self._lock:
@@ -636,6 +760,15 @@ class AssistRuntime:
             bool(cfg["prediction_enabled"]),
             float(cfg["prediction_lead_seconds"]),
             float(cfg["prediction_max_pixels"]),
+            vertical_cap_pixels=float(cfg.get("prediction_vertical_cap_pixels", 4.0)),
+        )
+        self._aim_tracker.configure_body_clamp(
+            float(cfg.get("aim_body_y_min_fraction", 0.28)),
+            float(cfg.get("aim_body_y_max_fraction", 0.52)),
+        )
+        self._aim_tracker.configure_smoothing_tau(
+            float(cfg.get("smoothing_tau_still", 0.062)),
+            float(cfg.get("smoothing_tau_moving", 0.028)),
         )
 
         self._pull = PullController(
@@ -794,6 +927,14 @@ class AssistRuntime:
                         )
                         detect_ms = (time.perf_counter() - t_det0) * 1000.0
                         detection_fresh = det.target is not None and self._target_lost_frames == 0
+                        self.update_live_debug(
+                            target=det.target,
+                            capture_ms=capture_ms,
+                            detect_ms=detect_ms,
+                            detection_fresh=det.target is not None and self._target_lost_frames == 0,
+                            motion_lag_ms=detect_ms,
+                        )
+                        self._maybe_save_debug_frame(frame_bgr, det, cfg, frame_cx, frame_cy, detect_fov)
                     else:
                         det = DetectionResult(None, 0, 0.0)
                         self._aim_tracker.reset()
@@ -827,6 +968,9 @@ class AssistRuntime:
                         )
                         pull_px = pr.magnitude
                         pull_strength = pr.effective_strength
+                        with self._lock:
+                            self._last_pull_dx = pr.dx
+                            self._last_pull_dy = pr.dy
                         gate_result = MouseGateResult(True, "")
                         moved = (0, 0)
                         if (pr.dx != 0 or pr.dy != 0) and self._should_run():

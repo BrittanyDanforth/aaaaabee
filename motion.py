@@ -17,6 +17,11 @@ _MAX_PRED_PX = 22.0
 _MAX_UPWARD_LEAD_PX = 4.0
 _BODY_Y_LO_FRAC = 0.28
 _BODY_Y_HI_FRAC = 0.50
+_body_y_lo_frac = _BODY_Y_LO_FRAC
+_body_y_hi_frac = _BODY_Y_HI_FRAC
+_tau_still = _TAU_POS_STILL
+_tau_moving = _TAU_POS_MOVING
+_max_upward_lead_px = _MAX_UPWARD_LEAD_PX
 _BODY_X_MARGIN_FRAC = 0.14
 _SPEED_MOVING_PX_S = 85.0
 
@@ -70,7 +75,7 @@ class TargetMotion:
         ox = _finite(self.vx, 0.0) * ls
         oy = _finite(self.vy, 0.0) * ls
         if oy < 0.0:
-            oy = max(oy, -_MAX_UPWARD_LEAD_PX)
+            oy = max(oy, -_max_upward_lead_px)
         lead_dist = math.hypot(ox, oy)
         if lead_dist <= 0.0 or not math.isfinite(lead_dist):
             return self.x, self.y
@@ -79,7 +84,7 @@ class TargetMotion:
             ox *= s
             oy *= s
             if oy < 0.0:
-                oy = max(oy, -_MAX_UPWARD_LEAD_PX)
+                oy = max(oy, -_max_upward_lead_px)
         px = _finite(self.x, 0.0) + ox
         py = _finite(self.y, 0.0) + oy
         if math.isfinite(px) and math.isfinite(py):
@@ -112,10 +117,27 @@ class TargetTracker:
         enabled: bool,
         lead_seconds: float,
         max_pixels: float,
+        *,
+        vertical_cap_pixels: float | None = None,
     ) -> None:
+        global _max_upward_lead_px
         self._prediction_enabled = bool(enabled)
         self._prediction_lead_s = max(0.0, float(lead_seconds))
         self._prediction_max_px = max(0.0, float(max_pixels))
+        if vertical_cap_pixels is not None:
+            _max_upward_lead_px = max(0.0, float(vertical_cap_pixels))
+
+    def configure_body_clamp(self, y_min_fraction: float, y_max_fraction: float) -> None:
+        global _body_y_lo_frac, _body_y_hi_frac
+        lo = max(0.1, min(0.5, float(y_min_fraction)))
+        hi = max(lo + 0.05, min(0.7, float(y_max_fraction)))
+        _body_y_lo_frac = lo
+        _body_y_hi_frac = hi
+
+    def configure_smoothing_tau(self, still: float, moving: float) -> None:
+        global _tau_still, _tau_moving
+        _tau_still = max(0.01, float(still))
+        _tau_moving = max(0.005, min(_tau_still, float(moving)))
 
     def reset(self) -> None:
         self._last = None
@@ -142,8 +164,8 @@ class TargetTracker:
     ) -> tuple[float, float]:
         """Keep smoothed aim inside upper-chest band — prevents sky/side drift."""
         mx = bbox_w * _BODY_X_MARGIN_FRAC
-        y_lo = bbox_y + bbox_h * _BODY_Y_LO_FRAC
-        y_hi = bbox_y + bbox_h * _BODY_Y_HI_FRAC
+        y_lo = bbox_y + bbox_h * _body_y_lo_frac
+        y_hi = bbox_y + bbox_h * _body_y_hi_frac
         x_lo = bbox_x + mx
         x_hi = bbox_x + bbox_w - mx
         return (
@@ -173,7 +195,7 @@ class TargetTracker:
 
     def _effective_tau(self, dt: float, speed: float) -> float:
         t = max(0.0, min(1.0, speed / _SPEED_MOVING_PX_S))
-        return _TAU_POS_STILL + (_TAU_POS_MOVING - _TAU_POS_STILL) * t
+        return _tau_still + (_tau_moving - _tau_still) * t
 
     def observe_target(
         self,

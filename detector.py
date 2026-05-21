@@ -764,6 +764,12 @@ def analyze_figure(
     frame_h: int,
     *,
     torso_aim_fraction: float = 0.38,
+    body_shape_min_score: float | None = None,
+    head_score_weight: float = 0.26,
+    torso_score_weight: float = 0.26,
+    limb_stack_score_weight: float = 0.22,
+    aim_y_min_fraction: float = 0.28,
+    aim_y_max_fraction: float = 0.52,
 ) -> _FigureAnalysis:
     scale = _scale(frame_w, frame_h)
     bx, by, bw, bh = _cluster_bbox(parts)
@@ -834,12 +840,13 @@ def analyze_figure(
             ),
         )
 
+    w_sum = max(0.01, head_score_weight + torso_score_weight + limb_stack_score_weight + 0.26)
     body_shape = (
-        head_s * 0.26
-        + torso_s * 0.26
-        + limb_s * 0.22
-        + v_score * 0.14
-        + geom_s * 0.12
+        head_s * head_score_weight
+        + torso_s * torso_score_weight
+        + limb_s * limb_stack_score_weight
+        + v_score * (0.14 / w_sum)
+        + geom_s * (0.12 / w_sum)
     )
     if len(parts) >= 2:
         body_shape += 0.06
@@ -850,7 +857,8 @@ def analyze_figure(
 
     body_shape = min(1.0, body_shape)
     aspect = bh / max(bw, 1)
-    min_accept = _MIN_BODY_SHAPE_PARTIAL if len(parts) <= 2 else _MIN_BODY_SHAPE_ACCEPT
+    base_min = _MIN_BODY_SHAPE_PARTIAL if len(parts) <= 2 else _MIN_BODY_SHAPE_ACCEPT
+    min_accept = float(body_shape_min_score) if body_shape_min_score is not None else base_min
     has_head_part = any(p.role == PartRole.HEAD for p in parts)
     structure_ok = (
         (has_head_part and torso_s >= 0.28 and (limb_s >= 0.32 or len(parts) >= 3))
@@ -982,6 +990,12 @@ def enumerate_candidates(
     *,
     exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
     torso_aim_fraction: float = 0.38,
+    body_shape_min_score: float | None = None,
+    head_score_weight: float = 0.26,
+    torso_score_weight: float = 0.26,
+    limb_stack_score_weight: float = 0.22,
+    aim_y_min_fraction: float = 0.28,
+    aim_y_max_fraction: float = 0.52,
 ) -> tuple[list[CandidateInfo], np.ndarray, list[_RedPart]]:
     """All clusters with scores/reject reasons — for debug artifacts (not color-only)."""
     h, w = frame_bgr.shape[:2]
@@ -1085,7 +1099,19 @@ def enumerate_candidates(
             )
             continue
 
-        fig = analyze_figure(body_parts, mask, w, h, torso_aim_fraction=torso_aim_fraction)
+        fig = analyze_figure(
+            body_parts,
+            mask,
+            w,
+            h,
+            torso_aim_fraction=torso_aim_fraction,
+            body_shape_min_score=body_shape_min_score,
+            head_score_weight=head_score_weight,
+            torso_score_weight=torso_score_weight,
+            limb_stack_score_weight=limb_stack_score_weight,
+            aim_y_min_fraction=aim_y_min_fraction,
+            aim_y_max_fraction=aim_y_max_fraction,
+        )
         dist = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))
         accepted = fig.accepted and dist <= fov_radius
         reason = fig.reject_reason.value
@@ -1237,6 +1263,12 @@ def _collect_candidates(
     *,
     exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
     torso_aim_fraction: float = 0.38,
+    body_shape_min_score: float | None = None,
+    head_score_weight: float = 0.26,
+    torso_score_weight: float = 0.26,
+    limb_stack_score_weight: float = 0.22,
+    aim_y_min_fraction: float = 0.28,
+    aim_y_max_fraction: float = 0.52,
     debug: bool = False,
 ) -> tuple[list[Target], list[str]]:
     global _LAST_DEBUG_LINES
@@ -1369,6 +1401,12 @@ def find_best_target(
     max_aspect: float | None = None,
     min_solidity: float | None = None,
     torso_aim_fraction: float = 0.38,
+    body_shape_min_score: float | None = None,
+    head_score_weight: float = 0.26,
+    torso_score_weight: float = 0.26,
+    limb_stack_score_weight: float = 0.22,
+    aim_y_min_fraction: float = 0.28,
+    aim_y_max_fraction: float = 0.52,
     min_confidence: float = _MIN_CONFIDENCE,
     exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
     debug: bool = False,
@@ -1387,6 +1425,12 @@ def find_best_target(
         cy,
         exclude_bottom_frac=exclude_bottom_frac,
         torso_aim_fraction=torso_aim_fraction,
+        body_shape_min_score=body_shape_min_score,
+        head_score_weight=head_score_weight,
+        torso_score_weight=torso_score_weight,
+        limb_stack_score_weight=limb_stack_score_weight,
+        aim_y_min_fraction=aim_y_min_fraction,
+        aim_y_max_fraction=aim_y_max_fraction,
         debug=debug,
     )
     if not candidates:
