@@ -449,7 +449,7 @@ class AssistRuntime:
     ) -> None:
         from overlay_window import OverlayWindow
 
-        radius = effective_fov_radius(self.config, ads_active=True)
+        radius = effective_fov_radius(self.config, ads_active=False)
         self._overlay = OverlayWindow(
             width,
             height,

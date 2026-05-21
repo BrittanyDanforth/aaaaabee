@@ -45,3 +45,23 @@ class ProfileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DefaultProfileTests(unittest.TestCase):
+    def test_empty_config_defaults_to_trace_via_config_json_pattern(self) -> None:
+        cfg = apply_profile({"profile": "apex_style_live_trace"})
+        self.assertEqual(cfg["profile"], PROFILE_APEX_STYLE_LIVE_TRACE)
+        self.assertTrue(cfg["trace_pull"])
+
+    def test_resolve_live_default_when_allow_live_no_profile(self) -> None:
+        from profiles import resolve_profile_name, PROFILE_LIVE_DEFAULT
+
+        self.assertEqual(
+            resolve_profile_name({"allow_live_mouse": True}),
+            PROFILE_LIVE_DEFAULT,
+        )
+
+    def test_fov_smaller_than_old_defaults(self) -> None:
+        cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
+        self.assertLessEqual(cfg["fov_radius_pixels"], 150)
+        self.assertLessEqual(cfg["fov_radius_ads_pixels"], 180)

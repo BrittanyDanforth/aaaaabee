@@ -89,13 +89,13 @@ def validate_runtime_policy(config: dict[str, Any]) -> tuple[bool, str]:
             "offline_dev_mode must be true in config.json. See SAFETY.md.",
         )
 
-    profile = normalize_profile_name(str(config.get("profile", PROFILE_APEX_STYLE_LIVE_SAFE)))
+    profile = normalize_profile_name(str(config.get("profile", PROFILE_APEX_STYLE_LIVE_TRACE)))
     if profile in (PROFILE_APEX_STYLE_DRY_RUN, PROFILE_APEX_STYLE_PERF_TEST):
         if live_assist_enabled(config):
             return (
                 False,
                 f"Profile {profile} cannot enable allow_live_mouse. "
-                "Use apex_style_live_safe for live input with GUI ban acknowledgment.",
+                "Use apex_style_live_trace for live input with GUI ban acknowledgment.",
             )
 
     if live_assist_enabled(config) and profile not in _LIVE_INPUT_PROFILES:
@@ -104,7 +104,7 @@ def validate_runtime_policy(config: dict[str, Any]) -> tuple[bool, str]:
             return (
                 False,
                 f"allow_live_mouse with {proc} is ban bait on live EAC/BattlEye clients. "
-                "Use apex_style_live_safe (default) with ban acknowledgment, or dry-run profiles.",
+                "Use apex_style_live_trace (default) with ban acknowledgment, or dry-run profiles.",
             )
     return True, ""
 

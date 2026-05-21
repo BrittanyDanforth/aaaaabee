@@ -8,15 +8,15 @@ from dataclasses import dataclass
 _MAX_VELOCITY = 3200.0
 _MAX_DT = 0.12
 _MIN_DT = 0.001
-_TAU_POS_STILL = 0.055
-_TAU_POS_MOVING = 0.022
+_TAU_POS_STILL = 0.062
+_TAU_POS_MOVING = 0.028
 _TAU_VEL = 0.040
 _TAU_PRED_BLEND = 0.018
 _MAX_PRED_LEAD_S = 0.038
 _MAX_PRED_PX = 22.0
-_MAX_UPWARD_LEAD_PX = 6.0
+_MAX_UPWARD_LEAD_PX = 4.0
 _BODY_Y_LO_FRAC = 0.28
-_BODY_Y_HI_FRAC = 0.52
+_BODY_Y_HI_FRAC = 0.50
 _BODY_X_MARGIN_FRAC = 0.14
 _SPEED_MOVING_PX_S = 85.0
 
@@ -151,6 +151,26 @@ class TargetTracker:
             max(y_lo, min(y_hi, y)),
         )
 
+
+    @staticmethod
+    def _cap_measurement_step(
+        x: float,
+        y: float,
+        last_x: float,
+        last_y: float,
+        bbox_h: int,
+        dt: float,
+    ) -> tuple[float, float]:
+        """Limit per-frame detector jumps so overlay dot does not teleport."""
+        max_step = max(6.0, min(32.0, bbox_h * 0.22)) * max(0.35, min(1.8, dt * 60.0))
+        dx = x - last_x
+        dy = y - last_y
+        dist = math.hypot(dx, dy)
+        if dist <= max_step or dist <= 0.0:
+            return x, y
+        s = max_step / dist
+        return last_x + dx * s, last_y + dy * s
+
     def _effective_tau(self, dt: float, speed: float) -> float:
         t = max(0.0, min(1.0, speed / _SPEED_MOVING_PX_S))
         return _TAU_POS_STILL + (_TAU_POS_MOVING - _TAU_POS_STILL) * t
@@ -189,6 +209,13 @@ class TargetTracker:
                 col_y = by + bh * 0.38
                 x = 0.35 * x + 0.65 * col_x
                 y = 0.35 * y + 0.65 * col_y
+            if self._last_meas_x is not None and self._last_meas_y is not None:
+                dt_cap = 1.0 / 60.0
+                if self._last_time is not None and time_sec > self._last_time:
+                    dt_cap = min(0.12, time_sec - self._last_time)
+                x, y = self._cap_measurement_step(
+                    x, y, self._last_meas_x, self._last_meas_y, bh, dt_cap
+                )
         else:
             self._body_bbox = None
         return self.observe(x, y, time_sec)

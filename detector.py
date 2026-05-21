@@ -733,7 +733,7 @@ def _figure_aim_point(
     ax = bx + bw * 0.5
     ay = by + bh * frac
 
-    chest = _mask_chest_anchor(mask, bx, by, bw, bh, y0f=0.30, y1f=0.50)
+    chest = _mask_chest_anchor(mask, bx, by, bw, bh, y0f=0.32, y1f=0.50)
     if chest is not None:
         ax = 0.55 * ax + 0.45 * chest[0]
         ay = 0.50 * ay + 0.50 * chest[1]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 # Apex Legends PC executables (DX11 + DX12). Process presence only — no injection.
@@ -19,10 +20,10 @@ _APEX_TUNING: dict[str, Any] = {
         {"lower": [165, 80, 80], "upper": [179, 255, 255]},
         {"lower": [0, 150, 150], "upper": [25, 255, 255]},
     ],
-    "fov_radius_pixels": 185,
-    "fov_radius_ads_pixels": 255,
+    "fov_radius_pixels": 145,
+    "fov_radius_ads_pixels": 172,
     "capture_fov_crop": True,
-    "capture_crop_padding": 1.4,
+    "capture_crop_padding": 1.22,
     "max_pull_speed_pixels_per_frame": 18.0,
     "pull_strength": 0.78,
     "deadzone_pixels": 3,
@@ -32,8 +33,8 @@ _APEX_TUNING: dict[str, Any] = {
     "magnetism_min_pull_scale": 0.70,
     "fov_edge_min_pull_scale": 0.65,
     "prediction_enabled": True,
-    "prediction_lead_seconds": 0.055,
-    "prediction_max_pixels": 36,
+    "prediction_lead_seconds": 0.034,
+    "prediction_max_pixels": 20,
     "humanize_enabled": True,
     "humanize_amplitude_pixels": 0.20,
     "humanize_jerk_limit": 10.0,
@@ -46,7 +47,7 @@ _APEX_TUNING: dict[str, Any] = {
     "humanoid_min_aspect": 0.5,
     "humanoid_max_aspect": 5.5,
     "humanoid_min_solidity": 0.15,
-    "torso_aim_fraction": 0.36,
+    "torso_aim_fraction": 0.40,
     "mouse_backend": "auto",
     "stats_log_interval_frames": 45,
     "mouse_gate_stale_grace_frames": 12,
@@ -104,10 +105,17 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "ads_input_mode": "both",
         "dry_run_force_detect": False,
         "trace_pull": True,
-        "trace_pull_console": True,
+        "trace_pull_console": False,
         "verbose_logging": True,
         "stats_log_interval_frames": 30,
         "trace_pull_max_frames": 600,
+        "humanize_enabled": False,
+        "humanize_amplitude_pixels": 0.0,
+        "prediction_lead_seconds": 0.030,
+        "prediction_max_pixels": 18,
+        "target_stickiness_pixels": 78,
+        "torso_aim_fraction": 0.40,
+        "velocity_smoothing": 0.42,
     },
     PROFILE_APEX_STYLE_PERF_TEST: {
         **_APEX_TUNING,
@@ -152,7 +160,7 @@ def normalize_profile_name(name: str) -> str:
 def effective_capture_fps(config: dict[str, Any]) -> int:
     """Configured FPS after profile + dry-run safety cap."""
     fps = int(config.get("capture_fps", 15))
-    profile = normalize_profile_name(str(config.get("profile", PROFILE_APEX_STYLE_LIVE_SAFE)))
+    profile = resolve_profile_name(config)
     if profile in (PROFILE_APEX_STYLE_DRY_RUN, PROFILE_APEX_STYLE_LIVE_SAFE, PROFILE_APEX_STYLE_LIVE_TRACE):
         return min(fps, 30)
     if not config.get("allow_live_mouse", False):
@@ -177,9 +185,34 @@ def effective_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
     return max(base, ads)
 
 
+
+PROFILE_LIVE_DEFAULT = PROFILE_APEX_STYLE_LIVE_TRACE
+
+
+def resolve_profile_name(raw: dict[str, Any]) -> str:
+    """Default live runs use apex_style_live_trace unless config names a profile."""
+    explicit = str(raw.get("profile", "")).strip()
+    if explicit:
+        return normalize_profile_name(explicit)
+    if raw.get("allow_live_mouse"):
+        return PROFILE_LIVE_DEFAULT
+    return PROFILE_APEX_STYLE_DRY_RUN
+
+
+def load_config(path: Path | str | None = None) -> dict[str, Any]:
+    """Load config.json and merge profile defaults (trace profile when unset)."""
+    import json as _json
+
+    p = Path(path) if path is not None else Path(__file__).resolve().parent / "config.json"
+    raw: dict[str, Any] = {}
+    if p.is_file():
+        raw = _json.loads(p.read_text(encoding="utf-8"))
+    return apply_profile(raw)
+
+
 def apply_profile(raw: dict[str, Any]) -> dict[str, Any]:
     """Merge profile defaults under user config (user keys win)."""
-    profile = normalize_profile_name(str(raw.get("profile", PROFILE_APEX_STYLE_LIVE_SAFE)))
+    profile = resolve_profile_name(raw)
     merged: dict[str, Any] = {}
     if profile in PROFILE_DEFAULTS:
         merged.update(PROFILE_DEFAULTS[profile])

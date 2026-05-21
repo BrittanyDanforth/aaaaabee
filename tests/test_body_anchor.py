@@ -174,3 +174,17 @@ class BalloonRejection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MotionAntiTeleportTests(unittest.TestCase):
+    def test_large_detector_jump_is_capped_per_frame(self) -> None:
+        tr = TargetTracker()
+        tr.configure_prediction(False, 0.0, 0.0)
+        bx, by, bw, bh = 200, 180, 60, 140
+        cx = bx + bw * 0.5
+        y0 = by + bh * 0.38
+        m0 = tr.observe_target(cx, y0, 0.0, bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh)
+        m1 = tr.observe_target(cx + 80.0, y0, 1.0 / 60.0, bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh)
+        step = abs(m1.x - m0.x)
+        self.assertLess(step, 35.0, f"teleport step {step}px in one frame")
+        self.assertGreater(step, 0.5)
