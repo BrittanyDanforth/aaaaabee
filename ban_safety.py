@@ -86,7 +86,7 @@ def validate_runtime_policy(config: dict[str, Any]) -> tuple[bool, str]:
     if not bool(config.get("offline_dev_mode", True)):
         return (
             False,
-            "offline_dev_mode must be true in config.json. See SAFETY.md.",
+            "offline_dev_mode must be true (private/offline anti-cheat acknowledgment — NOT dry-run). See SAFETY.md.",
         )
 
     profile = normalize_profile_name(str(config.get("profile", PROFILE_APEX_STYLE_LIVE_TRACE)))

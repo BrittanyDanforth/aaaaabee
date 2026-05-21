@@ -668,6 +668,21 @@ class AbaApplication:
                 wraplength=640,
                 font=("Segoe UI", 8),
             ).pack(anchor="w")
+        self._live_cfg_var = tk.StringVar()
+        live_on = bool(self.config.get("allow_live_mouse", False))
+        ack = bool(self.config.get("offline_dev_mode", True))
+        self._live_cfg_var.set(
+            f"Live mouse: {'ON' if live_on else 'OFF (dry-run)'} · "
+            f"offline_dev_mode={ack} (private-build safety ack — NOT dry-run)"
+        )
+        tk.Label(
+            parent,
+            textvariable=self._live_cfg_var,
+            bg=UI_PANEL,
+            fg="#7dffb0" if live_on else UI_MUTED,
+            font=("Segoe UI", 9, "bold"),
+            wraplength=640,
+        ).pack(anchor="w", pady=(2, 4))
         tk.Label(
             parent,
             text=f"Profile: {self._profile} · FPS cap: {self._configured_fps} · Monitor: {self._monitor_index}",
@@ -911,6 +926,17 @@ class AbaApplication:
         allow = proc_running or not self._process_required or not self._process_name.strip()
         self._start_btn.config(state=tk.NORMAL if allow else tk.DISABLED)
 
+
+    def _update_live_cfg_label(self) -> None:
+        if not hasattr(self, "_live_cfg_var"):
+            return
+        live_on = bool(self.config.get("allow_live_mouse", False))
+        ack = bool(self.config.get("offline_dev_mode", True))
+        self._live_cfg_var.set(
+            f"Live mouse: {"ON" if live_on else "OFF (dry-run)"} · "
+            f"offline_dev_mode={ack} (private-build ack — required for live)"
+        )
+
     def _update_live(self, snap: RuntimeSnapshot) -> None:
         self._live_vars["has_target"].set("yes" if snap.frame_has_target else "no")
         self._live_vars["conf"].set(_fmt_num(snap.confidence, precision=2))
@@ -962,6 +988,7 @@ class AbaApplication:
         )
         self._set_status_badge(status)
         self._update_live(snap)
+        self._update_live_cfg_label()
         if hasattr(self, "_mode_var"):
             self._mode_var.set(
                 "MODE: DRY RUN" if snap.dry_run else "MODE: LIVE INPUT ENABLED"
