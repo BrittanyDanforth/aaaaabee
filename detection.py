@@ -15,7 +15,7 @@ logger = logging.getLogger("targeting")
 
 # --- Tunables (1080p baseline, scales with frame size) ---
 _MAX_AREA_RATIO = 0.30
-_VIEWMODEL_EXCLUDE_FRAC = 0.30
+_VIEWMODEL_EXCLUDE_FRAC = 0.22
 _MAX_ABOVE_CENTER_FRAC = 0.40
 _MIN_CONFIDENCE = 0.30
 _STICKY_SWITCH_RATIO = 2.2
@@ -54,6 +54,8 @@ class Target:
     area: float
     distance_to_center: float = 0.0
     confidence: float = 0.0
+    bbox_x: int = 0
+    bbox_y: int = 0
     bbox_w: int = 0
     bbox_h: int = 0
     solidity: float = 1.0
@@ -153,6 +155,8 @@ def build_hsv_mask(frame_bgr: np.ndarray, hsv_ranges: list[dict[str, Any]]) -> n
     if combined is None:
         return np.zeros(frame_bgr.shape[:2], dtype=np.uint8)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    combined = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, close_k, iterations=1)
     combined = cv2.morphologyEx(combined, cv2.MORPH_OPEN, kernel, iterations=1)
     return combined
 
@@ -167,14 +171,23 @@ def _is_health_bar(part: _RedPart, scale: float) -> bool:
 
 
 def _is_sight_pip(part: _RedPart, scale: float) -> bool:
-    return part.area <= 320 * scale * scale and part.aspect_wh <= 2.0 and part.solidity >= 0.93
+    """Tiny UI pips only — not armor plates at any resolution."""
+    max_dim = max(part.w, part.h)
+    min_dim = min(part.w, part.h)
+    return (
+        max_dim <= max(12.0, 14.0 * scale)
+        and min_dim <= max(8.0, 10.0 * scale)
+        and part.solidity >= 0.9
+    )
 
 
 def _is_diamond_sign(part: _RedPart, scale: float) -> bool:
     """Practice-board diamond (~45 deg). Axis-aligned rects are armor plates, not signs."""
     if part.area < 500 * scale * scale or part.area > 7000 * scale * scale:
         return False
-    if not (0.72 <= part.aspect_wh <= 1.35):
+    if part.aspect_hw >= 1.18:
+        return False
+    if not (0.82 <= part.aspect_wh <= 1.18):
         return False
     rect = cv2.minAreaRect(part.contour)
     (_, _), (rw, rh), angle = rect
@@ -305,19 +318,27 @@ def _vertical_profile_score(mask: np.ndarray, bx: int, by: int, bw: int, bh: int
     roi = mask[by : by + bh, bx : bx + bw]
     if roi.size == 0:
         return 0.0, 0.0
-    col = roi[:, bw // 2]
-    red = (col > 0).astype(np.float32)
-    fill = float(red.mean())
-    trans = int(np.sum(np.abs(np.diff(red.astype(np.int8)))))
-    if fill > 0.9 and trans <= 2:
-        return 0.0, fill
-    if trans >= 3 and 0.18 <= fill <= 0.82:
-        return 1.0, fill
-    if trans >= 2 and fill <= 0.75:
-        return 0.72, fill
-    if trans >= 1 and fill <= 0.88:
-        return 0.45, fill
-    return 0.15 if fill < 0.9 else 0.0, fill
+    cols = [max(0, min(bw - 1, int(bw * f))) for f in (0.25, 0.5, 0.75)]
+    best_v, fill = 0.0, 0.0
+    for cx in cols:
+        column = roi[:, cx]
+        red = (column > 0).astype(np.float32)
+        f = float(red.mean())
+        trans = int(np.sum(np.abs(np.diff(red.astype(np.int8)))))
+        fill = max(fill, f)
+        v = 0.0
+        if f > 0.9 and trans <= 2:
+            v = 0.0
+        elif trans >= 3 and 0.18 <= f <= 0.82:
+            v = 1.0
+        elif trans >= 2 and f <= 0.75:
+            v = 0.72
+        elif trans >= 1 and f <= 0.88:
+            v = 0.45
+        elif f < 0.9:
+            v = 0.15
+        best_v = max(best_v, v)
+    return best_v, fill
 
 
 def _zone_density(mask: np.ndarray, bx: int, by: int, bw: int, bh: int, y0f: float, y1f: float) -> float:
@@ -337,13 +358,13 @@ def _score_head(parts: list[_RedPart], mask: np.ndarray, bx: int, by: int, bw: i
         h = heads[0]
         return min(1.0, 0.55 + h.circularity * 0.8 + (0.15 if h.aspect_hw < 2.2 else 0.0))
 
+    has_body_part = any(p.role in (PartRole.HEAD, PartRole.TORSO, PartRole.LIMB) for p in parts)
     top_zone = _zone_density(mask, bx, by, bw, bh, 0.0, 0.28)
-    if top_zone >= 0.22 and bh >= 24 * scale:
-        return min(1.0, top_zone * 1.6)
-    if len(parts) == 1:
-        p = parts[0]
-        if p.aspect_hw >= 1.2 and _zone_density(mask, bx, by, bw, bh, 0.0, 0.22) >= 0.18:
-            return 0.55
+    if has_body_part and len(parts) >= 2 and top_zone >= 0.18:
+        return min(0.45, top_zone * 0.9)
+    if len(parts) == 1 and parts[0].aspect_hw >= 1.35:
+        if _zone_density(mask, bx, by, bw, bh, 0.0, 0.22) >= 0.2 and parts[0].h >= 18 * scale:
+            return 0.42
     return 0.0
 
 
@@ -353,13 +374,14 @@ def _score_torso(parts: list[_RedPart], mask: np.ndarray, bx: int, by: int, bw: 
         t = max(torsos, key=lambda p: p.area)
         return min(1.0, 0.5 + min(t.area / max(sum(p.area for p in parts), 1), 1.0) * 0.45)
 
-    mid = _zone_density(mask, bx, by, bw, bh, 0.22, 0.58)
-    if mid >= 0.2:
-        return min(1.0, mid * 1.5)
+    if len(parts) >= 2:
+        mid = _zone_density(mask, bx, by, bw, bh, 0.22, 0.58)
+        if mid >= 0.18:
+            return min(0.4, mid * 0.85)
     if len(parts) >= 1:
         p = max(parts, key=lambda p: p.area)
-        if p.aspect_hw >= 0.9:
-            return 0.42
+        if p.role == PartRole.TORSO or (p.aspect_hw >= 1.0 and len(parts) >= 2):
+            return 0.38
     return 0.0
 
 
@@ -426,8 +448,14 @@ def _hard_reject(
         return RejectReason.HORIZONTAL_STRIPE
     if bw >= bh * 1.02 and bh < frame_h * 0.12:
         return RejectReason.HORIZONTAL_STRIPE
-    if fill > 0.92 and aspect < 2.2:
+    if fill > 0.94 and len(parts) <= 1:
         return RejectReason.SOLID_WALL
+    if fill > 0.97:
+        return RejectReason.SOLID_WALL
+    if len(parts) == 1 and parts[0].aspect_hw > 5.0:
+        return RejectReason.ARCHITECTURE_PANEL
+    if aspect > 8.0:
+        return RejectReason.ARCHITECTURE_PANEL
     if len(parts) == 1:
         p = parts[0]
         if _is_health_bar(p, _scale(frame_w, frame_h)):
@@ -441,19 +469,27 @@ def _hard_reject(
     return None
 
 
-def _figure_aim_point(parts: list[_RedPart], bx: int, by: int, bw: int, bh: int) -> tuple[float, float]:
-    _classify_parts(parts, bh, _scale(bw, bh))
+def _figure_aim_point(
+    parts: list[_RedPart],
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    torso_fraction: float = 0.38,
+) -> tuple[float, float]:
     heads = [p for p in parts if p.role == PartRole.HEAD]
     if heads:
         h = heads[0]
-        return h.cx, h.cy + h.h * 0.12
+        return h.cx, h.y + h.h * 0.38
     torsos = [p for p in parts if p.role == PartRole.TORSO]
     if torsos:
         t = max(torsos, key=lambda p: p.area)
-        return t.cx, t.y + t.h * 0.36
+        frac = max(0.22, min(0.52, torso_fraction))
+        return t.cx, t.y + t.h * frac
     if parts:
         p = max(parts, key=lambda p: p.area)
-        return p.cx, p.y + p.h * 0.32
+        frac = max(0.22, min(0.52, torso_fraction))
+        return p.cx, p.y + p.h * frac
     return bx + bw * 0.5, by + bh * 0.36
 
 
@@ -515,20 +551,22 @@ def analyze_figure(
 
     body_shape = min(1.0, body_shape)
     min_accept = _MIN_BODY_SHAPE_PARTIAL if len(parts) <= 2 else _MIN_BODY_SHAPE_ACCEPT
+    has_head_part = any(p.role == PartRole.HEAD for p in parts)
     structure_ok = (
-        (head_s >= 0.30 and (torso_s >= 0.26 or limb_s >= 0.40))
-        or (limb_s >= 0.50 and v_score >= 0.35)
-        or (len(parts) >= 3 and limb_s >= 0.40)
-        or (len(parts) == 2 and head_s >= 0.34 and (torso_s >= 0.28 or limb_s >= 0.35))
-        or (len(parts) == 1 and head_s >= 0.48 and geom_s >= 0.28)
+        (has_head_part and (torso_s >= 0.22 or limb_s >= 0.35))
+        or (len(parts) >= 3 and limb_s >= 0.38 and v_score >= 0.3)
+        or (len(parts) >= 2 and limb_s >= 0.42 and v_score >= 0.28)
+        or (len(parts) == 2 and head_s >= 0.32 and torso_s >= 0.22)
     )
+    if len(parts) == 1 and (v_score < 0.35 or fill > 0.88):
+        structure_ok = False
 
     accepted = body_shape >= min_accept and structure_ok
     reason = RejectReason.OK if accepted else RejectReason.NO_BODY_STRUCTURE
     if accepted and body_shape < min_accept:
         reason = RejectReason.LOW_SCORE
 
-    ax, ay = _figure_aim_point(parts, bx, by, bw, bh)
+    ax, ay = _figure_aim_point(parts, bx, by, bw, bh, 0.38)
     detail = (
         f"parts={len(parts)} head={head_s:.2f} torso={torso_s:.2f} "
         f"limb={limb_s:.2f} vert={v_score:.2f} geom={geom_s:.2f} fill={fill:.2f}"
@@ -559,6 +597,66 @@ def analyze_figure(
         debug_detail=detail,
     )
 
+
+
+
+def _strip_non_body_parts(parts: list[_RedPart], scale: float) -> list[_RedPart]:
+    return [p for p in parts if not _is_health_bar(p, scale) and not _is_diamond_sign(p, scale)]
+
+
+def _bbox_iou(
+    ax: int, ay: int, aw: int, ah: int,
+    bx: int, by: int, bw: int, bh: int,
+) -> float:
+    x1 = max(ax, bx)
+    y1 = max(ay, by)
+    x2 = min(ax + aw, bx + bw)
+    y2 = min(ay + ah, by + bh)
+    if x2 <= x1 or y2 <= y1:
+        return 0.0
+    inter = (x2 - x1) * (y2 - y1)
+    union = aw * ah + bw * bh - inter
+    return inter / max(union, 1)
+
+
+def inspect_frame(
+    frame_bgr: np.ndarray,
+    hsv_ranges: list[dict[str, Any]],
+    fov_radius: int,
+    fov_center_x: float | None = None,
+    fov_center_y: float | None = None,
+) -> dict[str, Any]:
+    """Dump mask/part/cluster stats for tuning on real screenshots."""
+    h, w = frame_bgr.shape[:2]
+    cx = w / 2.0 if fov_center_x is None else fov_center_x
+    cy = h / 2.0 if fov_center_y is None else fov_center_y
+    mask = build_hsv_mask(frame_bgr, hsv_ranges)
+    fov = _build_fov_mask(h, w, cx, cy, fov_radius)
+    mask = cv2.bitwise_and(mask, mask, mask=fov)
+    parts = _extract_parts(mask, w, h)
+    clusters = _cluster_parts(parts, w)
+    report: dict[str, Any] = {
+        "frame": (w, h),
+        "mask_pixels": int((mask > 0).sum()),
+        "parts": len(parts),
+        "clusters": len(clusters),
+        "clusters_detail": [],
+    }
+    for i, cl in enumerate(clusters):
+        clean = _strip_non_body_parts(cl, _scale(w, h))
+        fig = analyze_figure(clean if clean else cl, mask, w, h)
+        report["clusters_detail"].append({
+            "idx": i,
+            "parts": len(cl),
+            "reject": fig.reject_reason.value,
+            "body": round(fig.body_shape_score, 3),
+            "head": round(fig.head_score, 3),
+            "torso": round(fig.torso_score, 3),
+            "limb": round(fig.limb_stack_score, 3),
+            "fill": round(fig.fill_ratio, 3),
+            "bbox": (fig.bx, fig.by, fig.bw, fig.bh),
+        })
+    return report
 
 def _collect_candidates(
     frame_bgr: np.ndarray,
@@ -592,7 +690,12 @@ def _collect_candidates(
                 lines.append(f"cand[{idx}] skip area={total:.0f}")
             continue
 
-        fig = analyze_figure(cluster, mask, w, h)
+        body_parts = _strip_non_body_parts(cluster, _scale(w, h))
+        if not body_parts:
+            if debug:
+                lines.append(f"cand[{idx}] {RejectReason.NO_BODY_STRUCTURE.value} (junk only)")
+            continue
+        fig = analyze_figure(body_parts, mask, w, h)
         line = (
             f"cand[{idx}] {fig.reject_reason.value} body={fig.body_shape_score:.2f} "
             f"head={fig.head_score:.2f} torso={fig.torso_score:.2f} "
@@ -617,6 +720,8 @@ def _collect_candidates(
                 centroid_y=fig.aim_y,
                 area=fig.total_area,
                 distance_to_center=dist,
+                bbox_x=fig.bx,
+                bbox_y=fig.by,
                 bbox_w=fig.bw,
                 bbox_h=fig.bh,
                 solidity=fig.solidity,
@@ -655,8 +760,9 @@ def score_target(
     return body_term + dist_term + area_term - penalty
 
 
-def _normalize_confidence(raw: float, fov_radius: float) -> float:
-    return max(0.0, min(1.0, raw / max(fov_radius * 2.8, 1.0)))
+def _normalize_confidence(raw: float, fov_radius: float, body_shape: float = 0.0) -> float:
+    from_dist = raw / max(fov_radius * 2.8, 1.0)
+    return max(0.0, min(1.0, 0.55 * body_shape + 0.45 * from_dist))
 
 
 def find_best_target(
@@ -680,7 +786,7 @@ def find_best_target(
     exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
     debug: bool = False,
 ) -> DetectionResult:
-    _ = (min_height_px, min_aspect, max_aspect, min_solidity, torso_aim_fraction)
+    _ = (min_height_px, min_aspect, max_aspect, min_solidity)
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
@@ -703,28 +809,29 @@ def find_best_target(
 
     def finalize(t: Target) -> Target:
         raw = rank(t)
-        t.confidence = _normalize_confidence(raw, float(fov_radius))
+        t.confidence = _normalize_confidence(raw, float(fov_radius), t.body_shape_score)
         return t
 
     if sticky_target is not None and stickiness_pixels > 0:
-        pool = [
-            t
-            for t in candidates
-            if math.hypot(t.centroid_x - sticky_target.centroid_x, t.centroid_y - sticky_target.centroid_y)
-            <= stickiness_pixels
-        ]
-        if pool:
-            sticky_best = min(
-                pool,
-                key=lambda t: math.hypot(
-                    t.centroid_x - sticky_target.centroid_x,
-                    t.centroid_y - sticky_target.centroid_y,
-                ),
+        pool = []
+        for t in candidates:
+            iou = _bbox_iou(
+                sticky_target.bbox_x, sticky_target.bbox_y, sticky_target.bbox_w, sticky_target.bbox_h,
+                t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h,
             )
+            dist = math.hypot(t.centroid_x - sticky_target.centroid_x, t.centroid_y - sticky_target.centroid_y)
+            if iou >= 0.12 or dist <= stickiness_pixels:
+                pool.append(t)
+        if pool:
+            sticky_best = max(pool, key=rank)
             global_best = max(candidates, key=rank)
-            if rank(global_best) > rank(sticky_best) * _STICKY_SWITCH_RATIO and (
-                global_best.distance_to_center < sticky_best.distance_to_center - 12.0
-                or global_best.body_shape_score > sticky_best.body_shape_score + 0.12
+            if (
+                rank(global_best) > rank(sticky_best) * _STICKY_SWITCH_RATIO
+                and global_best.body_shape_score > sticky_best.body_shape_score + 0.1
+                and _bbox_iou(
+                    sticky_target.bbox_x, sticky_target.bbox_y, sticky_target.bbox_w, sticky_target.bbox_h,
+                    global_best.bbox_x, global_best.bbox_y, global_best.bbox_w, global_best.bbox_h,
+                ) < 0.08
             ):
                 chosen = finalize(global_best)
             else:
@@ -737,6 +844,7 @@ def find_best_target(
                 f"dist={chosen.distance_to_center:.0f} reason={chosen.reject_reason}"
             )
             return DetectionResult(chosen, len(candidates), chosen.confidence, debug_lines=dbg, active=True)
+        dbg.append("sticky lost lock (no overlapping candidate)")
 
     best = finalize(max(candidates, key=rank))
     if best.confidence < min_confidence:
