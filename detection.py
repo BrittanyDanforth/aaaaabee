@@ -202,33 +202,6 @@ def _is_diamond_sign(part: _RedPart, scale: float) -> bool:
 
 
 
-def _is_self_check_marker(part: _RedPart, scale: float) -> bool:
-    """
-    Round red dot used by ABA --self-check (solid circle on dark background).
-    Not a wall panel, not a segmented dummy — must not hit solid_wall rejection.
-    """
-    max_dim = max(part.w, part.h)
-    min_dim = min(part.w, part.h)
-    if min_dim < 4 * scale or max_dim > 130 * scale:
-        return False
-    if part.area < 40 * scale * scale or part.area > 15000 * scale * scale:
-        return False
-    if _is_health_bar(part, scale):
-        return False
-    if _is_diamond_sign(part, scale):
-        return False
-    if part.circularity >= 0.32:
-        return True
-    if 0.6 <= part.aspect_wh <= 1.65 and max_dim <= 80 * scale:
-        return True
-    return False
-
-
-def _cluster_is_self_check_marker(parts: list[_RedPart], frame_w: int, frame_h: int) -> bool:
-    if len(parts) != 1:
-        return False
-    return _is_self_check_marker(parts[0], _scale(frame_w, frame_h))
-
 
 def _extract_parts(mask: np.ndarray, frame_w: int, frame_h: int) -> list[_RedPart]:
     scale = _scale(frame_w, frame_h)
@@ -477,7 +450,7 @@ def _hard_reject(
         return RejectReason.HORIZONTAL_STRIPE
     if bw >= bh * 1.02 and bh < frame_h * 0.12:
         return RejectReason.HORIZONTAL_STRIPE
-    if fill > 0.94 and len(parts) <= 1 and not _cluster_is_self_check_marker(parts, frame_w, frame_h):
+    if fill > 0.94 and len(parts) <= 1:
         return RejectReason.SOLID_WALL
     if fill > 0.97:
         return RejectReason.SOLID_WALL
@@ -532,32 +505,6 @@ def analyze_figure(
     bx, by, bw, bh = _cluster_bbox(parts)
     total_area = sum(p.area for p in parts)
     _classify_parts(parts, bh, scale)
-
-    if _cluster_is_self_check_marker(parts, frame_w, frame_h):
-        p = parts[0]
-        ax, ay = p.cx, p.cy
-        return _FigureAnalysis(
-            accepted=True,
-            reject_reason=RejectReason.OK,
-            body_shape_score=0.72,
-            head_score=0.5,
-            torso_score=0.4,
-            limb_stack_score=0.35,
-            vertical_profile_score=0.0,
-            geometry_score=0.5,
-            fill_ratio=1.0,
-            aspect=max(p.h / max(p.w, 1), 1.0),
-            bx=bx,
-            by=by,
-            bw=bw,
-            bh=bh,
-            part_count=1,
-            aim_x=ax,
-            aim_y=ay,
-            total_area=total_area,
-            solidity=total_area / max(bw * bh, 1),
-            debug_detail="self_check_marker",
-        )
 
     v_score, fill = _vertical_profile_score(mask, bx, by, bw, bh)
     hard = _hard_reject(parts, bx, by, bw, bh, frame_w, frame_h, fill)
