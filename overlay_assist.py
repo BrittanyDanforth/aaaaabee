@@ -359,6 +359,10 @@ class OverlayWindow:
         for delay in (25, 100, 300, 1000):
             self._root.after(delay, _reapply)
 
+    def set_fov_radius(self, radius: int) -> None:
+        with self._lock:
+            self._fov_radius = max(40, int(radius))
+
     def set_state(self, ads: bool, target: tuple[float, float] | None) -> None:
         with self._lock:
             self._active = ads

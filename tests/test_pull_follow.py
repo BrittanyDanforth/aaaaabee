@@ -155,3 +155,21 @@ class PullFollowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PullEdgeFollowTests(unittest.TestCase):
+    def test_edge_distance_keeps_strong_pull(self) -> None:
+        from pull import pull_fov_distance_scale
+
+        from motion import fov_distance_scale
+        naive_edge = fov_distance_scale(170.0, 200.0, 0.65)
+        edge = pull_fov_distance_scale(170.0, 200.0, 0.65)
+        self.assertGreater(edge, naive_edge)
+        self.assertGreaterEqual(edge, 0.82)
+
+    def test_edge_target_moves_mouse(self) -> None:
+        ctrl = PullController(_tuning(fov_radius=200.0, fov_edge_min_scale=0.88, max_speed=24.0))
+        cx, cy = 200.0, 200.0
+        tgt = Target(380.0, 200.0, 400.0, 185.0, 0.9, bbox_x=360, bbox_y=120, bbox_w=40, bbox_h=100)
+        pr = ctrl.compute_delta(tgt, cx, cy, time_sec=0.0)
+        self.assertGreater(pr.magnitude, 2.0, "edge target should produce pull")

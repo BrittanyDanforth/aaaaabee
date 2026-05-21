@@ -8,6 +8,8 @@ from profiles import (
     PROFILE_APEX_STYLE_LIVE_SAFE,
     PROFILE_APEX_STYLE_LIVE_TRACE,
     apply_profile,
+    effective_capture_fov_radius,
+    effective_detection_fov_radius,
     effective_fov_radius,
 )
 
@@ -16,7 +18,7 @@ class ProfileTests(unittest.TestCase):
     def test_live_safe_merge(self) -> None:
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_SAFE})
         self.assertTrue(cfg["allow_live_mouse"])
-        self.assertEqual(18.0, cfg["max_pull_speed_pixels_per_frame"])
+        self.assertEqual(22.0, cfg["max_pull_speed_pixels_per_frame"])
         self.assertEqual(3.5, cfg["mouse_gate_pull_budget_scale"])
         self.assertGreater(cfg["fov_radius_pixels"], 140)
         self.assertGreater(cfg["fov_radius_ads_pixels"], cfg["fov_radius_pixels"])
@@ -24,7 +26,7 @@ class ProfileTests(unittest.TestCase):
     def test_live_trace_enables_logging(self) -> None:
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
         self.assertTrue(cfg["trace_pull"])
-        self.assertEqual(0.78, cfg["pull_strength"])
+        self.assertEqual(0.82, cfg["pull_strength"])
 
     def test_effective_fov_ads_larger(self) -> None:
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_SAFE})
@@ -61,7 +63,25 @@ class DefaultProfileTests(unittest.TestCase):
             PROFILE_LIVE_DEFAULT,
         )
 
-    def test_fov_smaller_than_old_defaults(self) -> None:
+    def test_fov_balanced_not_extreme(self) -> None:
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
-        self.assertLessEqual(cfg["fov_radius_pixels"], 150)
-        self.assertLessEqual(cfg["fov_radius_ads_pixels"], 180)
+        self.assertGreaterEqual(cfg["fov_radius_pixels"], 160)
+        self.assertLessEqual(cfg["fov_radius_pixels"], 200)
+        self.assertGreater(cfg["fov_radius_ads_pixels"], cfg["fov_radius_pixels"])
+
+
+class DetectionFovMarginTests(unittest.TestCase):
+    def test_detection_fov_larger_than_display(self) -> None:
+        cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
+        idle = effective_fov_radius(cfg, ads_active=False)
+        ads = effective_fov_radius(cfg, ads_active=True)
+        det_ads = effective_detection_fov_radius(cfg, ads_active=True)
+        self.assertGreater(det_ads, ads)
+        self.assertGreaterEqual(cfg["fov_radius_pixels"], 165)
+        self.assertGreaterEqual(cfg["fov_radius_ads_pixels"], 200)
+
+    def test_capture_covers_detection(self) -> None:
+        cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
+        cap = effective_capture_fov_radius(cfg, ads_active=True)
+        det = effective_detection_fov_radius(cfg, ads_active=True)
+        self.assertGreaterEqual(cap, det)

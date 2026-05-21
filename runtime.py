@@ -28,7 +28,12 @@ from mouse_gate import MouseGateContext, MouseGateResult, evaluate_mouse_gate
 from mouse_io import MouseBackend, create_mouse_backend
 from platform_info import enable_dpi_awareness
 from process_presence import ProcessPresenceDebouncer
-from profiles import effective_capture_fps, effective_fov_radius
+from profiles import (
+    effective_capture_fps,
+    effective_capture_fov_radius,
+    effective_detection_fov_radius,
+    effective_fov_radius,
+)
 from pull import PullController, PullTuning
 from stats import RuntimeStats
 
@@ -643,7 +648,7 @@ class AssistRuntime:
                 magnetism_radius=float(cfg["magnetism_radius_pixels"]),
                 magnetism_min_scale=float(cfg["magnetism_min_pull_scale"]),
                 fov_radius=float(
-                    effective_fov_radius(cfg, ads_active=True)
+                    effective_detection_fov_radius(cfg, ads_active=True)
                 ),
                 fov_edge_min_scale=float(cfg["fov_edge_min_pull_scale"]),
                 prediction_enabled=bool(cfg["prediction_enabled"]),
@@ -749,21 +754,25 @@ class AssistRuntime:
                     ads_live = self._ads.is_ads_active()
                     ads_for_assist = ads_live if self._live else (self._force_detect or ads_live)
 
-                    fov_radius = effective_fov_radius(cfg, ads_active=ads_for_assist)
-                    if cap_region is None or fov_radius != self._last_fov_radius:
+                    display_fov = effective_fov_radius(cfg, ads_active=ads_for_assist)
+                    detect_fov = effective_detection_fov_radius(cfg, ads_active=ads_for_assist)
+                    capture_fov = effective_capture_fov_radius(cfg, ads_active=ads_for_assist)
+                    if cap_region is None or detect_fov != self._last_fov_radius:
                         cap_region = build_capture_region(
                             mon,
                             center_x,
                             center_y,
-                            fov_radius,
+                            capture_fov,
                             use_crop=bool(cfg["capture_fov_crop"]),
                             crop_padding=float(cfg["capture_crop_padding"]),
                         )
                         self._frame_cx = center_x - cap_region.offset_x
                         self._frame_cy = center_y - cap_region.offset_y
-                        self._last_fov_radius = fov_radius
+                        self._last_fov_radius = detect_fov
                         if self._pull is not None:
-                            self._pull._tuning.fov_radius = float(fov_radius)
+                            self._pull._tuning.fov_radius = float(detect_fov)
+                        if self._overlay is not None:
+                            self._overlay.set_fov_radius(display_fov)
                     frame_cx = self._frame_cx
                     frame_cy = self._frame_cy
 
@@ -778,7 +787,7 @@ class AssistRuntime:
                         det = self._select_target(
                             frame_bgr,
                             hsv_ranges,
-                            fov_radius,
+                            detect_fov,
                             float(cfg["min_target_area_pixels"]),
                             frame_cx,
                             frame_cy,
@@ -931,7 +940,7 @@ class AssistRuntime:
                         dbg = draw_debug(
                             frame_bgr,
                             dbg_target,
-                            fov_radius,
+                            detect_fov,
                             frame_cx,
                             frame_cy,
                             magnetism_radius=int(cfg["magnetism_radius_pixels"]),

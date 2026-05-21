@@ -20,18 +20,19 @@ _APEX_TUNING: dict[str, Any] = {
         {"lower": [165, 80, 80], "upper": [179, 255, 255]},
         {"lower": [0, 150, 150], "upper": [25, 255, 255]},
     ],
-    "fov_radius_pixels": 145,
-    "fov_radius_ads_pixels": 172,
+    "fov_radius_pixels": 168,
+    "fov_radius_ads_pixels": 218,
+    "detection_fov_margin_pixels": 36,
     "capture_fov_crop": True,
-    "capture_crop_padding": 1.22,
-    "max_pull_speed_pixels_per_frame": 18.0,
-    "pull_strength": 0.78,
+    "capture_crop_padding": 1.34,
+    "max_pull_speed_pixels_per_frame": 22.0,
+    "pull_strength": 0.82,
     "deadzone_pixels": 3,
     "velocity_smoothing": 0.50,
     "smoothing_curve": "ease_out",
     "magnetism_radius_pixels": 80,
     "magnetism_min_pull_scale": 0.70,
-    "fov_edge_min_pull_scale": 0.65,
+    "fov_edge_min_pull_scale": 0.88,
     "prediction_enabled": True,
     "prediction_lead_seconds": 0.034,
     "prediction_max_pixels": 20,
@@ -113,7 +114,9 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "humanize_amplitude_pixels": 0.0,
         "prediction_lead_seconds": 0.030,
         "prediction_max_pixels": 18,
-        "target_stickiness_pixels": 78,
+        "target_stickiness_pixels": 88,
+        "fov_edge_min_pull_scale": 0.90,
+        "max_pull_speed_pixels_per_frame": 24.0,
         "torso_aim_fraction": 0.40,
         "velocity_smoothing": 0.42,
     },
@@ -171,19 +174,34 @@ def effective_capture_fps(config: dict[str, Any]) -> int:
 
 
 def effective_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
-    """
-    Detection + capture radius. Larger while ADS so edge targets stay in frame.
-    Falls back to fov_radius_pixels if fov_radius_ads_pixels unset.
-    """
+    """Overlay / HUD ring radius (hip-fire vs ADS)."""
     base = int(config.get("fov_radius_pixels", 140))
     if not ads_active:
         return max(80, base)
     ads = int(config.get("fov_radius_ads_pixels", 0))
     if ads <= 0:
-        scale = float(config.get("fov_ads_scale", 1.38))
+        scale = float(config.get("fov_ads_scale", 1.30))
         ads = int(base * scale)
     return max(base, ads)
 
+
+def effective_detection_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
+    """
+    Detection + pull use this radius (larger than overlay ring).
+    Keeps enemies at screen edge inside the HSV/FOV mask so pull does not drop off.
+    """
+    core = effective_fov_radius(config, ads_active=ads_active)
+    margin = int(config.get("detection_fov_margin_pixels", 0))
+    if margin <= 0:
+        margin = int(core * float(config.get("detection_fov_margin_scale", 0.18)))
+    return min(400, core + max(12, margin))
+
+
+def effective_capture_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
+    """Capture crop must cover detection FOV + padding."""
+    detect = effective_detection_fov_radius(config, ads_active=ads_active)
+    extra = int(config.get("capture_extra_pixels", 8))
+    return detect + extra
 
 
 PROFILE_LIVE_DEFAULT = PROFILE_APEX_STYLE_LIVE_TRACE
@@ -207,7 +225,12 @@ def load_config(path: Path | str | None = None) -> dict[str, Any]:
     raw: dict[str, Any] = {}
     if p.is_file():
         raw = _json.loads(p.read_text(encoding="utf-8"))
-    return apply_profile(raw)
+    merged = apply_profile(raw)
+    try:
+        from config_validation import validate_config
+        return validate_config(merged)
+    except ImportError:
+        return merged
 
 
 def apply_profile(raw: dict[str, Any]) -> dict[str, Any]:

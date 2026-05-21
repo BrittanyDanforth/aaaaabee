@@ -58,6 +58,28 @@ class PullResult:
     desired_y: float = 0.0
 
 
+
+
+def pull_fov_distance_scale(
+    dist: float,
+    fov_radius: float,
+    edge_min_scale: float,
+) -> float:
+    """
+    Pull strength vs distance — edge targets must still get strong pull.
+    Linear falloff is capped so FOV-edge enemies (near off-screen) are followed.
+    """
+    if not math.isfinite(dist) or not math.isfinite(fov_radius) or fov_radius <= 0.0:
+        return 1.0
+    base = fov_distance_scale(dist, fov_radius, edge_min_scale)
+    t = min(1.25, max(0.0, dist / fov_radius))
+    if t >= 0.70:
+        return max(base, 0.86)
+    if t >= 0.55:
+        return max(base, 0.78)
+    return base
+
+
 class PullController:
     """Convert aim error into mouse deltas — dt-aware, no second aim smooth when pre-smoothed."""
 
@@ -103,7 +125,7 @@ class PullController:
 
     def _max_step_for_dt(self, dt: float) -> float:
         """Per-frame cap scaled so 30 FPS can move ~2x px/frame vs 60 FPS reference."""
-        cap = 3.2 if self._tuning.aim_pre_smoothed else 2.5
+        cap = 3.6 if self._tuning.aim_pre_smoothed else 2.5
         scale = max(0.5, min(cap, dt * _REF_FPS))
         return self._tuning.max_speed * scale
 
@@ -207,7 +229,7 @@ class PullController:
             return PullResult(0, 0, 0.0, 0.0, dist)
 
         magnet = self._magnetism_scale(dist)
-        fov_scale = fov_distance_scale(
+        fov_scale = pull_fov_distance_scale(
             dist,
             self._tuning.fov_radius,
             self._tuning.fov_edge_min_scale,
@@ -232,6 +254,8 @@ class PullController:
         alpha = max(alpha, alpha_from_tau(dt, tau))
         if self._tuning.aim_pre_smoothed and dist > 12.0:
             alpha = max(alpha, alpha_from_tau(dt, 0.012) * min(1.0, dist / 35.0))
+        if self._tuning.aim_pre_smoothed and dist > self._tuning.fov_radius * 0.55:
+            alpha = max(alpha, alpha_from_tau(dt, 0.010))
 
         if not self._tuning.aim_pre_smoothed:
             vel_mag = math.hypot(self._vel_x, self._vel_y)
