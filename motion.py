@@ -14,7 +14,10 @@ _TAU_VEL = 0.040
 _TAU_PRED_BLEND = 0.018
 _MAX_PRED_LEAD_S = 0.038
 _MAX_PRED_PX = 22.0
-_MAX_UPWARD_LEAD_PX = 8.0
+_MAX_UPWARD_LEAD_PX = 6.0
+_BODY_Y_LO_FRAC = 0.28
+_BODY_Y_HI_FRAC = 0.52
+_BODY_X_MARGIN_FRAC = 0.14
 _SPEED_MOVING_PX_S = 85.0
 
 
@@ -100,6 +103,9 @@ class TargetTracker:
         self._prediction_lead_s: float = _MAX_PRED_LEAD_S
         self._prediction_max_px: float = _MAX_PRED_PX
         self._body_bbox: tuple[int, int, int, int] | None = None
+        self._aim_is_body_anchor: bool = True
+        self._last_pred_offset: tuple[float, float] = (0.0, 0.0)
+        self._last_pre_predict: tuple[float, float] | None = None
 
     def configure_prediction(
         self,
@@ -121,6 +127,9 @@ class TargetTracker:
         self._vx = 0.0
         self._vy = 0.0
         self._body_bbox = None
+        self._aim_is_body_anchor = True
+        self._last_pred_offset = (0.0, 0.0)
+        self._last_pre_predict = None
 
     @staticmethod
     def _clamp_to_body_bbox(
@@ -132,9 +141,9 @@ class TargetTracker:
         bbox_h: int,
     ) -> tuple[float, float]:
         """Keep smoothed aim inside upper-chest band — prevents sky/side drift."""
-        mx = bbox_w * 0.14
-        y_lo = bbox_y + bbox_h * 0.28
-        y_hi = bbox_y + bbox_h * 0.52
+        mx = bbox_w * _BODY_X_MARGIN_FRAC
+        y_lo = bbox_y + bbox_h * _BODY_Y_LO_FRAC
+        y_hi = bbox_y + bbox_h * _BODY_Y_HI_FRAC
         x_lo = bbox_x + mx
         x_hi = bbox_x + bbox_w - mx
         return (
@@ -156,8 +165,13 @@ class TargetTracker:
         bbox_y: int | None = None,
         bbox_w: int | None = None,
         bbox_h: int | None = None,
+        aim_is_body_anchor: bool = True,
     ) -> TargetMotion:
-        """Detector centroid is already body-anchored — do not re-blend toward bbox column."""
+        """
+        When aim_is_body_anchor=True (runtime default), x/y are detector aim_x/aim_y.
+        Never re-blend toward bbox_y + 0.38*h. Clamp inside chest band before smooth.
+        """
+        self._aim_is_body_anchor = bool(aim_is_body_anchor)
         if (
             bbox_x is not None
             and bbox_y is not None
@@ -166,10 +180,26 @@ class TargetTracker:
             and bbox_w > 0
             and bbox_h > 0
         ):
-            self._body_bbox = (int(bbox_x), int(bbox_y), int(bbox_w), int(bbox_h))
+            bx, by, bw, bh = int(bbox_x), int(bbox_y), int(bbox_w), int(bbox_h)
+            self._body_bbox = (bx, by, bw, bh)
+            if self._aim_is_body_anchor:
+                x, y = self._clamp_to_body_bbox(x, y, bx, by, bw, bh)
+            else:
+                col_x = bx + bw * 0.5
+                col_y = by + bh * 0.38
+                x = 0.35 * x + 0.65 * col_x
+                y = 0.35 * y + 0.65 * col_y
         else:
             self._body_bbox = None
         return self.observe(x, y, time_sec)
+
+    @property
+    def last_prediction_offset(self) -> tuple[float, float]:
+        return self._last_pred_offset
+
+    @property
+    def last_pre_predict_point(self) -> tuple[float, float] | None:
+        return self._last_pre_predict
 
     def observe(self, x: float, y: float, time_sec: float) -> TargetMotion:
         if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(time_sec)):
@@ -217,32 +247,43 @@ class TargetTracker:
         self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
         self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
 
+        pre_x, pre_y = self._smooth_x, self._smooth_y
+        self._last_pre_predict = (pre_x, pre_y)
+
         if self._prediction_enabled:
             lead_dt = min(dt, _MAX_PRED_LEAD_S)
-            pred_x = self._smooth_x + self._vx * lead_dt
-            pred_y = self._smooth_y + self._vy * lead_dt
-            if pred_y < self._smooth_y:
-                pred_y = max(pred_y, self._smooth_y - _MAX_UPWARD_LEAD_PX)
+            pred_x = pre_x + self._vx * lead_dt
+            pred_y = pre_y + self._vy * lead_dt
+            if pred_y < pre_y:
+                pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
             pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
-            out_x = self._smooth_x + pa * (pred_x - self._smooth_x)
-            out_y = self._smooth_y + pa * (pred_y - self._smooth_y)
+            out_x = pre_x + pa * (pred_x - pre_x)
+            out_y = pre_y + pa * (pred_y - pre_y)
         else:
-            out_x = self._smooth_x
-            out_y = self._smooth_y
+            out_x = pre_x
+            out_y = pre_y
 
         self._last_meas_x = x
         self._last_meas_y = y
         self._last_time = time_sec
         motion = TargetMotion(out_x, out_y, self._vx, self._vy)
-        if self._prediction_enabled and (
-            self._prediction_lead_s > 0.0 and self._prediction_max_px > 0.0
-        ):
+
+        use_second_predict = (
+            self._prediction_enabled
+            and self._prediction_lead_s > 0.0
+            and self._prediction_max_px > 0.0
+            and not (self._aim_is_body_anchor and self._body_bbox is not None)
+        )
+        if use_second_predict:
             px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
             motion = TargetMotion(px, py, self._vx, self._vy)
+
         if self._body_bbox is not None:
             bx, by, bw, bh = self._body_bbox
-            cx, cy = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
-            motion = TargetMotion(cx, cy, motion.vx, motion.vy)
+            clamped_x, clamped_y = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
+            motion = TargetMotion(clamped_x, clamped_y, motion.vx, motion.vy)
+
+        self._last_pred_offset = (motion.x - pre_x, motion.y - pre_y)
         self._last = motion
         return self._last
 

@@ -46,6 +46,10 @@ class PullTraceFrame:
     detect_ms: float = -1.0
     total_loop_ms: float = -1.0
     achieved_fps: float = -1.0
+    raw_detector_anchor: tuple[float, float] | None = None
+    body_anchor_after_clamp: tuple[float, float] | None = None
+    prediction_offset: tuple[float, float] | None = None
+    pull_input: tuple[float, float] | None = None
 
 
 def format_trace_line(t: PullTraceFrame) -> str:
@@ -82,6 +86,19 @@ def format_trace_line(t: PullTraceFrame) -> str:
         lines.append(f"raw_parts=head={t.head_score:.2f} torso={t.torso_score:.2f} limb={t.limb_score:.2f}")
     if t.selected_reason:
         lines.append(f"selected_reason={t.selected_reason}")
+    if t.raw_detector_anchor is not None:
+        lines.append(
+            f"raw_detector_anchor=({t.raw_detector_anchor[0]:.1f},{t.raw_detector_anchor[1]:.1f})"
+        )
+    if t.body_anchor_after_clamp is not None:
+        lines.append(
+            f"body_anchor_after_clamp=({t.body_anchor_after_clamp[0]:.1f},{t.body_anchor_after_clamp[1]:.1f})"
+        )
+    if t.prediction_offset is not None:
+        pdx, pdy = t.prediction_offset
+        lines.append(f"prediction_offset=({pdx:.1f},{pdy:.1f})")
+    if t.pull_input is not None:
+        lines.append(f"pull_input=({t.pull_input[0]:.1f},{t.pull_input[1]:.1f})")
     if t.capture_ms >= 0:
         lines.append(f"capture_ms={t.capture_ms:.2f} detect_ms={t.detect_ms:.2f} total_loop_ms={t.total_loop_ms:.2f} fps={t.achieved_fps:.1f}")
     return "\n".join(lines) + "\n"

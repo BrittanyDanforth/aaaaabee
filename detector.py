@@ -16,6 +16,8 @@ logger = logging.getLogger("targeting")
 # --- Tunables (1080p baseline, scales with frame size) ---
 _MAX_AREA_RATIO = 0.30
 _VIEWMODEL_EXCLUDE_FRAC = 0.22
+_BODY_Y_LO_FRAC = 0.28
+_BODY_Y_HI_FRAC = 0.52
 _MAX_ABOVE_CENTER_FRAC = 0.40
 _MIN_CONFIDENCE = 0.30
 _STICKY_SWITCH_RATIO = 2.2
@@ -562,8 +564,8 @@ def _clamp_aim_to_body_bbox(
 ) -> tuple[float, float]:
     """Keep aim inside upper-chest band; never above head plate or into sky above bbox."""
     frac = max(0.32, min(0.48, torso_fraction))
-    y_lo = by + bh * 0.30
-    y_hi = by + bh * min(0.50, frac + 0.10)
+    y_lo = by + bh * _BODY_Y_LO_FRAC
+    y_hi = by + bh * min(_BODY_Y_HI_FRAC, frac + 0.10)
     heads = [p for p in parts if p.role == PartRole.HEAD]
     if heads:
         head_bottom = heads[0].y + heads[0].h
@@ -736,17 +738,21 @@ def _figure_aim_point(
         ax = 0.55 * ax + 0.45 * chest[0]
         ay = 0.50 * ay + 0.50 * chest[1]
 
+    y_lo = by + bh * _BODY_Y_LO_FRAC
+    y_hi = by + bh * _BODY_Y_HI_FRAC
+
     if len(parts) >= 2:
         torsos = [p for p in parts if p.role == PartRole.TORSO]
         if torsos:
             t = max(torsos, key=lambda p: p.area)
-            ax = 0.72 * ax + 0.28 * t.cx
-            ay = 0.70 * ay + 0.30 * t.cy
+            tcy = max(y_lo, min(y_hi, t.cy))
+            ax = 0.78 * ax + 0.22 * t.cx
+            ay = 0.82 * ay + 0.18 * tcy
         else:
             cx_parts = float(np.mean([p.cx for p in parts]))
-            cy_parts = float(np.mean([p.cy for p in parts]))
-            ax = 0.75 * ax + 0.25 * cx_parts
-            ay = 0.75 * ay + 0.25 * cy_parts
+            cy_parts = float(np.mean([max(y_lo, min(y_hi, p.cy)) for p in parts]))
+            ax = 0.80 * ax + 0.20 * cx_parts
+            ay = 0.80 * ay + 0.20 * cy_parts
 
     return _clamp_aim_to_body_bbox(ax, ay, bx, by, bw, bh, parts, frac)
 
@@ -1162,8 +1168,8 @@ def render_debug_artifacts(
         cv2.rectangle(out, (x, y), (x + bw, y + bh), (0, 0, 255), 3)
         ax, ay = int(selected.centroid_x), int(selected.centroid_y)
         cv2.drawMarker(out, (ax, ay), (0, 255, 255), cv2.MARKER_CROSS, 16, 2)
-        chest_y = int(y + bh * 0.38)
-        chest_x = int(x + bw * 0.5)
+        chest_y = int(ay)
+        chest_x = int(ax)
         cv2.circle(out, (chest_x, chest_y), 6, (255, 0, 255), 2)
         cv2.putText(
             out,

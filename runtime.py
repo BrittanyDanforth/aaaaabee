@@ -118,6 +118,7 @@ class AssistRuntime:
             bbox_y=target.bbox_y,
             bbox_w=target.bbox_w,
             bbox_h=target.bbox_h,
+            aim_is_body_anchor=True,
         )
         self._last_motion = motion
         return motion
@@ -264,11 +265,19 @@ class AssistRuntime:
             torso_s = float(getattr(target, "torso_score", -1.0))
             limb_s = float(getattr(target, "limb_stack_score", -1.0))
             selected_reason = str(getattr(target, "reject_reason", "") or "body_lock")
+        pred_off = getattr(self._aim_tracker, "last_prediction_offset", (0.0, 0.0))
+        pre_pp = getattr(self._aim_tracker, "last_pre_predict_point", None)
+        body_clamp = pre_pp if pre_pp is not None else (rx, ry)
+        pull_in = (mx, my) if motion is not None else (rx, ry)
         log_trace_frame(
             PullTraceFrame(
                 frame=self._trace_frame,
                 raw_target=(rx, ry),
                 motion_target=(mx, my),
+                raw_detector_anchor=(rx, ry),
+                body_anchor_after_clamp=body_clamp,
+                prediction_offset=pred_off,
+                pull_input=pull_in,
                 center=(frame_cx, frame_cy),
                 error=(mx - frame_cx, my - frame_cy),
                 pull_dxdy=(pr_dx, pr_dy),
@@ -487,7 +496,7 @@ class AssistRuntime:
             min_aspect=float(cfg["humanoid_min_aspect"]),
             max_aspect=float(cfg["humanoid_max_aspect"]),
             min_solidity=float(cfg.get("humanoid_min_solidity", 0.25)),
-            torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
+            torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.36)),
             debug=bool(cfg.get("verbose_logging", False)),
         )
         with self._lock:
