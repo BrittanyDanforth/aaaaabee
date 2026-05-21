@@ -223,6 +223,8 @@ class AssistRuntime:
             paused = self._paused
             mouse_enabled = self._mouse_enabled
             has_target = self._locked_target is not None
+            detection_fresh = self._frame_has_target
+            stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
             ctx = MouseGateContext(
                 running=running,
                 stopping=stopping,
@@ -230,6 +232,9 @@ class AssistRuntime:
                 mouse_enabled=mouse_enabled,
                 ads_active=self._ads.is_ads_active(),
                 has_target=has_target,
+                detection_fresh=detection_fresh,
+                target_lost_frames=self._target_lost_frames,
+                stale_grace_frames=stale_grace,
                 target_process_ok=proc_ok,
                 dx=dx,
                 dy=dy,
@@ -523,6 +528,7 @@ class AssistRuntime:
                 humanize_enabled=bool(cfg["humanize_enabled"]),
                 humanize_amplitude=float(cfg["humanize_amplitude_pixels"]),
                 humanize_jerk_limit=float(cfg["humanize_jerk_limit"]),
+                aim_pre_smoothed=True,
             )
         )
 

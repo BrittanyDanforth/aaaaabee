@@ -17,6 +17,18 @@ return runtime.run()
 | **`runtime.py`** | Replace with repo version (bbox motion wired) |
 | **`detector.py`** | Replace |
 | **`motion.py`** | Replace |
+
+| **`pull.py`** | Replace (no double tracker when runtime pre-smooths aim) |
+| **`mouse_gate.py`** | Replace (stale-lock grace + pull cap) |
+| `ban_safety.py` | Replace only if missing in your tree |
+
+### Pull + mouse gate
+
+- `PullTuning.aim_pre_smoothed=True` (default): runtime already calls `observe_target(bbox)` — pull only does velocity/magnetism/humanize, not a second `TargetTracker`.
+- `mouse_gate`: passes `detection_fresh`, `target_lost_frames`, `stale_grace_frames` (config `mouse_gate_stale_grace_frames`, default 12). Blocks OS mouse after lock is stale too long; allows brief reacquire gaps.
+
+| **`pull.py`** | Replace |
+| **`mouse_gate.py`** | Replace |
 | `self_check.py` | Replace if setup fails |
 | `assist.py` | **Keep yours** |
 | `targeting_runtime.py` | Optional (tests only; runtime uses `TargetTracker` directly) |
