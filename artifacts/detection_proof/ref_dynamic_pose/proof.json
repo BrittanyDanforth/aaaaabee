@@ -1,0 +1,67 @@
+{
+  "name": "ref_dynamic_pose",
+  "frame": [
+    1280,
+    720
+  ],
+  "active": true,
+  "selected": {
+    "body": 1.0,
+    "head": 1.0,
+    "torso": 0.5857510729613734,
+    "limb": 1.0,
+    "bbox": [
+      596,
+      361,
+      35,
+      113
+    ],
+    "aim": [
+      612.45,
+      420.068
+    ],
+    "parts": 5
+  },
+  "runtime_wired_bbox": [
+    596,
+    361,
+    35,
+    113
+  ],
+  "runtime_aim": [
+    613.1325,
+    409.58480000000003
+  ],
+  "candidates": [
+    {
+      "idx": 0,
+      "accepted": true,
+      "reject": "ok",
+      "body": 1.0,
+      "head": 1.0,
+      "torso": 0.5857510729613734,
+      "limb": 1.0,
+      "vert": 1.0,
+      "aspect": 3.2285714285714286,
+      "fill": 0.4690265357494354,
+      "circ": 0.7965803878446122,
+      "bbox": [
+        596,
+        361,
+        35,
+        113
+      ],
+      "aim": [
+        612.45,
+        420.068
+      ],
+      "parts": 5,
+      "detail": "parts=5 head=1.00 torso=0.59 limb=1.00 vert=1.00 geom=0.92 align=0.66 circ=0.80 fill=0.47"
+    }
+  ],
+  "detection_debug": [
+    "cand[0] reject=ok body=1.00 head=1.00 torso=0.59 limb=1.00 aspect=3.23 fill=0.47 circ=0.80 bbox=(596,361,35x113) area=1165 dist=66 parts=5 | parts=5 head=1.00 torso=0.59 limb=1.00 vert=1.00 geom=0.92 align=0.66 circ=0.80 fill=0.47",
+    "accepted=1 from 1 clusters / 5 parts",
+    "SELECTED body=1.00 head=1.00 dist=66 bbox=35x113"
+  ]
+}

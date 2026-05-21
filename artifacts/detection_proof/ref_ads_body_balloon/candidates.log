@@ -1,0 +1,6 @@
+=== ref_ads_body_balloon ===
+active=True
+cand[0] accept=True reject=ok body=1.00 head=1.00 torso=0.67 limb=1.00 aspect=3.54 circ=0.83 bbox=(622,351,39x138)
+cand[0] reject=ok body=1.00 head=1.00 torso=0.67 limb=1.00 aspect=3.54 fill=0.67 circ=0.83 bbox=(622,351,39x138) area=2699 dist=46 parts=6 | parts=6 head=1.00 torso=0.67 limb=1.00 vert=1.00 geom=0.97 align=0.71 circ=0.83 fill=0.67
+accepted=1 from 1 clusters / 6 parts
+SELECTED body=1.00 head=1.00 dist=46 bbox=39x138
