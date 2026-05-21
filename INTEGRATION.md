@@ -1,58 +1,61 @@
-# Runtime wiring (required for motion fix to work)
+# OverlayAssist integration (your tree)
 
-`detector.py` + `motion.py` alone are **not enough**. Your `assist.py` / runtime loop must use **`targeting_runtime.py`**.
+## `assist.py` — no change needed
 
-## Drop-in (recommended)
-
-```python
-from targeting_runtime import TargetingRuntime
-
-_runtime = TargetingRuntime()
-
-# Inside your per-frame loop (when ADS / RMB active):
-aim = _runtime.process_frame(frame_bgr, config, time_sec=time.time())
-if aim.active:
-    overlay_x, overlay_y = aim.aim_x, aim.aim_y   # stable upper-chest anchor
-    # pull controller uses overlay_x, overlay_y — NOT raw mask centroid
-else:
-    _runtime.reset()  # optional when inactive
-```
-
-`process_frame()` **always** calls:
+Your `assist.py` already does:
 
 ```python
-tracker.observe_target(
-    centroid_x, centroid_y, time_sec,
-    bbox_x=target.bbox_x,
-    bbox_y=target.bbox_y,
-    bbox_w=target.bbox_w,
-    bbox_h=target.bbox_h,
-)
+from runtime import AssistRuntime
+runtime = AssistRuntime(config, args.config)
+return runtime.run()
 ```
 
-## Wrong (motion fix NOT active)
+## Replace these files in OverlayAssist
 
-```python
-motion = tracker.observe(t.centroid_x, t.centroid_y, t)  # no bbox — will lag/jitter
+| File | Action |
+|------|--------|
+| **`runtime.py`** | Replace with repo version (bbox motion wired) |
+| **`detector.py`** | Replace |
+| **`motion.py`** | Replace |
+| `self_check.py` | Replace if setup fails |
+| `assist.py` | **Keep yours** |
+| `targeting_runtime.py` | Optional (tests only; runtime uses `TargetTracker` directly) |
+
+## What changed in `runtime.py`
+
+End-to-end path:
+
+```
+capture frame
+  -> _select_target()  [detector.find_best_target — body-shape gate]
+  -> _smooth_aim()     [motion.observe_target(..., bbox_x/y/w/h)]
+  -> pull uses smoothed centroid (upper-chest column)
+  -> overlay dot uses motion.x, motion.y (not raw plate centroid)
 ```
 
-## Proof artifacts
+On startup you should see:
 
-After copying files, generate debug PNGs:
+```
+[ABA] Aim path: detector body-shape -> motion.observe_target(bbox) -> pull/overlay
+```
 
-```bash
+## Do NOT copy
+
+- `tests/` folder
+- `scripts/` (optional: run `save_detection_artifacts.py` for debug PNGs)
+- `artifacts/`
+
+## Verify after copy
+
+```powershell
+python aba.py --self-check
+python aba.py --overlay --debug
+```
+
+Debug window: yellow diamond = smoothed aim anchor; red circle = detector aim on body.
+
+Generate proof images (optional):
+
+```powershell
 python scripts/save_detection_artifacts.py --all-references
 ```
-
-Inspect `artifacts/detection_proof/*/03_debug_overlay.png` and `proof.json`.
-
-## Files to copy to OverlayAssist
-
-| File | Required |
-|------|----------|
-| `detector.py` | Yes |
-| `motion.py` | Yes |
-| `targeting_runtime.py` | Yes |
-| `self_check.py` | If setup fails |
-| `tests/` | No |
-| `scripts/` | No (optional for debug) |
