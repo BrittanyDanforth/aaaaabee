@@ -227,3 +227,24 @@ class LegacyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SelfCheckMarkerTests(unittest.TestCase):
+    def test_aba_self_check_red_dot(self) -> None:
+        """ABA setup draws one round red blob — must not reject as solid_wall."""
+        import cv2
+        h, w = 1080, 1920
+        frame = np.zeros((h, w, 3), dtype=np.uint8)
+        cv2.circle(frame, (int(w / 2), int(h / 2)), 22, (0, 0, 255), -1)
+        r = detection.find_best_target(
+            frame,
+            HSV_RED,
+            200,
+            40.0,
+            w / 2,
+            h / 2,
+            debug=True,
+        )
+        self.assertTrue(r.active, "\n".join(r.debug_lines))
+        assert r.target is not None
+        self.assertTrue(any("self_check" in ln for ln in r.debug_lines))
