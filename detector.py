@@ -825,6 +825,250 @@ def _bbox_iou(
     return inter / max(union, 1)
 
 
+
+
+@dataclass
+class CandidateInfo:
+    """Per-cluster body-shape analysis (accepted or rejected)."""
+
+    idx: int
+    accepted: bool
+    reject_reason: str
+    body_shape_score: float
+    head_score: float
+    torso_score: float
+    limb_stack_score: float
+    vertical_profile_score: float
+    aspect: float
+    fill_ratio: float
+    max_circularity: float
+    bbox_x: int
+    bbox_y: int
+    bbox_w: int
+    bbox_h: int
+    aim_x: float
+    aim_y: float
+    part_count: int
+    total_area: float
+    distance_to_center: float
+    debug_detail: str
+
+
+def enumerate_candidates(
+    frame_bgr: np.ndarray,
+    hsv_ranges: list[dict[str, Any]],
+    fov_radius: int,
+    min_area: float,
+    fov_center_x: float | None = None,
+    fov_center_y: float | None = None,
+    *,
+    exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
+) -> tuple[list[CandidateInfo], np.ndarray, list[_RedPart]]:
+    """All clusters with scores/reject reasons — for debug artifacts (not color-only)."""
+    h, w = frame_bgr.shape[:2]
+    cx = w / 2.0 if fov_center_x is None else fov_center_x
+    cy = h / 2.0 if fov_center_y is None else fov_center_y
+    mask = build_hsv_mask(frame_bgr, hsv_ranges)
+    fov = _build_fov_mask(h, w, cx, cy, fov_radius)
+    vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
+    mask = cv2.bitwise_and(mask, mask, mask=fov)
+    mask = cv2.bitwise_and(mask, mask, mask=vm)
+    parts = _extract_parts(mask, w, h)
+    clusters = _cluster_parts(parts, w, h)
+    max_area = float(h * w) * _MAX_AREA_RATIO
+    out: list[CandidateInfo] = []
+    scale = _scale(w, h)
+
+    for idx, cluster in enumerate(clusters):
+        total = sum(p.area for p in cluster)
+        if total < min_area:
+            out.append(
+                CandidateInfo(
+                    idx=idx,
+                    accepted=False,
+                    reject_reason=RejectReason.TOO_SMALL.value,
+                    body_shape_score=0.0,
+                    head_score=0.0,
+                    torso_score=0.0,
+                    limb_stack_score=0.0,
+                    vertical_profile_score=0.0,
+                    aspect=0.0,
+                    fill_ratio=0.0,
+                    max_circularity=0.0,
+                    bbox_x=0,
+                    bbox_y=0,
+                    bbox_w=0,
+                    bbox_h=0,
+                    aim_x=cx,
+                    aim_y=cy,
+                    part_count=len(cluster),
+                    total_area=total,
+                    distance_to_center=0.0,
+                    debug_detail=f"area={total:.0f} < min={min_area}",
+                )
+            )
+            continue
+        if total > max_area:
+            out.append(
+                CandidateInfo(
+                    idx=idx,
+                    accepted=False,
+                    reject_reason=RejectReason.TOO_LARGE.value,
+                    body_shape_score=0.0,
+                    head_score=0.0,
+                    torso_score=0.0,
+                    limb_stack_score=0.0,
+                    vertical_profile_score=0.0,
+                    aspect=0.0,
+                    fill_ratio=0.0,
+                    max_circularity=0.0,
+                    bbox_x=0,
+                    bbox_y=0,
+                    bbox_w=0,
+                    bbox_h=0,
+                    aim_x=cx,
+                    aim_y=cy,
+                    part_count=len(cluster),
+                    total_area=total,
+                    distance_to_center=0.0,
+                    debug_detail=f"area={total:.0f} too_large",
+                )
+            )
+            continue
+
+        body_parts = _strip_non_body_parts(cluster, scale)
+        if not body_parts:
+            bx, by, bw, bh = _cluster_bbox(cluster)
+            out.append(
+                CandidateInfo(
+                    idx=idx,
+                    accepted=False,
+                    reject_reason=RejectReason.NO_BODY_STRUCTURE.value,
+                    body_shape_score=0.0,
+                    head_score=0.0,
+                    torso_score=0.0,
+                    limb_stack_score=0.0,
+                    vertical_profile_score=0.0,
+                    aspect=bh / max(bw, 1),
+                    fill_ratio=0.0,
+                    max_circularity=_max_part_circularity(cluster),
+                    bbox_x=bx,
+                    bbox_y=by,
+                    bbox_w=bw,
+                    bbox_h=bh,
+                    aim_x=bx + bw * 0.5,
+                    aim_y=by + bh * 0.36,
+                    part_count=len(cluster),
+                    total_area=total,
+                    distance_to_center=float(np.hypot(bx + bw * 0.5 - cx, by + bh * 0.36 - cy)),
+                    debug_detail="junk only",
+                )
+            )
+            continue
+
+        fig = analyze_figure(body_parts, mask, w, h)
+        dist = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))
+        accepted = fig.accepted and dist <= fov_radius
+        reason = fig.reject_reason.value
+        if fig.accepted and dist > fov_radius:
+            accepted = False
+            reason = RejectReason.OUTSIDE_FOV.value
+
+        out.append(
+            CandidateInfo(
+                idx=idx,
+                accepted=accepted,
+                reject_reason=reason if not accepted else RejectReason.OK.value,
+                body_shape_score=fig.body_shape_score,
+                head_score=fig.head_score,
+                torso_score=fig.torso_score,
+                limb_stack_score=fig.limb_stack_score,
+                vertical_profile_score=fig.vertical_profile_score,
+                aspect=fig.aspect,
+                fill_ratio=fig.fill_ratio,
+                max_circularity=_max_part_circularity(body_parts),
+                bbox_x=fig.bx,
+                bbox_y=fig.by,
+                bbox_w=fig.bw,
+                bbox_h=fig.bh,
+                aim_x=fig.aim_x,
+                aim_y=fig.aim_y,
+                part_count=fig.part_count,
+                total_area=fig.total_area,
+                distance_to_center=dist,
+                debug_detail=fig.debug_detail,
+            )
+        )
+    return out, mask, parts
+
+
+def render_debug_artifacts(
+    frame_bgr: np.ndarray,
+    candidates: list[CandidateInfo],
+    selected: Target | None,
+    fov_radius: int,
+    fov_center_x: float,
+    fov_center_y: float,
+    mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """Composite: original + mask tint + candidate bboxes + upper-chest aim point."""
+    out = frame_bgr.copy()
+    h, w = out.shape[:2]
+    cx, cy = int(round(fov_center_x)), int(round(fov_center_y))
+
+    if mask is not None:
+        tint = np.zeros_like(out)
+        tint[:, :] = (0, 255, 0)
+        out = np.where(mask[:, :, None] > 0, cv2.addWeighted(out, 0.55, tint, 0.45, 0), out)
+
+    cv2.circle(out, (cx, cy), fov_radius, (0, 255, 0), 2)
+    cv2.drawMarker(out, (cx, cy), (255, 255, 255), cv2.MARKER_CROSS, 14, 2)
+
+    for c in candidates:
+        color = (0, 220, 0) if c.accepted else (0, 120, 255)
+        x, y, bw, bh = c.bbox_x, c.bbox_y, c.bbox_w, c.bbox_h
+        if bw <= 0 or bh <= 0:
+            continue
+        cv2.rectangle(out, (x, y), (x + bw, y + bh), color, 2)
+        label = f"{c.idx}:{c.reject_reason[:12]} b={c.body_shape_score:.2f}"
+        cv2.putText(
+            out,
+            label,
+            (x, max(14, y - 6)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.42,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+        ax, ay = int(c.aim_x), int(c.aim_y)
+        cv2.circle(out, (ax, ay), 4, color, -1)
+
+    if selected is not None:
+        x, y, bw, bh = selected.bbox_x, selected.bbox_y, selected.bbox_w, selected.bbox_h
+        cv2.rectangle(out, (x, y), (x + bw, y + bh), (0, 0, 255), 3)
+        ax, ay = int(selected.centroid_x), int(selected.centroid_y)
+        cv2.drawMarker(out, (ax, ay), (0, 255, 255), cv2.MARKER_CROSS, 16, 2)
+        chest_y = int(y + bh * 0.38)
+        chest_x = int(x + bw * 0.5)
+        cv2.circle(out, (chest_x, chest_y), 6, (255, 0, 255), 2)
+        cv2.putText(
+            out,
+            f"SELECT body={selected.body_shape_score:.2f} h={selected.head_score:.2f} "
+            f"t={selected.torso_score:.2f} l={selected.limb_stack_score:.2f}",
+            (8, h - 12),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+    else:
+        cv2.putText(out, "SELECT: none", (8, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 120, 255), 2)
+
+    return out
+
+
 def inspect_frame(
     frame_bgr: np.ndarray,
     hsv_ranges: list[dict[str, Any]],

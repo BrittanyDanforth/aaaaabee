@@ -82,7 +82,7 @@ def gen_dynamic_pose_dummy() -> np.ndarray:
     """Image 1 dynamic pose: staggered legs, weapon block (grey occluder)."""
     frame = np.full((FRAME_H, FRAME_W, 3), BG_SAND, dtype=np.uint8)
     _draw_training_dummy(frame, CX - 30, CY + 140, crouch=True)
-    cv2.rectangle(frame, (CX - 55, CY + 20), (CX + 40, CY + 90), (35, 35, 40), -1)
+    cv2.rectangle(frame, (CX - 50, CY + 35), (CX + 35, CY + 75), (35, 35, 40), -1)
     return frame
 
 

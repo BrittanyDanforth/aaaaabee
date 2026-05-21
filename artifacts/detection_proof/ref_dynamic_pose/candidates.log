@@ -1,0 +1,6 @@
+=== ref_dynamic_pose ===
+active=True
+cand[0] accept=True reject=ok body=1.00 head=1.00 torso=0.59 limb=1.00 aspect=3.23 circ=0.80 bbox=(596,361,35x113)
+cand[0] reject=ok body=1.00 head=1.00 torso=0.59 limb=1.00 aspect=3.23 fill=0.47 circ=0.80 bbox=(596,361,35x113) area=1165 dist=66 parts=5 | parts=5 head=1.00 torso=0.59 limb=1.00 vert=1.00 geom=0.92 align=0.66 circ=0.80 fill=0.47
+accepted=1 from 1 clusters / 5 parts
+SELECTED body=1.00 head=1.00 dist=66 bbox=35x113
