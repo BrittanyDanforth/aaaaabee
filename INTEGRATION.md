@@ -53,22 +53,29 @@ On startup you should see:
 
 
 
-## Live config (ready to run)
+## Profiles (`profiles.py`)
 
-Copy the whole **`config/`** folder + **`profiles.py`** + **`config.json`** to OverlayAssist.
+Use your existing **`profiles.py`** — do not duplicate JSON profile files.
 
-| Profile | File | When |
-|---------|------|------|
-| Live | `config/apex_style_live_safe.json` | Normal play, `allow_live_mouse: true` |
-| Live + trace | `config/apex_style_live_trace.json` or `"trace_pull": true` | Debug mouse lag |
+- **`apex_style_live_safe`** — live mouse, FOV 185 idle / **255 ADS**
+- **`apex_style_live_trace`** — same + `trace_pull` → `logs/pull_trace.log`
 
-```powershell
-copy config.json config.json
-python assist.py --config config.json
+```python
+from profiles import apply_profile, PROFILE_APEX_STYLE_LIVE_SAFE
+config = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_SAFE, **user_overrides})
 ```
 
-Trace log: `logs/pull_trace.log` (see `config/README.md`).
+FOV expands automatically while ADS (RMB) so edge targets stay in capture + pull.
 
+Optional overrides in `config.json` only:
+
+```json
+{
+  "profile": "apex_style_live_safe",
+  "fov_radius_pixels": 190,
+  "fov_radius_ads_pixels": 270
+}
+```
 
 ## Do NOT copy
 

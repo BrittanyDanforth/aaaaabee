@@ -28,7 +28,7 @@ from mouse_gate import MouseGateContext, MouseGateResult, evaluate_mouse_gate
 from mouse_io import MouseBackend, create_mouse_backend
 from platform_info import enable_dpi_awareness
 from process_presence import ProcessPresenceDebouncer
-from profiles import effective_capture_fps
+from profiles import effective_capture_fps, effective_fov_radius
 from pull import PullController, PullTuning
 from stats import RuntimeStats
 
@@ -352,7 +352,7 @@ class AssistRuntime:
     ) -> None:
         from overlay_window import OverlayWindow
 
-        radius = int(self.config["fov_radius_pixels"])
+        radius = effective_fov_radius(self.config, ads_active=True)
         self._overlay = OverlayWindow(
             width,
             height,
@@ -507,8 +507,11 @@ class AssistRuntime:
         dpi = enable_dpi_awareness()
         logger.info("DPI awareness: %s", dpi)
 
-        fov_radius = int(cfg["fov_radius_pixels"])
         fps = self._configured_fps
+        self._cap_region = None
+        self._frame_cx = 0.0
+        self._frame_cy = 0.0
+        self._last_fov_radius = -1
         if self._dry:
             print(
                 f"[ABA] DRY-RUN @ {fps} FPS (capped): mask/detection sanity — NOT flick/reacquire/combat proof."
@@ -542,7 +545,9 @@ class AssistRuntime:
                 smoothing_curve=str(cfg["smoothing_curve"]),
                 magnetism_radius=float(cfg["magnetism_radius_pixels"]),
                 magnetism_min_scale=float(cfg["magnetism_min_pull_scale"]),
-                fov_radius=float(fov_radius),
+                fov_radius=float(
+                    effective_fov_radius(cfg, ads_active=True)
+                ),
                 fov_edge_min_scale=float(cfg["fov_edge_min_pull_scale"]),
                 prediction_enabled=bool(cfg["prediction_enabled"]),
                 prediction_lead_seconds=float(cfg["prediction_lead_seconds"]),
@@ -606,16 +611,9 @@ class AssistRuntime:
 
             center_x = mon["width"] / 2.0 + float(cfg["crosshair_offset_x"])
             center_y = mon["height"] / 2.0 + float(cfg["crosshair_offset_y"])
-            cap_region = build_capture_region(
-                mon,
-                center_x,
-                center_y,
-                fov_radius,
-                use_crop=bool(cfg["capture_fov_crop"]),
-                crop_padding=float(cfg["capture_crop_padding"]),
-            )
-            frame_cx = center_x - cap_region.offset_x
-            frame_cy = center_y - cap_region.offset_y
+            cap_region = None
+            frame_cx = center_x
+            frame_cy = center_y
 
             if bool(cfg["enable_overlay"]):
                 self._start_overlay(
@@ -653,6 +651,24 @@ class AssistRuntime:
 
                     ads_live = self._ads.is_ads_active()
                     ads_for_assist = ads_live if self._live else (self._force_detect or ads_live)
+
+                    fov_radius = effective_fov_radius(cfg, ads_active=ads_for_assist)
+                    if cap_region is None or fov_radius != self._last_fov_radius:
+                        cap_region = build_capture_region(
+                            mon,
+                            center_x,
+                            center_y,
+                            fov_radius,
+                            use_crop=bool(cfg["capture_fov_crop"]),
+                            crop_padding=float(cfg["capture_crop_padding"]),
+                        )
+                        self._frame_cx = center_x - cap_region.offset_x
+                        self._frame_cy = center_y - cap_region.offset_y
+                        self._last_fov_radius = fov_radius
+                        if self._pull is not None:
+                            self._pull._tuning.fov_radius = float(fov_radius)
+                    frame_cx = self._frame_cx
+                    frame_cy = self._frame_cy
 
                     frame_bgr = grab_bgr(sct, cap_region)
 

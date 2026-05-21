@@ -8,6 +8,7 @@ import json
 import math
 import sys
 from pathlib import Path
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -110,11 +111,13 @@ def main() -> int:
     ap.add_argument("--profile", "-p", help="built-in profile name")
     args = ap.parse_args()
     if args.config:
-        from profiles import load_config
-        cfg = load_config(args.config)
+        import json
+        from profiles import apply_profile
+        raw = json.loads(Path(args.config).read_text(encoding="utf-8"))
+        cfg = apply_profile(raw)
     elif args.profile:
-        from profiles import load_config
-        cfg = load_config(profile=args.profile)
+        from profiles import apply_profile
+        cfg = apply_profile({"profile": args.profile})
     else:
         cfg = {
             "max_pull_speed_pixels_per_frame": 18.0,
