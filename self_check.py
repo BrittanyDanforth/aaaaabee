@@ -376,6 +376,14 @@ def run_self_check_detailed(config: dict[str, Any]) -> SelfCheckResult:
         from mouse_io import RecordingMouseBackend, create_mouse_backend
 
         rec = RecordingMouseBackend()
+        rec.move_relative(3, -2)
+        if len(rec.moves) != 1:
+            errors.append("Recording mouse backend failed")
+            lines.append("  FAIL recording backend")
+        else:
+            rdx, rdy = rec.moves[0]
+            lines.append(f"  OK  recording move {rdx},{rdy}")
+
         mode = str(config.get("mouse_backend", "auto"))
         if mode == "auto" and sys.platform == "win32":
             mode = "win32_sendinput"
@@ -383,17 +391,13 @@ def run_self_check_detailed(config: dict[str, Any]) -> SelfCheckResult:
             mode = "pynput"
         try:
             backend = create_mouse_backend(mode)
-        except Exception:
+        except Exception as exc:
             backend = RecordingMouseBackend()
-            warnings.append(f"mouse backend {mode} unavailable, used recording")
+            warnings.append(f"mouse backend {mode} unavailable, used recording ({exc})")
             lines.append(f"  WARN using recording backend only ({mode} unavailable)")
         lines.append(f"  OK  config mouse_backend -> {backend.name}")
-        rec.move_relative(3, -2)
-        if len(rec.moves) != 1:
-            errors.append("Recording mouse backend failed")
-            lines.append("  FAIL recording backend")
-        else:
-            lines.append(f"  OK  recording move {rec.moves[0].dx},{rec.moves[0].dy}")
+        if backend.name != "recording" and not isinstance(backend, RecordingMouseBackend):
+            lines.append(f"  OK  {backend.name} constructible (no OS move during self-check)")
     except Exception as exc:
         errors.append(f"Mouse backend: {exc}")
         lines.append(f"  FAIL {exc}")
