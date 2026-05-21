@@ -14,21 +14,21 @@ return runtime.run()
 
 | File | Action |
 |------|--------|
-| **`runtime.py`** | Replace with repo version (bbox motion wired) |
-| **`detector.py`** | Replace |
-| **`motion.py`** | Replace |
+| **`profiles.py`** | **Replace** — your profile system + FOV 185/255 ADS + trace/gate keys |
+| **`runtime.py`** | **Replace** — bbox aim, dynamic ADS FOV, pull trace |
+| **`detector.py`** | **Replace** |
+| **`motion.py`** | **Replace** |
+| **`pull.py`** | **Replace** |
+| **`mouse_gate.py`** | **Replace** |
+| **`pull_trace.py`** | **Replace** (only if you use `trace_pull`) |
 
-| **`pull.py`** | Replace (no double tracker when runtime pre-smooths aim) |
-| **`mouse_gate.py`** | Replace (stale-lock grace + pull cap) |
-| `ban_safety.py` | Replace only if missing in your tree |
+| `ban_safety.py` | Replace only if missing |
 
 ### Pull + mouse gate
 
 - `PullTuning.aim_pre_smoothed=True` (default): runtime already calls `observe_target(bbox)` — pull only does velocity/magnetism/humanize, not a second `TargetTracker`.
 - `mouse_gate`: passes `detection_fresh`, `target_lost_frames`, `stale_grace_frames` (config `mouse_gate_stale_grace_frames`, default 12). Blocks OS mouse after lock is stale too long; allows brief reacquire gaps.
 
-| **`pull.py`** | Replace |
-| **`mouse_gate.py`** | Replace |
 | `self_check.py` | Replace if setup fails |
 | `assist.py` | **Keep yours** |
 | `targeting_runtime.py` | Optional (tests only; runtime uses `TargetTracker` directly) |
@@ -51,6 +51,28 @@ On startup you should see:
 [ABA] Aim path: detector body-shape -> motion.observe_target(bbox) -> pull/overlay
 ```
 
+
+
+
+
+## Ready to run (checklist)
+
+1. Replace the files in the table above into your OverlayAssist folder.
+2. Keep **`assist.py`** and **`aba.py`** — they must still call `apply_profile()` before `AssistRuntime` (same as now).
+3. `config.json` can be minimal:
+
+```json
+{
+  "profile": "apex_style_live_safe"
+}
+```
+
+4. Start ABA → hold RMB in firing range. Console should show:
+   - `[ABA] LIVE INPUT ENABLED`
+   - `[ABA] Aim path: detector body-shape -> motion.observe_target(bbox) -> pull/overlay`
+5. FOV grows **185 → 255 px** when ADS is active (capture rebuilds automatically).
+
+Trace debug: `"profile": "apex_style_live_trace"` or `"trace_pull": true` in config.json.
 
 
 ## Profiles (`profiles.py`)
