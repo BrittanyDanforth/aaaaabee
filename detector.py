@@ -38,6 +38,10 @@ class RejectReason(str, Enum):
     SOLID_WALL = "solid_wall"
     OUTSIDE_FOV = "outside_fov"
     FLOATING_CLUSTER = "floating_cluster"
+    ROUND_NON_BODY = "round_non_body"
+    NO_TORSO = "no_torso"
+    NO_BODY_STACK = "no_body_stack"
+    SKY_BLOB = "sky_blob"
     LOW_SCORE = "low_body_shape_score"
 
 
@@ -355,6 +359,96 @@ def _merge_nearby_clusters(clusters: list[list[_RedPart]], frame_w: int, frame_h
     return merged
 
 
+
+
+def _max_part_circularity(parts: list[_RedPart]) -> float:
+    if not parts:
+        return 0.0
+    return max(p.circularity for p in parts)
+
+
+def _part_alignment_score(parts: list[_RedPart], scale: float) -> float:
+    """How well parts share a vertical body column (dummy joint layout)."""
+    if len(parts) < 2:
+        return 0.0
+    cx_std = float(np.std([p.cx for p in parts]))
+    align = max(0.0, 1.0 - cx_std / (24.0 * scale))
+    sorted_p = sorted(parts, key=lambda p: p.y)
+    gaps = [
+        sorted_p[i + 1].y - (sorted_p[i].y + sorted_p[i].h)
+        for i in range(len(sorted_p) - 1)
+    ]
+    good = sum(1 for g in gaps if -6 * scale <= g <= 100 * scale)
+    return min(1.0, align * 0.55 + 0.45 * (good / max(len(gaps), 1)))
+
+
+def _body_structure_reject(
+    parts: list[_RedPart],
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    frame_h: int,
+    frame_w: int,
+    scale: float,
+    head_s: float,
+    torso_s: float,
+    limb_s: float,
+    v_score: float,
+    fill: float,
+) -> RejectReason | None:
+    """Body-first gate: color mask is input only; shape must pass."""
+    aspect = bh / max(bw, 1)
+    foot_y = by + bh
+    center_y = frame_h * 0.5
+    max_circ = _max_part_circularity(parts)
+    align_s = _part_alignment_score(parts, scale)
+
+    # --- sky / balloon family ---
+    if foot_y < frame_h * 0.48 and aspect < 1.75 and len(parts) <= 2:
+        if max_circ >= 0.48 or (aspect < 1.35 and bh < frame_h * 0.14):
+            return RejectReason.SKY_BLOB
+
+    if len(parts) == 1:
+        p = parts[0]
+        if p.circularity >= 0.68 and aspect < 1.45:
+            return RejectReason.ROUND_NON_BODY
+        if p.circularity >= 0.52 and aspect < 1.2 and bh < 70 * scale:
+            return RejectReason.ROUND_NON_BODY
+        if p.circularity >= 0.45 and aspect < 1.15 and fill > 0.82:
+            return RejectReason.ROUND_NON_BODY
+
+    if aspect < 1.22 and len(parts) <= 2 and max_circ >= 0.42 and bh < frame_h * 0.16:
+        return RejectReason.ROUND_NON_BODY
+
+    if mid_y := by + bh * 0.5:
+        if mid_y < center_y - frame_h * 0.12 and aspect < 1.5 and limb_s < 0.35:
+            return RejectReason.SKY_BLOB
+
+    # --- torso / stack required (firing-range dummy layout) ---
+    has_head = any(p.role == PartRole.HEAD for p in parts) or head_s >= 0.38
+    has_torso = any(p.role == PartRole.TORSO for p in parts) or torso_s >= 0.30
+    has_limbs = limb_s >= 0.40 or len(parts) >= 3
+
+    if not has_torso and torso_s < 0.24:
+        if not (len(parts) >= 3 and limb_s >= 0.50 and v_score >= 0.35):
+            return RejectReason.NO_TORSO
+
+    stack_ok = (
+        (has_head and has_torso)
+        or (has_torso and has_limbs)
+        or (len(parts) >= 3 and limb_s >= 0.42 and v_score >= 0.28 and aspect >= 1.35)
+        or (aspect >= 1.55 and bh >= 65 * scale and v_score >= 0.30 and align_s >= 0.45)
+    )
+    if not stack_ok:
+        return RejectReason.NO_BODY_STACK
+
+    if aspect < 1.30 and len(parts) <= 2 and torso_s < 0.28 and limb_s < 0.40:
+        return RejectReason.NO_BODY_STACK
+
+    return None
+
+
 def _is_floating_cluster(
     bx: int,
     by: int,
@@ -453,10 +547,6 @@ def _score_torso(parts: list[_RedPart], mask: np.ndarray, bx: int, by: int, bw: 
         mid = _zone_density(mask, bx, by, bw, bh, 0.22, 0.58)
         if mid >= 0.18:
             return min(0.4, mid * 0.85)
-    if len(parts) >= 1:
-        p = max(parts, key=lambda p: p.area)
-        if p.role == PartRole.TORSO or (p.aspect_hw >= 1.0 and len(parts) >= 2):
-            return 0.38
     return 0.0
 
 
@@ -615,6 +705,36 @@ def analyze_figure(
     torso_s = _score_torso(parts, mask, bx, by, bw, bh)
     limb_s = _score_limb_stack(parts, scale)
     geom_s = _score_geometry(bw, bh, frame_w, frame_h, fill)
+    align_s = _part_alignment_score(parts, scale)
+    max_circ = _max_part_circularity(parts)
+
+    struct_reject = _body_structure_reject(
+        parts, bx, by, bw, bh, frame_h, frame_w, scale,
+        head_s, torso_s, limb_s, v_score, fill,
+    )
+    if struct_reject is not None:
+        return _FigureAnalysis(
+            accepted=False,
+            reject_reason=struct_reject,
+            body_shape_score=0.0,
+            head_score=head_s,
+            torso_score=torso_s,
+            limb_stack_score=limb_s,
+            vertical_profile_score=v_score,
+            geometry_score=geom_s,
+            fill_ratio=fill,
+            aspect=bh / max(bw, 1),
+            bx=bx, by=by, bw=bw, bh=bh,
+            part_count=len(parts),
+            aim_x=bx + bw * 0.5,
+            aim_y=by + bh * 0.36,
+            total_area=total_area,
+            solidity=total_area / max(bw * bh, 1),
+            debug_detail=(
+                f"{struct_reject.value} circ={max_circ:.2f} align={align_s:.2f} "
+                f"head={head_s:.2f} torso={torso_s:.2f} limb={limb_s:.2f} vert={v_score:.2f}"
+            ),
+        )
 
     body_shape = (
         head_s * 0.26
@@ -631,13 +751,14 @@ def analyze_figure(
         body_shape += 0.05
 
     body_shape = min(1.0, body_shape)
+    aspect = bh / max(bw, 1)
     min_accept = _MIN_BODY_SHAPE_PARTIAL if len(parts) <= 2 else _MIN_BODY_SHAPE_ACCEPT
     has_head_part = any(p.role == PartRole.HEAD for p in parts)
     structure_ok = (
-        (has_head_part and (torso_s >= 0.22 or limb_s >= 0.35))
-        or (len(parts) >= 3 and limb_s >= 0.38 and v_score >= 0.3)
-        or (len(parts) >= 2 and limb_s >= 0.42 and v_score >= 0.28)
-        or (len(parts) == 2 and head_s >= 0.32 and torso_s >= 0.22)
+        (has_head_part and torso_s >= 0.28 and (limb_s >= 0.32 or len(parts) >= 3))
+        or (torso_s >= 0.30 and limb_s >= 0.40 and len(parts) >= 2)
+        or (len(parts) >= 3 and limb_s >= 0.42 and v_score >= 0.30 and aspect >= 1.35)
+        or (aspect >= 1.55 and bh >= 65 * scale and align_s >= 0.45 and v_score >= 0.28)
     )
     if len(parts) == 1 and (v_score < 0.35 or fill > 0.88):
         structure_ok = False
@@ -653,7 +774,8 @@ def analyze_figure(
     ax, ay = _figure_aim_point(parts, bx, by, bw, bh, 0.38)
     detail = (
         f"parts={len(parts)} head={head_s:.2f} torso={torso_s:.2f} "
-        f"limb={limb_s:.2f} vert={v_score:.2f} geom={geom_s:.2f} fill={fill:.2f}"
+        f"limb={limb_s:.2f} vert={v_score:.2f} geom={geom_s:.2f} align={align_s:.2f} "
+        f"circ={max_circ:.2f} fill={fill:.2f}"
     )
 
     return _FigureAnalysis(
@@ -780,11 +902,14 @@ def _collect_candidates(
                 lines.append(f"cand[{idx}] {RejectReason.NO_BODY_STRUCTURE.value} (junk only)")
             continue
         fig = analyze_figure(body_parts, mask, w, h)
+        mc = _max_part_circularity(body_parts)
+        dist_c = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))
         line = (
-            f"cand[{idx}] {fig.reject_reason.value} body={fig.body_shape_score:.2f} "
-            f"head={fig.head_score:.2f} torso={fig.torso_score:.2f} "
-            f"limb={fig.limb_stack_score:.2f} aspect={fig.aspect:.2f} "
-            f"fill={fig.fill_ratio:.2f} bbox={fig.bw}x{fig.bh} parts={fig.part_count} | {fig.debug_detail}"
+            f"cand[{idx}] reject={fig.reject_reason.value} body={fig.body_shape_score:.2f} "
+            f"head={fig.head_score:.2f} torso={fig.torso_score:.2f} limb={fig.limb_stack_score:.2f} "
+            f"aspect={fig.aspect:.2f} fill={fig.fill_ratio:.2f} circ={mc:.2f} "
+            f"bbox=({fig.bx},{fig.by},{fig.bw}x{fig.bh}) area={fig.total_area:.0f} "
+            f"dist={dist_c:.0f} parts={fig.part_count} | {fig.debug_detail}"
         )
         if debug:
             lines.append(line)
@@ -845,8 +970,12 @@ def score_target(
             penalty += fov_radius * 2.2
     if target.bbox_w >= target.bbox_h:
         penalty += fov_radius * 0.8
-    if target.part_count < 2 and target.body_shape_score < 0.55:
-        penalty += fov_radius * 0.6
+    if target.part_count < 2:
+        penalty += fov_radius * 1.4
+    if target.bbox_h < target.bbox_w * 1.25:
+        penalty += fov_radius * 1.8
+    if target.body_shape_score < 0.48:
+        penalty += fov_radius * 0.9
     return body_term + dist_term + area_term - penalty
 
 
@@ -917,7 +1046,9 @@ def find_best_target(
             global_best = max(candidates, key=rank)
             if (
                 rank(global_best) > rank(sticky_best) * _STICKY_SWITCH_RATIO
-                and global_best.body_shape_score > sticky_best.body_shape_score + 0.1
+                and global_best.body_shape_score > sticky_best.body_shape_score + 0.15
+                and global_best.part_count >= 2
+                and global_best.bbox_h >= global_best.bbox_w * 1.25
                 and _bbox_iou(
                     sticky_target.bbox_x, sticky_target.bbox_y, sticky_target.bbox_w, sticky_target.bbox_h,
                     global_best.bbox_x, global_best.bbox_y, global_best.bbox_w, global_best.bbox_h,
