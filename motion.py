@@ -12,8 +12,9 @@ _TAU_POS_STILL = 0.055
 _TAU_POS_MOVING = 0.022
 _TAU_VEL = 0.040
 _TAU_PRED_BLEND = 0.018
-_MAX_PRED_LEAD_S = 0.045
-_MAX_PRED_PX = 28.0
+_MAX_PRED_LEAD_S = 0.038
+_MAX_PRED_PX = 22.0
+_MAX_UPWARD_LEAD_PX = 8.0
 _SPEED_MOVING_PX_S = 85.0
 
 
@@ -65,6 +66,8 @@ class TargetMotion:
         mlp = min(max(0.0, _finite(max_lead_pixels, 0.0)), 48.0)
         ox = _finite(self.vx, 0.0) * ls
         oy = _finite(self.vy, 0.0) * ls
+        if oy < 0.0:
+            oy = max(oy, -_MAX_UPWARD_LEAD_PX)
         lead_dist = math.hypot(ox, oy)
         if lead_dist <= 0.0 or not math.isfinite(lead_dist):
             return self.x, self.y
@@ -72,6 +75,8 @@ class TargetMotion:
             s = mlp / lead_dist
             ox *= s
             oy *= s
+            if oy < 0.0:
+                oy = max(oy, -_MAX_UPWARD_LEAD_PX)
         px = _finite(self.x, 0.0) + ox
         py = _finite(self.y, 0.0) + oy
         if math.isfinite(px) and math.isfinite(py):
@@ -94,6 +99,7 @@ class TargetTracker:
         self._prediction_enabled: bool = True
         self._prediction_lead_s: float = _MAX_PRED_LEAD_S
         self._prediction_max_px: float = _MAX_PRED_PX
+        self._body_bbox: tuple[int, int, int, int] | None = None
 
     def configure_prediction(
         self,
@@ -114,6 +120,27 @@ class TargetTracker:
         self._last_meas_y = None
         self._vx = 0.0
         self._vy = 0.0
+        self._body_bbox = None
+
+    @staticmethod
+    def _clamp_to_body_bbox(
+        x: float,
+        y: float,
+        bbox_x: int,
+        bbox_y: int,
+        bbox_w: int,
+        bbox_h: int,
+    ) -> tuple[float, float]:
+        """Keep smoothed aim inside upper-chest band — prevents sky/side drift."""
+        mx = bbox_w * 0.14
+        y_lo = bbox_y + bbox_h * 0.28
+        y_hi = bbox_y + bbox_h * 0.52
+        x_lo = bbox_x + mx
+        x_hi = bbox_x + bbox_w - mx
+        return (
+            max(x_lo, min(x_hi, x)),
+            max(y_lo, min(y_hi, y)),
+        )
 
     def _effective_tau(self, dt: float, speed: float) -> float:
         t = max(0.0, min(1.0, speed / _SPEED_MOVING_PX_S))
@@ -130,7 +157,7 @@ class TargetTracker:
         bbox_w: int | None = None,
         bbox_h: int | None = None,
     ) -> TargetMotion:
-        """Prefer bbox upper-chest column; raw centroid weighted lightly to avoid plate hopping."""
+        """Detector centroid is already body-anchored — do not re-blend toward bbox column."""
         if (
             bbox_x is not None
             and bbox_y is not None
@@ -139,10 +166,9 @@ class TargetTracker:
             and bbox_w > 0
             and bbox_h > 0
         ):
-            col_x = bbox_x + bbox_w * 0.5
-            col_y = bbox_y + bbox_h * 0.38
-            x = 0.35 * x + 0.65 * col_x
-            y = 0.35 * y + 0.65 * col_y
+            self._body_bbox = (int(bbox_x), int(bbox_y), int(bbox_w), int(bbox_h))
+        else:
+            self._body_bbox = None
         return self.observe(x, y, time_sec)
 
     def observe(self, x: float, y: float, time_sec: float) -> TargetMotion:
@@ -176,6 +202,8 @@ class TargetTracker:
             va = alpha_from_tau(dt, _TAU_VEL)
             self._vx = _finite(self._vx + va * (inst_vx - self._vx), 0.0)
             self._vy = _finite(self._vy + va * (inst_vy - self._vy), 0.0)
+            if self._vy < 0.0:
+                self._vy *= 0.55
             vmag = math.hypot(self._vx, self._vy)
             if vmag > _MAX_VELOCITY:
                 s = _MAX_VELOCITY / vmag
@@ -190,8 +218,11 @@ class TargetTracker:
         self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
 
         if self._prediction_enabled:
-            pred_x = self._smooth_x + self._vx * min(dt, _MAX_PRED_LEAD_S)
-            pred_y = self._smooth_y + self._vy * min(dt, _MAX_PRED_LEAD_S)
+            lead_dt = min(dt, _MAX_PRED_LEAD_S)
+            pred_x = self._smooth_x + self._vx * lead_dt
+            pred_y = self._smooth_y + self._vy * lead_dt
+            if pred_y < self._smooth_y:
+                pred_y = max(pred_y, self._smooth_y - _MAX_UPWARD_LEAD_PX)
             pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
             out_x = self._smooth_x + pa * (pred_x - self._smooth_x)
             out_y = self._smooth_y + pa * (pred_y - self._smooth_y)
@@ -208,6 +239,10 @@ class TargetTracker:
         ):
             px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
             motion = TargetMotion(px, py, self._vx, self._vy)
+        if self._body_bbox is not None:
+            bx, by, bw, bh = self._body_bbox
+            cx, cy = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
+            motion = TargetMotion(cx, cy, motion.vx, motion.vy)
         self._last = motion
         return self._last
 

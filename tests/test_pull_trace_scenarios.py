@@ -100,7 +100,7 @@ class PullTraceScenarioTests(unittest.TestCase):
 
             self.assertTrue(log.is_file())
             body = log.read_text(encoding="utf-8")
-            self.assertIn("pull_dxdy=", body)
+            self.assertIn("pull_output=", body)
             self.assertIn("motion_target=", body)
             self.assertIn("gate_allowed=True", body)
             summary = analyze_trace_file(log)

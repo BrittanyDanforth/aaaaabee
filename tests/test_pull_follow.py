@@ -149,7 +149,7 @@ class PullFollowTests(unittest.TestCase):
             )
         )
         self.assertIn("frame=42", line)
-        self.assertIn("pull_dxdy=(8,2)", line)
+        self.assertIn("pull_output=(8,2)", line)
         self.assertIn("gate_allowed=True", line)
 
 

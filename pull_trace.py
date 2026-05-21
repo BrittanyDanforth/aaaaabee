@@ -32,29 +32,59 @@ class PullTraceFrame:
     stale_detection: bool = False
     has_target: bool = True
     ads_active: bool = True
+    raw_bbox: tuple[int, int, int, int] | None = None
+    raw_anchor: tuple[float, float] | None = None
+    motion_anchor: tuple[float, float] | None = None
+    overlay_dot: tuple[float, float] | None = None
+    center_error: tuple[float, float] | None = None
+    pull_output: tuple[int, int] | None = None
+    head_score: float = -1.0
+    torso_score: float = -1.0
+    limb_score: float = -1.0
+    selected_reason: str = ""
+    capture_ms: float = -1.0
+    detect_ms: float = -1.0
+    total_loop_ms: float = -1.0
+    achieved_fps: float = -1.0
 
 
 def format_trace_line(t: PullTraceFrame) -> str:
     ex, ey = t.error
-    return (
-        f"frame={t.frame}\n"
-        f"has_target={t.has_target}\n"
-        f"ads_active={t.ads_active}\n"
-        f"raw_target=({t.raw_target[0]:.1f},{t.raw_target[1]:.1f})\n"
-        f"motion_target=({t.motion_target[0]:.1f},{t.motion_target[1]:.1f})\n"
-        f"center=({t.center[0]:.1f},{t.center[1]:.1f})\n"
-        f"error=({ex:.1f},{ey:.1f})\n"
-        f"pull_dxdy=({t.pull_dxdy[0]},{t.pull_dxdy[1]})\n"
-        f"pull_mag={t.pull_mag:.2f}\n"
-        f"pull_vel=({t.pull_vel[0]:.2f},{t.pull_vel[1]:.2f})\n"
-        f"pull_desired=({t.pull_desired[0]:.2f},{t.pull_desired[1]:.2f})\n"
-        f"detection_fresh={t.detection_fresh}\n"
-        f"target_lost_frames={t.target_lost_frames}\n"
-        f"stale_detection={t.stale_detection}\n"
-        f"gate_allowed={t.gate_allowed}\n"
-        f"gate_reason={t.gate_reason or ''}\n"
-        f"mouse_move_called=({t.mouse_move_called[0]},{t.mouse_move_called[1]})"
-    )
+    lines = [
+        f"frame={t.frame}",
+        f"has_target={t.has_target}",
+        f"ads_active={t.ads_active}",
+        f"raw_target=({t.raw_target[0]:.1f},{t.raw_target[1]:.1f})",
+        f"motion_target=({t.motion_target[0]:.1f},{t.motion_target[1]:.1f})",
+        f"center=({t.center[0]:.1f},{t.center[1]:.1f})",
+        f"center_error=({ex:.1f},{ey:.1f})",
+        f"pull_output=({t.pull_dxdy[0]},{t.pull_dxdy[1]})",
+        f"pull_mag={t.pull_mag:.2f}",
+        f"pull_vel=({t.pull_vel[0]:.2f},{t.pull_vel[1]:.2f})",
+        f"pull_desired=({t.pull_desired[0]:.2f},{t.pull_desired[1]:.2f})",
+        f"detection_fresh={t.detection_fresh}",
+        f"target_lost_frames={t.target_lost_frames}",
+        f"stale_detection={t.stale_detection}",
+        f"gate_allowed={t.gate_allowed}",
+        f"gate_reason={t.gate_reason or ''}",
+        f"mouse_move_called=({t.mouse_move_called[0]},{t.mouse_move_called[1]})",
+    ]
+    if t.raw_bbox is not None:
+        bx, by, bw, bh = t.raw_bbox
+        lines.append(f"raw_bbox=({bx},{by},{bw},{bh})")
+    if t.raw_anchor is not None:
+        lines.append(f"raw_anchor=({t.raw_anchor[0]:.1f},{t.raw_anchor[1]:.1f})")
+    if t.motion_anchor is not None:
+        lines.append(f"motion_anchor=({t.motion_anchor[0]:.1f},{t.motion_anchor[1]:.1f})")
+    if t.overlay_dot is not None:
+        lines.append(f"overlay_dot=({t.overlay_dot[0]:.1f},{t.overlay_dot[1]:.1f})")
+    if t.head_score >= 0:
+        lines.append(f"raw_parts=head={t.head_score:.2f} torso={t.torso_score:.2f} limb={t.limb_score:.2f}")
+    if t.selected_reason:
+        lines.append(f"selected_reason={t.selected_reason}")
+    if t.capture_ms >= 0:
+        lines.append(f"capture_ms={t.capture_ms:.2f} detect_ms={t.detect_ms:.2f} total_loop_ms={t.total_loop_ms:.2f} fps={t.achieved_fps:.1f}")
+    return "\n".join(lines) + "\n"
 
 
 def trace_log_path() -> Path | None:

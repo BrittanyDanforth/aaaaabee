@@ -464,7 +464,9 @@ def _is_floating_cluster(
     mid_y = by + bh * 0.5
     if foot_y < frame_h * 0.40 and bh < frame_h * 0.28:
         return True
-    if mid_y < center_y - frame_h * 0.22 and len(parts) <= 2 and bh < 72 * scale:
+    if mid_y < center_y - frame_h * 0.18 and len(parts) <= 3 and bh < 95 * scale:
+        return True
+    if by < frame_h * 0.12 and bh < frame_h * 0.22:
         return True
     if len(parts) == 1:
         p = parts[0]
@@ -519,6 +521,82 @@ def _zone_density(mask: np.ndarray, bx: int, by: int, bw: int, bh: int, y0f: flo
     if roi.size == 0:
         return 0.0
     return float((roi > 0).mean())
+
+def _mask_chest_anchor(
+    mask: np.ndarray,
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    *,
+    y0f: float = 0.30,
+    y1f: float = 0.50,
+) -> tuple[float, float] | None:
+    """Centroid of red pixels in upper-chest band — stable body mass, not sky above head."""
+    if bw < 4 or bh < 8:
+        return None
+    y0 = by + int(bh * y0f)
+    y1 = by + int(bh * y1f)
+    y0 = max(by, min(y0, by + bh - 2))
+    y1 = max(y0 + 2, min(y1, by + bh))
+    roi = mask[y0:y1, bx : bx + bw]
+    if roi.size == 0:
+        return None
+    ys, xs = np.where(roi > 0)
+    if len(xs) < 8:
+        return None
+    ax = float(bx + np.mean(xs))
+    ay = float(y0 + np.mean(ys))
+    return ax, ay
+
+
+def _clamp_aim_to_body_bbox(
+    ax: float,
+    ay: float,
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    parts: list[_RedPart],
+    torso_fraction: float,
+) -> tuple[float, float]:
+    """Keep aim inside upper-chest band; never above head plate or into sky above bbox."""
+    frac = max(0.32, min(0.48, torso_fraction))
+    y_lo = by + bh * 0.30
+    y_hi = by + bh * min(0.50, frac + 0.10)
+    heads = [p for p in parts if p.role == PartRole.HEAD]
+    if heads:
+        head_bottom = heads[0].y + heads[0].h
+        y_lo = max(y_lo, head_bottom - bh * 0.02)
+    ay = max(y_lo, min(y_hi, ay))
+    x_lo = bx + bw * 0.22
+    x_hi = bx + bw * 0.78
+    ax = max(x_lo, min(x_hi, ax))
+    return ax, ay
+
+
+def _aim_inside_body_bbox(
+    ax: float,
+    ay: float,
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    *,
+    margin_x: float = 0.12,
+    margin_y_top: float = 0.08,
+    margin_y_bot: float = 0.12,
+) -> bool:
+    if bw <= 0 or bh <= 0:
+        return False
+    mx = bw * margin_x
+    myt = bh * margin_y_top
+    myb = bh * margin_y_bot
+    return (
+        bx + mx <= ax <= bx + bw - mx
+        and by + myt <= ay <= by + bh - myb
+    )
+
 
 
 def _score_head(parts: list[_RedPart], mask: np.ndarray, bx: int, by: int, bw: int, bh: int, scale: float) -> float:
@@ -629,6 +707,9 @@ def _hard_reject(
             return RejectReason.DIAMOND_SIGN
         if p.extent >= 0.82 and p.area >= 4500 * _scale(frame_w, frame_h) ** 2 and aspect < 2.0:
             return RejectReason.SOLID_WALL
+
+    if aspect < 1.65 and bh <= 22 * _scale(frame_w, frame_h) and len(parts) <= 2:
+        return RejectReason.HEALTH_BAR_ONLY
     if len(parts) == 1 and all(_is_health_bar(p, _scale(frame_w, frame_h)) for p in parts):
         return RejectReason.HEALTH_BAR_ONLY
     return None
@@ -636,6 +717,7 @@ def _hard_reject(
 
 def _figure_aim_point(
     parts: list[_RedPart],
+    mask: np.ndarray,
     bx: int,
     by: int,
     bw: int,
@@ -643,22 +725,30 @@ def _figure_aim_point(
     torso_fraction: float = 0.38,
 ) -> tuple[float, float]:
     """
-    Stable upper-chest aim on the humanoid column — not a single red plate centroid.
-    Matches firing-range dummies: red on face/joints but pull toward torso line.
+    Upper-chest anchor from mask mass in torso band; clamped below head, inside bbox.
     """
-    frac = max(0.30, min(0.48, torso_fraction))
+    frac = max(0.34, min(0.46, torso_fraction))
     ax = bx + bw * 0.5
     ay = by + bh * frac
+
+    chest = _mask_chest_anchor(mask, bx, by, bw, bh, y0f=0.30, y1f=0.50)
+    if chest is not None:
+        ax = 0.55 * ax + 0.45 * chest[0]
+        ay = 0.50 * ay + 0.50 * chest[1]
+
     if len(parts) >= 2:
         torsos = [p for p in parts if p.role == PartRole.TORSO]
         if torsos:
             t = max(torsos, key=lambda p: p.area)
-            ax = 0.65 * ax + 0.35 * t.cx
-            ay = 0.55 * ay + 0.45 * (t.y + t.h * 0.42)
+            ax = 0.72 * ax + 0.28 * t.cx
+            ay = 0.70 * ay + 0.30 * t.cy
         else:
             cx_parts = float(np.mean([p.cx for p in parts]))
-            ax = 0.7 * ax + 0.3 * cx_parts
-    return ax, ay
+            cy_parts = float(np.mean([p.cy for p in parts]))
+            ax = 0.75 * ax + 0.25 * cx_parts
+            ay = 0.75 * ay + 0.25 * cy_parts
+
+    return _clamp_aim_to_body_bbox(ax, ay, bx, by, bw, bh, parts, frac)
 
 
 def analyze_figure(
@@ -666,6 +756,8 @@ def analyze_figure(
     mask: np.ndarray,
     frame_w: int,
     frame_h: int,
+    *,
+    torso_aim_fraction: float = 0.38,
 ) -> _FigureAnalysis:
     scale = _scale(frame_w, frame_h)
     bx, by, bw, bh = _cluster_bbox(parts)
@@ -771,7 +863,27 @@ def analyze_figure(
     if accepted and body_shape < min_accept:
         reason = RejectReason.LOW_SCORE
 
-    ax, ay = _figure_aim_point(parts, bx, by, bw, bh, 0.38)
+    ax, ay = _figure_aim_point(parts, mask, bx, by, bw, bh, torso_aim_fraction)
+    if not _aim_inside_body_bbox(ax, ay, bx, by, bw, bh):
+        return _FigureAnalysis(
+            accepted=False,
+            reject_reason=RejectReason.SKY_BLOB,
+            body_shape_score=body_shape,
+            head_score=head_s,
+            torso_score=torso_s,
+            limb_stack_score=limb_s,
+            vertical_profile_score=v_score,
+            geometry_score=geom_s,
+            fill_ratio=fill,
+            aspect=aspect,
+            bx=bx, by=by, bw=bw, bh=bh,
+            part_count=len(parts),
+            aim_x=bx + bw * 0.5,
+            aim_y=by + bh * 0.40,
+            total_area=total_area,
+            solidity=total_area / max(bw * bh, 1),
+            debug_detail="aim_outside_body_bbox",
+        )
     detail = (
         f"parts={len(parts)} head={head_s:.2f} torso={torso_s:.2f} "
         f"limb={limb_s:.2f} vert={v_score:.2f} geom={geom_s:.2f} align={align_s:.2f} "
@@ -863,6 +975,7 @@ def enumerate_candidates(
     fov_center_y: float | None = None,
     *,
     exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
+    torso_aim_fraction: float = 0.38,
 ) -> tuple[list[CandidateInfo], np.ndarray, list[_RedPart]]:
     """All clusters with scores/reject reasons — for debug artifacts (not color-only)."""
     h, w = frame_bgr.shape[:2]
@@ -966,7 +1079,7 @@ def enumerate_candidates(
             )
             continue
 
-        fig = analyze_figure(body_parts, mask, w, h)
+        fig = analyze_figure(body_parts, mask, w, h, torso_aim_fraction=torso_aim_fraction)
         dist = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))
         accepted = fig.accepted and dist <= fov_radius
         reason = fig.reject_reason.value
@@ -1117,6 +1230,7 @@ def _collect_candidates(
     cy: float,
     *,
     exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
+    torso_aim_fraction: float = 0.38,
     debug: bool = False,
 ) -> tuple[list[Target], list[str]]:
     global _LAST_DEBUG_LINES
@@ -1145,7 +1259,7 @@ def _collect_candidates(
             if debug:
                 lines.append(f"cand[{idx}] {RejectReason.NO_BODY_STRUCTURE.value} (junk only)")
             continue
-        fig = analyze_figure(body_parts, mask, w, h)
+        fig = analyze_figure(body_parts, mask, w, h, torso_aim_fraction=torso_aim_fraction)
         mc = _max_part_circularity(body_parts)
         dist_c = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))
         line = (
@@ -1208,7 +1322,11 @@ def score_target(
     penalty = 0.0
     if center_y is not None:
         if target.centroid_y < center_y:
-            penalty += (center_y - target.centroid_y) * 1.4
+            penalty += (center_y - target.centroid_y) * 2.8
+        if target.bbox_h > 0:
+            chest_hi = target.bbox_y + target.bbox_h * 0.48
+            if target.centroid_y < chest_hi - target.bbox_h * 0.06:
+                penalty += (chest_hi - target.centroid_y) * 4.5
         foot_y = target.bbox_y + target.bbox_h
         if foot_y < center_y + fov_radius * 0.15:
             penalty += fov_radius * 2.2
@@ -1262,6 +1380,7 @@ def find_best_target(
         cx,
         cy,
         exclude_bottom_frac=exclude_bottom_frac,
+        torso_aim_fraction=torso_aim_fraction,
         debug=debug,
     )
     if not candidates:

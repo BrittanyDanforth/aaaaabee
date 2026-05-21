@@ -234,6 +234,11 @@ class AssistRuntime:
         detection_fresh: bool,
         stale_det: bool,
         ads_active: bool,
+        overlay_dot: tuple[float, float] | None = None,
+        capture_ms: float = -1.0,
+        detect_ms: float = -1.0,
+        total_loop_ms: float = -1.0,
+        achieved_fps: float = -1.0,
     ) -> None:
         if not self._trace_pull:
             return
@@ -250,6 +255,15 @@ class AssistRuntime:
             rx, ry = target.centroid_x, target.centroid_y
         else:
             rx, ry = mx, my
+        raw_bbox = None
+        head_s = torso_s = limb_s = -1.0
+        selected_reason = ""
+        if target is not None:
+            raw_bbox = (target.bbox_x, target.bbox_y, target.bbox_w, target.bbox_h)
+            head_s = float(getattr(target, "head_score", -1.0))
+            torso_s = float(getattr(target, "torso_score", -1.0))
+            limb_s = float(getattr(target, "limb_stack_score", -1.0))
+            selected_reason = str(getattr(target, "reject_reason", "") or "body_lock")
         log_trace_frame(
             PullTraceFrame(
                 frame=self._trace_frame,
@@ -269,6 +283,20 @@ class AssistRuntime:
                 stale_detection=stale_det,
                 has_target=target is not None,
                 ads_active=ads_active,
+                raw_bbox=raw_bbox,
+                raw_anchor=(rx, ry),
+                motion_anchor=(mx, my),
+                overlay_dot=overlay_dot,
+                center_error=(mx - frame_cx, my - frame_cy),
+                pull_output=(pr_dx, pr_dy),
+                head_score=head_s,
+                torso_score=torso_s,
+                limb_score=limb_s,
+                selected_reason=selected_reason,
+                capture_ms=capture_ms,
+                detect_ms=detect_ms,
+                total_loop_ms=total_loop_ms,
+                achieved_fps=achieved_fps,
             ),
             cfg,
         )
@@ -730,10 +758,14 @@ class AssistRuntime:
                     frame_cx = self._frame_cx
                     frame_cy = self._frame_cy
 
+                    t_cap0 = time.perf_counter()
                     frame_bgr = grab_bgr(sct, cap_region)
+                    capture_ms = (time.perf_counter() - t_cap0) * 1000.0
+                    detect_ms = 0.0
 
                     detection_fresh = False
                     if ads_for_assist and not paused:
+                        t_det0 = time.perf_counter()
                         det = self._select_target(
                             frame_bgr,
                             hsv_ranges,
@@ -742,6 +774,7 @@ class AssistRuntime:
                             frame_cx,
                             frame_cy,
                         )
+                        detect_ms = (time.perf_counter() - t_det0) * 1000.0
                         detection_fresh = det.target is not None and self._target_lost_frames == 0
                     else:
                         det = DetectionResult(None, 0, 0.0)
@@ -782,6 +815,12 @@ class AssistRuntime:
                             gate_result = self._safe_mouse_move(pr.dx, pr.dy)
                             if gate_result.allowed:
                                 moved = (pr.dx, pr.dy)
+                        overlay_mon = None
+                        if motion is not None and cap_region is not None:
+                            ox, oy = to_monitor_coords(motion.x, motion.y, cap_region)
+                            overlay_mon = (ox, oy)
+                        loop_ms = (time.perf_counter() - t0) * 1000.0
+                        ach_fps = 1000.0 / loop_ms if loop_ms > 0.1 else 0.0
                         if self._trace_pull:
                             self._emit_pull_trace(
                                 cfg,
@@ -800,10 +839,17 @@ class AssistRuntime:
                                 detection_fresh=detection_fresh,
                                 stale_det=stale_det,
                                 ads_active=ads_for_assist,
+                                overlay_dot=overlay_mon,
+                                capture_ms=capture_ms,
+                                detect_ms=detect_ms,
+                                total_loop_ms=loop_ms,
+                                achieved_fps=ach_fps,
                             )
 
                     elif ads_for_assist and self._trace_pull and pull_target is None:
                         gate_result = MouseGateResult(True, "")
+                        loop_ms = (time.perf_counter() - t0) * 1000.0
+                        ach_fps = 1000.0 / loop_ms if loop_ms > 0.1 else 0.0
                         self._emit_pull_trace(
                             cfg,
                             frame_cx=frame_cx,
@@ -821,6 +867,10 @@ class AssistRuntime:
                             detection_fresh=detection_fresh,
                             stale_det=stale_det,
                             ads_active=ads_for_assist,
+                            capture_ms=capture_ms,
+                            detect_ms=detect_ms,
+                            total_loop_ms=loop_ms,
+                            achieved_fps=ach_fps,
                         )
 
                     elif (not ads_for_assist or paused or target is None) and self._pull is not None:
