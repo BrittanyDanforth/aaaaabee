@@ -7,7 +7,7 @@ import unittest
 import cv2
 import numpy as np
 
-import detection
+import detector
 
 # Apex enemy highlight red in BGR
 RED = (0, 0, 255)
@@ -79,7 +79,7 @@ class ScenarioTests(unittest.TestCase):
         self.cy = self.h / 2
 
     def _detect(self, frame: np.ndarray, *, debug: bool = False):
-        return detection.find_best_target(
+        return detector.find_best_target(
             frame,
             HSV_RED,
             self.fov,
@@ -179,7 +179,7 @@ class ScenarioTests(unittest.TestCase):
         for dx in (0, 2, 4, 2, 0, -2):
             f = frame.copy()
             _apex_dummy(f, int(self.cx + 5 + dx), int(self.cy + 88))
-            r = detection.find_best_target(
+            r = detector.find_best_target(
                 f,
                 HSV_RED,
                 self.fov,
@@ -220,8 +220,8 @@ class LegacyTests(unittest.TestCase):
         striped[10:25, 12:28] = 255
         striped[40:60, 12:28] = 255
         striped[75:88, 12:28] = 255
-        vs, _ = detection._vertical_profile_score(solid, 0, 0, 40, 100)
-        vt, _ = detection._vertical_profile_score(striped, 0, 0, 40, 100)
+        vs, _ = detector._vertical_profile_score(solid, 0, 0, 40, 100)
+        vt, _ = detector._vertical_profile_score(striped, 0, 0, 40, 100)
         self.assertGreater(vt, vs)
 
 

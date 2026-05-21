@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cv2
-import detection
+import detector
 from tests.synthetic_frame_generators import HSV_RED, CX, CY, FOV_RADIUS, SYNTHETIC_FRAME_GENERATORS
 
 
@@ -37,10 +37,10 @@ def main() -> int:
 
     h, w = frame.shape[:2]
     cx, cy = w / 2, h / 2
-    report = detection.inspect_frame(frame, HSV_RED, args.fov, cx, cy)
+    report = detector.inspect_frame(frame, HSV_RED, args.fov, cx, cy)
     print(json.dumps(report, indent=2))
 
-    r = detection.find_best_target(frame, HSV_RED, args.fov, 60.0, cx, cy, debug=True)
+    r = detector.find_best_target(frame, HSV_RED, args.fov, 60.0, cx, cy, debug=True)
     print("active:", r.active)
     for line in r.debug_lines:
         print(line)

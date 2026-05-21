@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-import detection
+import detector
 from tests.synthetic_frame_generators import (
     HSV_RED,
     MIN_AREA,
@@ -16,10 +16,10 @@ from tests.synthetic_frame_generators import (
 
 
 class SyntheticFrameTests(unittest.TestCase):
-    def _run(self, name: str) -> detection.DetectionResult:
+    def _run(self, name: str) -> detector.DetectionResult:
         gen = SYNTHETIC_FRAME_GENERATORS[name]
         frame, spec = gen()
-        return detection.find_best_target(
+        return detector.find_best_target(
             frame,
             HSV_RED,
             FOV_RADIUS,
@@ -33,7 +33,7 @@ class SyntheticFrameTests(unittest.TestCase):
         for name in SYNTHETIC_FRAME_GENERATORS:
             with self.subTest(name=name):
                 frame, spec = SYNTHETIC_FRAME_GENERATORS[name]()
-                r = detection.find_best_target(
+                r = detector.find_best_target(
                     frame, HSV_RED, FOV_RADIUS, MIN_AREA, CX, CY, debug=True
                 )
                 self.assertEqual(
@@ -52,7 +52,7 @@ class SyntheticFrameTests(unittest.TestCase):
 
     def test_inspect_frame_reports_clusters(self) -> None:
         frame, _ = SYNTHETIC_FRAME_GENERATORS["red_building_dummy_overlap"]()
-        report = detection.inspect_frame(frame, HSV_RED, FOV_RADIUS, CX, CY)
+        report = detector.inspect_frame(frame, HSV_RED, FOV_RADIUS, CX, CY)
         self.assertGreater(report["parts"], 0)
         self.assertGreater(len(report["clusters_detail"]), 0)
 
