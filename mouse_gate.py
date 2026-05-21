@@ -7,6 +7,9 @@ from typing import Any
 
 from ban_safety import dry_run_mode, live_assist_enabled
 
+# Pull scales max_speed by dt (up to ~3.2x at 30 FPS) — gate must not block those moves.
+_DEFAULT_PULL_BUDGET_SCALE = 3.5
+
 
 @dataclass(frozen=True)
 class MouseGateContext:
@@ -20,10 +23,10 @@ class MouseGateContext:
     dx: int
     dy: int
     max_pull_per_frame: float
-    # Optional — when set, stale lock without fresh detection can block moves.
     detection_fresh: bool = True
     target_lost_frames: int = 0
     stale_grace_frames: int = 12
+    pull_budget_scale: float = _DEFAULT_PULL_BUDGET_SCALE
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,12 @@ def _target_lock_ok(ctx: MouseGateContext) -> bool:
     if ctx.stale_grace_frames <= 0:
         return True
     return ctx.target_lost_frames <= ctx.stale_grace_frames
+
+
+def pull_budget_px(ctx: MouseGateContext, config: dict[str, Any]) -> float:
+    cap = max(1.0, float(ctx.max_pull_per_frame))
+    scale = float(config.get("mouse_gate_pull_budget_scale", ctx.pull_budget_scale))
+    return cap * max(1.0, scale)
 
 
 def evaluate_mouse_gate(config: dict[str, Any], ctx: MouseGateContext) -> MouseGateResult:
@@ -72,8 +81,11 @@ def evaluate_mouse_gate(config: dict[str, Any], ctx: MouseGateContext) -> MouseG
         return MouseGateResult(False, "target process not present")
 
     mag = (ctx.dx * ctx.dx + ctx.dy * ctx.dy) ** 0.5
-    cap = max(1.0, float(ctx.max_pull_per_frame))
-    if mag > cap * 1.5:
-        return MouseGateResult(False, f"pull {mag:.1f}px exceeds cap {cap:.1f}")
+    budget = pull_budget_px(ctx, config)
+    if mag > budget:
+        return MouseGateResult(
+            False,
+            f"pull {mag:.1f}px exceeds budget {budget:.1f}",
+        )
 
     return MouseGateResult(True, "")

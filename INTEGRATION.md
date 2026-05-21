@@ -71,3 +71,15 @@ Generate proof images (optional):
 ```powershell
 python scripts/save_detection_artifacts.py --all-references
 ```
+
+### Trace mode (lag debug)
+
+Set in `config.json`:
+
+```json
+"trace_pull": true
+```
+
+Logs per frame: raw_target, motion_target, error, pull_dxdy, gate_allowed, mouse_move_called.
+
+Also: `mouse_gate_pull_budget_scale` (default 3.5) must match pull dt-scaling or gate blocks valid moves.

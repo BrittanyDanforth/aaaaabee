@@ -21,7 +21,7 @@ def _finite(v: float, fallback: float = 0.0) -> float:
     return v if math.isfinite(v) else fallback
 
 
-def _alpha_from_tau(dt: float, tau: float) -> float:
+def alpha_from_tau(dt: float, tau: float) -> float:
     if tau <= 0.0:
         return 1.0
     dt = max(_MIN_DT, min(dt, _MAX_DT))
@@ -160,7 +160,7 @@ class TargetTracker:
         if self._last_meas_x is not None and self._last_meas_y is not None:
             inst_vx = (x - self._last_meas_x) / dt
             inst_vy = (y - self._last_meas_y) / dt
-            va = _alpha_from_tau(dt, _TAU_VEL)
+            va = alpha_from_tau(dt, _TAU_VEL)
             self._vx = _finite(self._vx + va * (inst_vx - self._vx), 0.0)
             self._vy = _finite(self._vy + va * (inst_vy - self._vy), 0.0)
             vmag = math.hypot(self._vx, self._vy)
@@ -171,14 +171,14 @@ class TargetTracker:
 
         speed = math.hypot(self._vx, self._vy)
         tau = self._effective_tau(dt, speed)
-        alpha = _alpha_from_tau(dt, tau)
+        alpha = alpha_from_tau(dt, tau)
 
         self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
         self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
 
         pred_x = self._smooth_x + self._vx * min(dt, _MAX_PRED_LEAD_S)
         pred_y = self._smooth_y + self._vy * min(dt, _MAX_PRED_LEAD_S)
-        pa = _alpha_from_tau(dt, _TAU_PRED_BLEND)
+        pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
         out_x = self._smooth_x + pa * (pred_x - self._smooth_x)
         out_y = self._smooth_y + pa * (pred_y - self._smooth_y)
 

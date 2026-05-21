@@ -179,13 +179,32 @@ class MouseGateTests(unittest.TestCase):
             ads_active=True,
             has_target=True,
             target_process_ok=True,
-            dx=30,
+            dx=80,
             dy=0,
             max_pull_per_frame=10.0,
+            pull_budget_scale=3.5,
         )
         r = evaluate_mouse_gate(self._cfg(), ctx)
         self.assertFalse(r.allowed)
-        self.assertIn("exceeds cap", r.reason)
+        self.assertIn("exceeds budget", r.reason)
+
+
+    def test_gate_allows_large_dt_scaled_pull(self) -> None:
+        ctx = MouseGateContext(
+            running=True,
+            stopping=False,
+            paused=False,
+            mouse_enabled=True,
+            ads_active=True,
+            has_target=True,
+            target_process_ok=True,
+            dx=28,
+            dy=0,
+            max_pull_per_frame=12.0,
+            pull_budget_scale=3.5,
+        )
+        r = evaluate_mouse_gate(self._cfg(), ctx)
+        self.assertTrue(r.allowed, r.reason)
 
 
 class RuntimeGateWiringTests(unittest.TestCase):

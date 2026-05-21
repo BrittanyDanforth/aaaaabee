@@ -24,7 +24,7 @@ from capture import build_capture_region, grab_bgr, to_monitor_coords
 from detector import DetectionResult, Target, draw_debug, find_best_target
 from input_state import AdsInputState
 from motion import TargetMotion, TargetTracker
-from mouse_gate import MouseGateContext, evaluate_mouse_gate
+from mouse_gate import MouseGateContext, MouseGateResult, evaluate_mouse_gate
 from mouse_io import MouseBackend, create_mouse_backend
 from platform_info import enable_dpi_awareness
 from process_presence import ProcessPresenceDebouncer
@@ -93,6 +93,8 @@ class AssistRuntime:
         self._frame_has_target = False
         self._switch_candidate: Target | None = None
         self._switch_frames = 0
+        self._trace_frame = 0
+        self._trace_pull = False
 
     def _smooth_aim(
         self,
@@ -212,9 +214,9 @@ class AssistRuntime:
 
         return self._process_debounce.is_running(proc)
 
-    def _safe_mouse_move(self, dx: int, dy: int) -> None:
+    def _safe_mouse_move(self, dx: int, dy: int) -> MouseGateResult:
         if dx == 0 and dy == 0:
-            return
+            return MouseGateResult(True, "")
         cfg = self.config
         proc_ok = self._target_process_ok(cfg)
         with self._lock:
@@ -225,6 +227,7 @@ class AssistRuntime:
             has_target = self._locked_target is not None
             detection_fresh = self._frame_has_target
             stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
+            budget_scale = float(cfg.get("mouse_gate_pull_budget_scale", 3.5))
             ctx = MouseGateContext(
                 running=running,
                 stopping=stopping,
@@ -239,15 +242,17 @@ class AssistRuntime:
                 dx=dx,
                 dy=dy,
                 max_pull_per_frame=float(cfg["max_pull_speed_pixels_per_frame"]),
+                pull_budget_scale=budget_scale,
             )
             result = evaluate_mouse_gate(cfg, ctx)
             self._last_gate_block = result.reason
             if not result.allowed or not self.running or stopping:
-                return
-            try:
-                self._mouse.move_relative(dx, dy)
-            except Exception:
-                logger.debug("mouse move_relative failed", exc_info=True)
+                return result
+        try:
+            self._mouse.move_relative(dx, dy)
+        except Exception:
+            logger.debug("mouse move_relative failed", exc_info=True)
+        return result
 
     def _sleep_interruptible(self, seconds: float) -> None:
         if seconds <= 0:
@@ -509,6 +514,8 @@ class AssistRuntime:
                 f"[ABA] DRY-RUN @ {fps} FPS (capped): mask/detection sanity — NOT flick/reacquire/combat proof."
             )
         self._stats = RuntimeStats(fps)
+        self._trace_pull = bool(cfg.get("trace_pull", False))
+        self._trace_frame = 0
         log_interval = max(1, int(cfg.get("stats_log_interval_frames", 60)))
 
         self._pull = PullController(
@@ -649,7 +656,7 @@ class AssistRuntime:
                         det = DetectionResult(None, 0, 0.0)
                         self._aim_tracker.reset()
                     target = det.target
-                    stale_det = target is not None and not detection_fresh
+                    stale_det = target is not None and self._target_lost_frames > 0
                     with self._lock:
                         self._frame_has_target = detection_fresh
 
@@ -678,8 +685,35 @@ class AssistRuntime:
                         )
                         pull_px = pr.magnitude
                         pull_strength = pr.effective_strength
+                        gate_result = MouseGateResult(True, "")
+                        moved = (0, 0)
                         if (pr.dx != 0 or pr.dy != 0) and self._should_run():
-                            self._safe_mouse_move(pr.dx, pr.dy)
+                            gate_result = self._safe_mouse_move(pr.dx, pr.dy)
+                            if gate_result.allowed:
+                                moved = (pr.dx, pr.dy)
+                        if self._trace_pull and target is not None and motion is not None:
+                            from pull_trace import PullTraceFrame, log_trace_frame
+
+                            self._trace_frame += 1
+                            log_trace_frame(
+                                PullTraceFrame(
+                                    frame=self._trace_frame,
+                                    raw_target=(target.centroid_x, target.centroid_y),
+                                    motion_target=(motion.x, motion.y),
+                                    center=(frame_cx, frame_cy),
+                                    error=(motion.x - frame_cx, motion.y - frame_cy),
+                                    pull_dxdy=(pr.dx, pr.dy),
+                                    pull_mag=pr.magnitude,
+                                    pull_vel=(pr.vel_x, pr.vel_y),
+                                    pull_desired=(pr.desired_x, pr.desired_y),
+                                    gate_allowed=gate_result.allowed,
+                                    gate_reason=gate_result.reason,
+                                    mouse_move_called=moved,
+                                    detection_fresh=detection_fresh,
+                                    target_lost_frames=self._target_lost_frames,
+                                    stale_detection=stale_det,
+                                )
+                            )
 
                     elif (not ads_for_assist or paused or target is None) and self._pull is not None:
                         self._pull.reset()
