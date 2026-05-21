@@ -61,8 +61,8 @@ class TargetMotion:
     ) -> tuple[float, float]:
         if lead_seconds <= 0.0 or max_lead_pixels <= 0.0:
             return self.x, self.y
-        ls = min(_finite(lead_seconds, 0.0), _MAX_PRED_LEAD_S)
-        mlp = min(_finite(max_lead_pixels, 0.0), _MAX_PRED_PX)
+        ls = min(max(0.0, _finite(lead_seconds, 0.0)), 0.12)
+        mlp = min(max(0.0, _finite(max_lead_pixels, 0.0)), 48.0)
         ox = _finite(self.vx, 0.0) * ls
         oy = _finite(self.vy, 0.0) * ls
         lead_dist = math.hypot(ox, oy)
@@ -91,6 +91,19 @@ class TargetTracker:
         self._last_meas_y: float | None = None
         self._vx: float = 0.0
         self._vy: float = 0.0
+        self._prediction_enabled: bool = True
+        self._prediction_lead_s: float = _MAX_PRED_LEAD_S
+        self._prediction_max_px: float = _MAX_PRED_PX
+
+    def configure_prediction(
+        self,
+        enabled: bool,
+        lead_seconds: float,
+        max_pixels: float,
+    ) -> None:
+        self._prediction_enabled = bool(enabled)
+        self._prediction_lead_s = max(0.0, float(lead_seconds))
+        self._prediction_max_px = max(0.0, float(max_pixels))
 
     def reset(self) -> None:
         self._last = None
@@ -176,16 +189,26 @@ class TargetTracker:
         self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
         self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
 
-        pred_x = self._smooth_x + self._vx * min(dt, _MAX_PRED_LEAD_S)
-        pred_y = self._smooth_y + self._vy * min(dt, _MAX_PRED_LEAD_S)
-        pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
-        out_x = self._smooth_x + pa * (pred_x - self._smooth_x)
-        out_y = self._smooth_y + pa * (pred_y - self._smooth_y)
+        if self._prediction_enabled:
+            pred_x = self._smooth_x + self._vx * min(dt, _MAX_PRED_LEAD_S)
+            pred_y = self._smooth_y + self._vy * min(dt, _MAX_PRED_LEAD_S)
+            pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
+            out_x = self._smooth_x + pa * (pred_x - self._smooth_x)
+            out_y = self._smooth_y + pa * (pred_y - self._smooth_y)
+        else:
+            out_x = self._smooth_x
+            out_y = self._smooth_y
 
         self._last_meas_x = x
         self._last_meas_y = y
         self._last_time = time_sec
-        self._last = TargetMotion(out_x, out_y, self._vx, self._vy)
+        motion = TargetMotion(out_x, out_y, self._vx, self._vy)
+        if self._prediction_enabled and (
+            self._prediction_lead_s > 0.0 and self._prediction_max_px > 0.0
+        ):
+            px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
+            motion = TargetMotion(px, py, self._vx, self._vy)
+        self._last = motion
         return self._last
 
 
@@ -195,21 +218,19 @@ class HumanizedMotion:
     def __init__(self, amplitude: float, jerk_limit: float) -> None:
         self._amplitude = max(0.0, min(amplitude, 2.0))
         self._jerk_limit = max(0.0, jerk_limit)
-        self._prev_dx = 0.0
-        self._prev_dy = 0.0
+        self._prev_wobble_x = 0.0
+        self._prev_wobble_y = 0.0
         self._frame = 0
 
     def reset(self) -> None:
-        self._prev_dx = 0.0
-        self._prev_dy = 0.0
+        self._prev_wobble_x = 0.0
+        self._prev_wobble_y = 0.0
         self._frame = 0
 
     def apply(self, dx: float, dy: float) -> tuple[float, float]:
         dx = _finite(dx, 0.0)
         dy = _finite(dy, 0.0)
         if self._amplitude <= 0.0 and self._jerk_limit <= 0.0:
-            self._prev_dx = dx
-            self._prev_dy = dy
             return dx, dy
 
         self._frame += 1
@@ -220,21 +241,20 @@ class HumanizedMotion:
         n = self._frame
         wobble_x = self._amplitude * wobble_scale * math.sin(n * 0.73) * math.cos(n * 0.19)
         wobble_y = self._amplitude * wobble_scale * math.cos(n * 0.61) * math.sin(n * 0.23)
-        out_x = dx + wobble_x
-        out_y = dy + wobble_y
 
         if self._jerk_limit > 0.0:
-            jx = out_x - self._prev_dx
-            jy = out_y - self._prev_dy
+            jx = wobble_x - self._prev_wobble_x
+            jy = wobble_y - self._prev_wobble_y
             jmag = math.hypot(jx, jy)
             if jmag > self._jerk_limit:
                 scale = self._jerk_limit / jmag
-                out_x = self._prev_dx + jx * scale
-                out_y = self._prev_dy + jy * scale
+                wobble_x = self._prev_wobble_x + jx * scale
+                wobble_y = self._prev_wobble_y + jy * scale
 
+        self._prev_wobble_x = wobble_x
+        self._prev_wobble_y = wobble_y
+        out_x = dx + wobble_x
+        out_y = dy + wobble_y
         if not (math.isfinite(out_x) and math.isfinite(out_y)):
-            out_x, out_y = dx, dy
-
-        self._prev_dx = out_x
-        self._prev_dy = out_y
+            return dx, dy
         return out_x, out_y

@@ -518,6 +518,12 @@ class AssistRuntime:
         self._trace_frame = 0
         log_interval = max(1, int(cfg.get("stats_log_interval_frames", 60)))
 
+        self._aim_tracker.configure_prediction(
+            bool(cfg["prediction_enabled"]),
+            float(cfg["prediction_lead_seconds"]),
+            float(cfg["prediction_max_pixels"]),
+        )
+
         self._pull = PullController(
             PullTuning(
                 max_speed=float(cfg["max_pull_speed_pixels_per_frame"]),
