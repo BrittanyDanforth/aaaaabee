@@ -516,6 +516,15 @@ class AssistRuntime:
         self._stats = RuntimeStats(fps)
         self._trace_pull = bool(cfg.get("trace_pull", False))
         self._trace_frame = 0
+        if self._trace_pull:
+            from pull_trace import setup_trace_logging
+
+            setup_trace_logging(cfg, app_root=self.config_path.parent)
+            print(
+                f"[ABA] Pull trace ON -> {cfg.get('trace_pull_log_file', 'logs/pull_trace.log')} "
+                f"(interval={cfg.get('trace_pull_interval_frames', 1)} "
+                f"max={cfg.get('trace_pull_max_frames', 0)})"
+            )
         log_interval = max(1, int(cfg.get("stats_log_interval_frames", 60)))
 
         self._aim_tracker.configure_prediction(
@@ -718,7 +727,8 @@ class AssistRuntime:
                                     detection_fresh=detection_fresh,
                                     target_lost_frames=self._target_lost_frames,
                                     stale_detection=stale_det,
-                                )
+                                ),
+                                cfg,
                             )
 
                     elif (not ads_for_assist or paused or target is None) and self._pull is not None:

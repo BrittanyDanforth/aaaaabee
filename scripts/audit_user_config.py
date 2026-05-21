@@ -107,9 +107,14 @@ def simulate(cfg: dict, fps: float, steps: int = 150) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("config", nargs="?", help="path to config.json")
+    ap.add_argument("--profile", "-p", help="built-in profile name")
     args = ap.parse_args()
     if args.config:
-        cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+        from profiles import load_config
+        cfg = load_config(args.config)
+    elif args.profile:
+        from profiles import load_config
+        cfg = load_config(profile=args.profile)
     else:
         cfg = {
             "max_pull_speed_pixels_per_frame": 18.0,

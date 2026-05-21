@@ -1,0 +1,11 @@
+{
+  "profile": "apex_style_live_trace",
+  "_comment": "Inherits apex_style_live_safe.json via profiles.PROFILE_CHAIN — overrides trace only.",
+  "trace_pull": true,
+  "trace_pull_console": true,
+  "trace_pull_log_file": "logs/pull_trace.log",
+  "trace_pull_interval_frames": 1,
+  "trace_pull_max_frames": 600,
+  "verbose_logging": true,
+  "stats_log_interval_frames": 30
+}

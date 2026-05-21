@@ -1,11 +1,15 @@
-"""Frame-by-frame pull / gate trace logging for lag audits."""
+"""Frame-by-frame pull / gate trace logging for live lag audits."""
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("overlay_assist.pull_trace")
+
+_configured = False
 
 
 @dataclass
@@ -38,6 +42,7 @@ def format_trace_line(t: PullTraceFrame) -> str:
         f"pull_dxdy=({t.pull_dxdy[0]},{t.pull_dxdy[1]})\n"
         f"pull_mag={t.pull_mag:.2f}\n"
         f"pull_vel=({t.pull_vel[0]:.2f},{t.pull_vel[1]:.2f})\n"
+        f"pull_desired=({t.pull_desired[0]:.2f},{t.pull_desired[1]:.2f})\n"
         f"detection_fresh={t.detection_fresh}\n"
         f"target_lost_frames={t.target_lost_frames}\n"
         f"stale_detection={t.stale_detection}\n"
@@ -47,5 +52,53 @@ def format_trace_line(t: PullTraceFrame) -> str:
     )
 
 
-def log_trace_frame(t: PullTraceFrame) -> None:
+def setup_trace_logging(config: dict[str, Any], *, app_root: Path | None = None) -> bool:
+    """Configure file/console handlers from config. Returns whether trace is enabled."""
+    global _configured
+    enabled = bool(config.get("trace_pull", False))
+    if not enabled:
+        return False
+
+    root = app_root or Path.cwd()
+    log_path = Path(str(config.get("trace_pull_log_file", "logs/pull_trace.log")))
+    if not log_path.is_absolute():
+        log_path = root / log_path
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.handlers.clear()
+
+    fmt = logging.Formatter("%(asctime)s %(message)s")
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+
+    if bool(config.get("trace_pull_console", True)):
+        ch = logging.StreamHandler()
+        ch.setFormatter(fmt)
+        logger.addHandler(ch)
+
+    _configured = True
+    logger.info(
+        "=== pull trace ON profile=%s interval=%s max_frames=%s file=%s ===",
+        config.get("profile", ""),
+        config.get("trace_pull_interval_frames", 1),
+        config.get("trace_pull_max_frames", 0),
+        log_path,
+    )
+    return True
+
+
+def should_log_frame(frame_index: int, config: dict[str, Any]) -> bool:
+    max_frames = int(config.get("trace_pull_max_frames", 0))
+    if max_frames > 0 and frame_index > max_frames:
+        return False
+    interval = max(1, int(config.get("trace_pull_interval_frames", 1)))
+    return frame_index % interval == 0
+
+
+def log_trace_frame(t: PullTraceFrame, config: dict[str, Any] | None = None) -> None:
+    if config is not None and not should_log_frame(t.frame, config):
+        return
     logger.info("%s", format_trace_line(t))

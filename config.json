@@ -1,0 +1,4 @@
+{
+  "_comment": "Pointer profile — full tuning in config/apex_style_live_safe.json. Use: assist.py --config config.json",
+  "profile": "apex_style_live_safe"
+}

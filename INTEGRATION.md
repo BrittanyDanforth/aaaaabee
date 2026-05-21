@@ -51,6 +51,25 @@ On startup you should see:
 [ABA] Aim path: detector body-shape -> motion.observe_target(bbox) -> pull/overlay
 ```
 
+
+
+## Live config (ready to run)
+
+Copy the whole **`config/`** folder + **`profiles.py`** + **`config.json`** to OverlayAssist.
+
+| Profile | File | When |
+|---------|------|------|
+| Live | `config/apex_style_live_safe.json` | Normal play, `allow_live_mouse: true` |
+| Live + trace | `config/apex_style_live_trace.json` or `"trace_pull": true` | Debug mouse lag |
+
+```powershell
+copy config.json config.json
+python assist.py --config config.json
+```
+
+Trace log: `logs/pull_trace.log` (see `config/README.md`).
+
+
 ## Do NOT copy
 
 - `tests/` folder
