@@ -22,7 +22,7 @@ return runtime.run()
 | **`mouse_gate.py`** | **Replace** |
 | **`pull_trace.py`** | **Replace** (only if you use `trace_pull`) |
 
-| `ban_safety.py` | Replace only if missing |
+| **`ban_safety.py`** | **Replace** — full policy (offline_dev, profile gates, EAC process check) |
 
 ### Pull + mouse gate
 
