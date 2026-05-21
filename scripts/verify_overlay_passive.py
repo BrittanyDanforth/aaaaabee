@@ -10,7 +10,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import overlay_assist
+import overlay_window as overlay_assist
 
 WS_EX_LAYERED = 0x00080000
 WS_EX_TRANSPARENT = 0x00000020

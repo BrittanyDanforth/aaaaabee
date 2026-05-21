@@ -5,7 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-import overlay_assist
+import overlay_window
+import overlay_window as overlay_assist
 
 
 class HexToColorrefTests(unittest.TestCase):
@@ -74,8 +75,8 @@ class MakeClickThroughTests(unittest.TestCase):
         with mock.patch.object(
             overlay_assist, "_collect_overlay_hwnds", return_value=[10, 20]
         ) as collect:
-            with mock.patch.object(overlay_assist, "_apply_win32_passive_hwnd") as apply:
-                with mock.patch("overlay_assist.sys.platform", "win32"):
+            with mock.patch.object(overlay_window, "_apply_win32_passive_hwnd") as apply:
+                with mock.patch("overlay_window.sys.platform", "win32"):
                     with mock.patch("ctypes.windll", create=True) as windll:
                         windll.user32.ShowWindow.return_value = True
                         windll.user32.SetWindowPos.return_value = True

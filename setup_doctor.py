@@ -16,6 +16,7 @@ REQUIREMENTS = APP_ROOT / "requirements.txt"
 CONFIG = APP_ROOT / "config.json"
 ABA_ENTRY = APP_ROOT / "aba.py"
 ASSIST_ENTRY = APP_ROOT / "assist.py"
+OVERLAY_ENTRY = APP_ROOT / "overlay_assist.py"
 
 
 @dataclass
