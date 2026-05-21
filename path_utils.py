@@ -20,7 +20,9 @@ def resolve_config_path(path: Path | str) -> Path:
     else:
         p = p.resolve()
     if not p.is_file():
-        raise FileNotFoundError(f"config not found: {p}")
+        from config_validation import ConfigError
+
+        raise ConfigError(f"config not found: {p}")
     return p
 
 

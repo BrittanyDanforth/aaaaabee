@@ -2,7 +2,21 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Protocol
+
+
+def is_rmb_down_win32() -> bool:
+    """Poll physical right mouse button (Windows only)."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        VK_RBUTTON = 0x02
+        return bool(ctypes.windll.user32.GetAsyncKeyState(VK_RBUTTON) & 0x8000)
+    except Exception:
+        return False
 
 
 class MouseBackend(Protocol):

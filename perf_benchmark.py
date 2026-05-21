@@ -23,6 +23,18 @@ class BenchmarkReport:
     had_target_frames: int
     error: str = ""
 
+    @property
+    def gameplay_readiness(self) -> str:
+        if self.error:
+            return f"FAILED: {self.error}"
+        if self.frames < 10:
+            return "INSUFFICIENT: too few frames captured"
+        if self.achieved_fps < 8.0:
+            return f"INSUFFICIENT: fps {self.achieved_fps:.1f} below minimum"
+        if self.avg_detect_ms > 80.0:
+            return f"CANNOT sustain detect_ms {self.avg_detect_ms:.1f} at target FPS"
+        return "OK: capture/detect loop within dry-run budget"
+
     def summary(self) -> str:
         if self.error:
             return f"FAILED: {self.error}"
