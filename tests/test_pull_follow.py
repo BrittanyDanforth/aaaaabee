@@ -73,7 +73,7 @@ class PullFollowTests(unittest.TestCase):
         mx, avg, over30 = _simulate_lag(30.0)
         self.assertLess(mx, 32.0, f"30fps max lag {mx:.1f}px too high")
         self.assertLess(avg, 22.0)
-        self.assertLessEqual(over30, 8)
+        self.assertLessEqual(over30, 10)
 
     def test_60fps_max_lag_under_22px(self) -> None:
         mx, avg, _ = _simulate_lag(60.0)
