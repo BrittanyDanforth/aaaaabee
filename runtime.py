@@ -22,7 +22,7 @@ from ban_safety import (
     validate_runtime_policy,
 )
 from capture import build_capture_region, grab_bgr, to_monitor_coords
-from detector import DetectionResult, Target, draw_debug, find_best_target
+from detector import DetectionContext, DetectionResult, Target, draw_debug, find_best_target
 from input_state import AdsInputState
 from motion import TargetMotion, TargetTracker
 from mouse_gate import MouseGateContext, MouseGateResult, evaluate_mouse_gate
@@ -68,6 +68,12 @@ class AssistRuntime:
         # Body-column aim smoothing (bbox-aware — required for moving targets)
         self._aim_tracker = TargetTracker()
         self._last_motion: TargetMotion | None = None
+        # Stateful detection context — supplies prev-frame gray buffer for the
+        # motion-difference channel that boosts recall on low-contrast targets.
+        self._detect_ctx = DetectionContext(
+            motion_assist=bool(config.get("detection_motion_assist", True)),
+            motion_threshold=int(config.get("detection_motion_threshold", 10)),
+        )
 
         if mouse_backend is not None:
             self._mouse = mouse_backend
@@ -524,6 +530,7 @@ class AssistRuntime:
         self._switch_frames = 0
         self._aim_tracker.reset()
         self._last_motion = None
+        self._detect_ctx.reset()
         if self._pull is not None:
             self._pull.reset()
 
@@ -635,6 +642,7 @@ class AssistRuntime:
             aim_y_max_fraction=float(cfg.get("aim_body_y_max_fraction", 0.52)),
             debug=bool(cfg.get("verbose_logging", False)),
             detection_mode=str(cfg.get("detection_mode", "shape")),
+            context=self._detect_ctx,
         )
         with self._lock:
             if result.target is not None:
@@ -892,6 +900,7 @@ class AssistRuntime:
                         if self._pull is not None:
                             self._pull.reset()
                         self._aim_tracker.reset()
+                        self._detect_ctx.reset()
                         sleep_time = frame_interval - (time.perf_counter() - t0)
                         self._sleep_interruptible(sleep_time)
                         continue
@@ -951,6 +960,7 @@ class AssistRuntime:
                     else:
                         det = DetectionResult(None, 0, 0.0)
                         self._aim_tracker.reset()
+                        self._detect_ctx.reset()
                     target = det.target
                     stale_det = target is not None and self._target_lost_frames > 0
                     with self._lock:

@@ -216,10 +216,16 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         raise ConfigError("aim_body_y_min_fraction must be < aim_body_y_max_fraction")
 
     cfg["smoothing_tau_still"] = _require_number(
-        cfg, "smoothing_tau_still", default=0.062, minimum=0.01, maximum=0.25
+        cfg, "smoothing_tau_still", default=0.042, minimum=0.01, maximum=0.25
     )
     cfg["smoothing_tau_moving"] = _require_number(
-        cfg, "smoothing_tau_moving", default=0.028, minimum=0.005, maximum=0.15
+        cfg, "smoothing_tau_moving", default=0.018, minimum=0.005, maximum=0.15
+    )
+    cfg["detection_motion_assist"] = bool(cfg.get("detection_motion_assist", True))
+    cfg["detection_motion_threshold"] = int(
+        _require_number(
+            cfg, "detection_motion_threshold", default=10.0, minimum=4.0, maximum=80.0
+        )
     )
     cfg["body_shape_min_score"] = _require_number(
         cfg, "body_shape_min_score", default=0.40, minimum=0.2, maximum=0.85

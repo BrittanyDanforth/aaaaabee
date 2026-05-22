@@ -9,11 +9,11 @@
   "torso_aim_fraction": 0.4,
   "aim_body_y_min_fraction": 0.28,
   "aim_body_y_max_fraction": 0.5,
-  "velocity_smoothing": 0.48,
-  "smoothing_tau_still": 0.048,
-  "smoothing_tau_moving": 0.02,
-  "max_pull_speed_pixels_per_frame": 26,
-  "pull_strength": 0.82,
+  "velocity_smoothing": 0.42,
+  "smoothing_tau_still": 0.034,
+  "smoothing_tau_moving": 0.014,
+  "max_pull_speed_pixels_per_frame": 30,
+  "pull_strength": 0.88,
   "deadzone_pixels": 2,
   "prediction_enabled": true,
   "prediction_lead_seconds": 0.02,
@@ -21,5 +21,7 @@
   "humanize_enabled": false,
   "verbose_logging": false,
   "trace_pull": true,
-  "detection_mode": "shape"
+  "detection_mode": "shape",
+  "detection_motion_assist": true,
+  "detection_motion_threshold": 9
 }
