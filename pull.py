@@ -73,10 +73,8 @@ def pull_fov_distance_scale(
         return 1.0
     base = fov_distance_scale(dist, fov_radius, edge_min_scale)
     t = min(1.25, max(0.0, dist / fov_radius))
-    if t >= 0.70:
-        return max(base, 0.86)
-    if t >= 0.55:
-        return max(base, 0.78)
+    if t >= 0.85:
+        return max(base, 0.82)
     return base
 
 
@@ -136,7 +134,7 @@ class PullController:
 
     def _effective_strength_multiplier(self) -> float:
         if self._tuning.aim_pre_smoothed:
-            return 1.28
+            return 1.05
         return 1.0
 
     def _aim_point(self, target: Target, now: float, *, stale_detection: bool) -> tuple[float, float]:
@@ -215,6 +213,14 @@ class PullController:
 
         err_x = aim_x - center_x
         err_y = aim_y - center_y
+        # Only clamp absurd errors (detector teleport); normal FOV offset must pull through.
+        if target.bbox_w > 0 and target.bbox_h > 0:
+            max_ex = max(48.0, target.bbox_w * 2.5)
+            max_ey = max(40.0, target.bbox_h * 2.2)
+            if abs(err_x) > max_ex:
+                err_x = max(-max_ex, min(max_ex, err_x))
+            if abs(err_y) > max_ey:
+                err_y = max(-max_ey, min(max_ey, err_y))
         dist = math.hypot(err_x, err_y)
         if dist <= self._tuning.deadzone:
             decay = apply_smoothing_curve(
@@ -252,10 +258,8 @@ class PullController:
         alpha = alpha_from_tau(dt, tau_eff)
         alpha = apply_smoothing_curve(alpha, self._tuning.smoothing_curve)
         alpha = max(alpha, alpha_from_tau(dt, tau))
-        if self._tuning.aim_pre_smoothed and dist > 12.0:
-            alpha = max(alpha, alpha_from_tau(dt, 0.012) * min(1.0, dist / 35.0))
-        if self._tuning.aim_pre_smoothed and dist > self._tuning.fov_radius * 0.55:
-            alpha = max(alpha, alpha_from_tau(dt, 0.010))
+        if self._tuning.aim_pre_smoothed and dist > 18.0:
+            alpha = max(alpha, alpha_from_tau(dt, 0.008) * min(1.0, dist / 50.0))
 
         if not self._tuning.aim_pre_smoothed:
             vel_mag = math.hypot(self._vel_x, self._vel_y)

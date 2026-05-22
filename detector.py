@@ -571,8 +571,8 @@ def _clamp_aim_to_body_bbox(
         head_bottom = heads[0].y + heads[0].h
         y_lo = max(y_lo, head_bottom - bh * 0.02)
     ay = max(y_lo, min(y_hi, ay))
-    x_lo = bx + bw * 0.22
-    x_hi = bx + bw * 0.78
+    x_lo = bx + bw * 0.30
+    x_hi = bx + bw * 0.70
     ax = max(x_lo, min(x_hi, ax))
     return ax, ay
 
@@ -735,7 +735,7 @@ def _figure_aim_point(
 
     chest = _mask_chest_anchor(mask, bx, by, bw, bh, y0f=0.32, y1f=0.50)
     if chest is not None:
-        ax = 0.55 * ax + 0.45 * chest[0]
+        ax = 0.40 * ax + 0.60 * chest[0]
         ay = 0.50 * ay + 0.50 * chest[1]
 
     y_lo = by + bh * _BODY_Y_LO_FRAC
@@ -746,12 +746,12 @@ def _figure_aim_point(
         if torsos:
             t = max(torsos, key=lambda p: p.area)
             tcy = max(y_lo, min(y_hi, t.cy))
-            ax = 0.78 * ax + 0.22 * t.cx
+            ax = 0.88 * ax + 0.12 * t.cx
             ay = 0.82 * ay + 0.18 * tcy
         else:
             cx_parts = float(np.mean([p.cx for p in parts]))
             cy_parts = float(np.mean([max(y_lo, min(y_hi, p.cy)) for p in parts]))
-            ax = 0.80 * ax + 0.20 * cx_parts
+            ax = 0.90 * ax + 0.10 * cx_parts
             ay = 0.80 * ay + 0.20 * cy_parts
 
     return _clamp_aim_to_body_bbox(ax, ay, bx, by, bw, bh, parts, frac)

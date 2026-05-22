@@ -22,7 +22,7 @@ _body_y_hi_frac = _BODY_Y_HI_FRAC
 _tau_still = _TAU_POS_STILL
 _tau_moving = _TAU_POS_MOVING
 _max_upward_lead_px = _MAX_UPWARD_LEAD_PX
-_BODY_X_MARGIN_FRAC = 0.14
+_BODY_X_MARGIN_FRAC = 0.18
 _SPEED_MOVING_PX_S = 85.0
 
 
@@ -270,7 +270,10 @@ class TargetTracker:
             self._last = TargetMotion(x, y, 0.0, 0.0)
             return self._last
 
-        dt = time_sec - (self._last_time or time_sec)
+        if self._last_time is None:
+            dt = 1.0 / 60.0
+        else:
+            dt = time_sec - self._last_time
         if dt < 0.0:
             dt = _MIN_DT
         dt = max(_MIN_DT, min(dt, _MAX_DT))
@@ -278,6 +281,14 @@ class TargetTracker:
         if self._last_meas_x is not None and self._last_meas_y is not None:
             inst_vx = (x - self._last_meas_x) / dt
             inst_vy = (y - self._last_meas_y) / dt
+            cap_v = 120.0
+            if self._body_bbox is not None:
+                cap_v = max(55.0, min(200.0, self._body_bbox[3] * 1.6))
+            ivmag = math.hypot(inst_vx, inst_vy)
+            if ivmag > cap_v and ivmag > 0.0:
+                s = cap_v / ivmag
+                inst_vx *= s
+                inst_vy *= s
             va = alpha_from_tau(dt, _TAU_VEL)
             self._vx = _finite(self._vx + va * (inst_vx - self._vx), 0.0)
             self._vy = _finite(self._vy + va * (inst_vy - self._vy), 0.0)
@@ -299,12 +310,19 @@ class TargetTracker:
         pre_x, pre_y = self._smooth_x, self._smooth_y
         self._last_pre_predict = (pre_x, pre_y)
 
-        if self._prediction_enabled:
+        use_inline_lead = self._prediction_enabled and not (
+            self._aim_is_body_anchor and self._body_bbox is not None
+        )
+        if use_inline_lead:
             lead_dt = min(dt, _MAX_PRED_LEAD_S)
             pred_x = pre_x + self._vx * lead_dt
             pred_y = pre_y + self._vy * lead_dt
             if pred_y < pre_y:
                 pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
+            if self._body_bbox is not None:
+                bx, by, bw, bh = self._body_bbox
+                mx = bw * _BODY_X_MARGIN_FRAC
+                pred_x = max(bx + mx, min(bx + bw - mx, pred_x))
             pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
             out_x = pre_x + pa * (pred_x - pre_x)
             out_y = pre_y + pa * (pred_y - pre_y)

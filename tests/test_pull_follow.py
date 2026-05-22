@@ -14,8 +14,8 @@ from pull_trace import PullTraceFrame, format_trace_line
 
 def _tuning(**kw) -> PullTuning:
     base = dict(
-        max_speed=12.0,
-        pull_strength=0.5,
+        max_speed=15.0,
+        pull_strength=0.56,
         deadzone=2.0,
         velocity_smoothing=0.5,
         smoothing_curve="ease_out",
@@ -88,7 +88,8 @@ class PullFollowTests(unittest.TestCase):
     def test_pre_smoothed_no_tracker_calls(self) -> None:
         ctrl = PullController(_tuning())
         tgt = Target(300, 220, 400, 10, 0.9, bbox_x=280, bbox_y=100, bbox_w=40, bbox_h=120)
-        with unittest.mock.patch.object(ctrl._tracker, "observe_target") as obs:
+        from unittest.mock import patch
+        with patch.object(ctrl._tracker, "observe_target") as obs:
             ctrl.compute_delta(tgt, 200, 200, time_sec=1.0)
         obs.assert_not_called()
 

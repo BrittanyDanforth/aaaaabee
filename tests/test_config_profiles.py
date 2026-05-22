@@ -27,7 +27,7 @@ class ProfileTests(unittest.TestCase):
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
         self.assertTrue(cfg["allow_live_mouse"])
         self.assertTrue(cfg["trace_pull"])
-        self.assertEqual(0.88, cfg["pull_strength"])
+        self.assertEqual(0.82, cfg["pull_strength"])
         self.assertEqual(26.0, cfg["max_pull_speed_pixels_per_frame"])
         self.assertEqual(0.020, cfg["smoothing_tau_moving"])
         self.assertFalse(cfg["humanize_enabled"])
