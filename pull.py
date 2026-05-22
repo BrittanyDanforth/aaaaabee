@@ -213,7 +213,16 @@ class PullController:
     ) -> PullResult:
         if not (math.isfinite(target.centroid_x) and math.isfinite(target.centroid_y)):
             return PullResult(0, 0, 0.0, 0.0, 0.0)
+        # Guard caller-supplied center against NaN/Inf — would otherwise poison
+        # err_x/err_y -> dist -> velocity state for the rest of the session.
+        if not (math.isfinite(center_x) and math.isfinite(center_y)):
+            return PullResult(0, 0, 0.0, 0.0, 0.0)
         now = time.perf_counter() if time_sec is None else time_sec
+        # Never persist a non-finite timestamp; would make every subsequent dt
+        # collapse to the 1/_REF_FPS fallback and prevent the smoother from ever
+        # advancing again until reset().
+        if not math.isfinite(now):
+            now = time.perf_counter()
         dt = self._frame_dt(now)
         self._last_time = now
 
@@ -244,6 +253,14 @@ class PullController:
             if abs(err_y) > max_ey:
                 err_y = max(-max_ey, min(max_ey, err_y))
         dist = math.hypot(err_x, err_y)
+        if not math.isfinite(dist):
+            # NaN aim_x/aim_y already early-returned, but defend against the
+            # extremely rare case where err_* arithmetic overflows to inf.
+            self._vel_x = 0.0
+            self._vel_y = 0.0
+            self._residual_x = 0.0
+            self._residual_y = 0.0
+            return PullResult(0, 0, 0.0, 0.0, 0.0)
         if dist > self._tuning.fov_radius * 1.02:
             self._vel_x *= 0.0
             self._vel_y *= 0.0
