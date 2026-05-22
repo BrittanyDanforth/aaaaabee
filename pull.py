@@ -19,9 +19,11 @@ from motion import (
 _MIN_DT = 0.001
 _MAX_DT = 0.12
 _REF_FPS = 60.0
-# Aim already smoothed in runtime — pull should correct quickly, not stack another heavy EMA.
-_TAU_VEL_PRE_SMOOTHED = 0.016
-_TAU_VEL_STANDALONE = 0.038
+# Aim already smoothed in runtime — pull should correct quickly, not stack another
+# heavy EMA. Pre-smoothed tau dropped further (16ms -> 11ms) so the cursor closes
+# the gap to the smoothed body anchor with minimal additional lag.
+_TAU_VEL_PRE_SMOOTHED = 0.011
+_TAU_VEL_STANDALONE = 0.032
 
 
 @dataclass
@@ -134,8 +136,13 @@ class PullController:
         return max(_MIN_DT, min(dt, _MAX_DT))
 
     def _max_step_for_dt(self, dt: float) -> float:
-        """Per-frame cap scaled so 30 FPS can move ~2x px/frame vs 60 FPS reference."""
-        cap = 3.6 if self._tuning.aim_pre_smoothed else 2.5
+        """
+        Per-frame cap scaled so 30 FPS can move ~2x px/frame vs 60 FPS reference.
+        Pre-smoothed cap raised so the cursor isn't bottlenecked when closing on
+        a moving target at low capture FPS (30/45) where each frame must cover
+        more distance.
+        """
+        cap = 4.5 if self._tuning.aim_pre_smoothed else 3.0
         scale = max(0.5, min(cap, dt * _REF_FPS))
         return self._tuning.max_speed * scale
 
@@ -145,8 +152,11 @@ class PullController:
         return _TAU_VEL_PRE_SMOOTHED if self._tuning.aim_pre_smoothed else _TAU_VEL_STANDALONE
 
     def _effective_strength_multiplier(self) -> float:
+        # Pre-smoothed aim has already stripped the noise; let the pull err
+        # slightly toward "firmer" so it actually closes the residual gap to the
+        # body anchor instead of crawling.
         if self._tuning.aim_pre_smoothed:
-            return 1.05
+            return 1.15
         return 1.0
 
     def _aim_point(self, target: Target, now: float, *, stale_detection: bool) -> tuple[float, float]:
@@ -272,13 +282,15 @@ class PullController:
         norm_dist = min(1.0, dist / max(self._tuning.fov_radius, 1.0))
         smooth_weight = self._tuning.velocity_smoothing * (0.35 + 0.65 * norm_dist)
         if self._tuning.aim_pre_smoothed:
-            smooth_weight *= 0.55
+            smooth_weight *= 0.50
         tau_eff = tau * (0.5 + 0.5 * smooth_weight)
         alpha = alpha_from_tau(dt, tau_eff)
         alpha = apply_smoothing_curve(alpha, self._tuning.smoothing_curve)
         alpha = max(alpha, alpha_from_tau(dt, tau))
-        if self._tuning.aim_pre_smoothed and dist > 18.0:
-            alpha = max(alpha, alpha_from_tau(dt, 0.008) * min(1.0, dist / 50.0))
+        # Closing-distance engagement: when the cursor is meaningfully off-anchor,
+        # tighten the velocity filter so the gap closes within a couple frames.
+        if self._tuning.aim_pre_smoothed and dist > 14.0:
+            alpha = max(alpha, alpha_from_tau(dt, 0.006) * min(1.0, dist / 40.0))
 
         if not self._tuning.aim_pre_smoothed:
             vel_mag = math.hypot(self._vel_x, self._vel_y)
