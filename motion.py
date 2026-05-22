@@ -446,3 +446,90 @@ class HumanizedMotion:
         if not (math.isfinite(out_x) and math.isfinite(out_y)):
             return dx, dy
         return out_x, out_y
+
+
+class RecoilCompensator:
+    """
+    Engagement-gated recoil-helper bias.
+
+    While the caller signals ``is_firing=True``:
+      * a steady downward Y bias is added (``pull_down_px_per_s``)
+      * a band-limited sinusoidal horizontal jitter is added
+        (``jitter_amplitude_px`` × sin(2π · jitter_frequency_hz · t)).
+
+    Bias is *additive* on top of the pull velocity — it is NOT fed back into
+    the velocity smoother. That's important: it would otherwise leak into the
+    EMA state and the cursor would keep drifting downward for several frames
+    after the user stops firing.
+
+    When ``is_firing=False`` the compensator returns the input unchanged and
+    its phase is reset, so the next trigger-pull starts cleanly at phase 0
+    instead of resuming a random offset.
+    """
+
+    def __init__(
+        self,
+        *,
+        recoil_enabled: bool,
+        pull_down_px_per_s: float,
+        jitter_enabled: bool,
+        jitter_amplitude_px: float,
+        jitter_frequency_hz: float,
+    ) -> None:
+        self._recoil_enabled = bool(recoil_enabled)
+        self._pull_down = max(0.0, min(_finite(pull_down_px_per_s, 0.0), 180.0))
+        self._jitter_enabled = bool(jitter_enabled)
+        self._jitter_amp = max(0.0, min(_finite(jitter_amplitude_px, 0.0), 6.0))
+        self._jitter_hz = max(0.0, min(_finite(jitter_frequency_hz, 6.0), 20.0))
+        self._phase = 0.0
+        self._was_firing = False
+
+    @property
+    def active(self) -> bool:
+        """True iff any compensation channel would emit a non-zero bias."""
+        recoil_on = self._recoil_enabled and self._pull_down > 0.0
+        jitter_on = self._jitter_enabled and self._jitter_amp > 0.0 and self._jitter_hz > 0.0
+        return recoil_on or jitter_on
+
+    def reset(self) -> None:
+        self._phase = 0.0
+        self._was_firing = False
+
+    def compute_bias(self, *, is_firing: bool, dt: float) -> tuple[float, float]:
+        """
+        Returns (bias_x, bias_y) in pixels for this frame.
+
+        - bias_y is positive-down (matches the screen-coordinate convention
+          used by `compute_delta`).
+        - bias_x is the horizontal jitter sample for this frame.
+        """
+        if not is_firing:
+            if self._was_firing:
+                self._phase = 0.0
+            self._was_firing = False
+            return 0.0, 0.0
+
+        dt = _finite(dt, 0.0)
+        if dt <= 0.0 or dt > 0.5:
+            dt = 1.0 / 60.0
+        self._was_firing = True
+
+        bias_y = 0.0
+        if self._recoil_enabled and self._pull_down > 0.0:
+            bias_y = self._pull_down * dt
+
+        bias_x = 0.0
+        if self._jitter_enabled and self._jitter_amp > 0.0 and self._jitter_hz > 0.0:
+            # Sample BEFORE advancing the phase. The first firing frame after
+            # reset/release therefore emits sin(0)=0, ensuring an engagement
+            # starts with no horizontal kick — important so the integer-truncation
+            # path doesn't immediately pop a 1-px sideways step the user would
+            # perceive as input lag.
+            bias_x = self._jitter_amp * math.sin(self._phase)
+            self._phase += 2.0 * math.pi * self._jitter_hz * dt
+            if self._phase > 1e6:
+                self._phase = math.fmod(self._phase, 2.0 * math.pi)
+
+        if not (math.isfinite(bias_x) and math.isfinite(bias_y)):
+            return 0.0, 0.0
+        return bias_x, bias_y
