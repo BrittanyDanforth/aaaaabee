@@ -120,6 +120,12 @@ class TargetTracker:
         self._last_pred_offset: tuple[float, float] = (0.0, 0.0)
         self._last_pre_predict: tuple[float, float] | None = None
         self._overlay_smooth: tuple[float, float] | None = None
+        # M5 (audit): hysteresis state for the stationary jitter deadband.
+        # Enter when meas_drift < 2.5 AND speed < 90; exit only when
+        # meas_drift > 5.0 for 2 consecutive frames AND the instantaneous
+        # velocity also exceeds the threshold (not just smoothed speed).
+        self._in_deadband: bool = False
+        self._deadband_exit_frames: int = 0
 
     def configure_prediction(
         self,
@@ -253,7 +259,30 @@ class TargetTracker:
         smoother keeps up with strafing/sliding enemies. The floor is kept low
         (6 px) so slow strafes pass through without being clipped.
         """
+        # M6 (audit): a 6-px floor lets 5-6 px snaps through on a locked
+        # stationary target; the user perceives those as glitch. The caller
+        # passes locked_slow=True when smoothed speed < 30 px/s AND the
+        # tracker is locked so we tighten the floor to 2 px. Fast-moving /
+        # unlocked / re-acquire stays at the 6 px floor (responsive snaps).
         max_step = max(6.0, min(34.0, bbox_h * 0.24)) * max(0.35, min(2.2, dt * 60.0))
+        dx = x - last_x
+        dy = y - last_y
+        dist = math.hypot(dx, dy)
+        if dist <= max_step or dist <= 0.0:
+            return x, y
+        s = max_step / dist
+        return last_x + dx * s, last_y + dy * s
+
+    @staticmethod
+    def _cap_measurement_step_locked_slow(
+        x: float,
+        y: float,
+        last_x: float,
+        last_y: float,
+        dt: float,
+    ) -> tuple[float, float]:
+        """Tighter 2-px floor used when the lock is stationary (M6 audit)."""
+        max_step = 2.0 * max(0.35, min(2.2, dt * 60.0))
         dx = x - last_x
         dy = y - last_y
         dist = math.hypot(dx, dy)
@@ -304,9 +333,20 @@ class TargetTracker:
                 dt_cap = 1.0 / 60.0
                 if self._last_time is not None and time_sec > self._last_time:
                     dt_cap = min(0.12, time_sec - self._last_time)
-                x, y = self._cap_measurement_step(
-                    x, y, self._last_meas_x, self._last_meas_y, bh, dt_cap
-                )
+                # M6 (audit): tighter 2-px step when the lock is already
+                # in the stationary deadband. Outside the deadband the
+                # 6-px floor preserves responsive snaps. Gating on the
+                # deadband flag avoids pinning the smoother on a fresh
+                # observation chain where smoothed velocity is briefly
+                # zero by construction.
+                if self._in_deadband:
+                    x, y = self._cap_measurement_step_locked_slow(
+                        x, y, self._last_meas_x, self._last_meas_y, dt_cap
+                    )
+                else:
+                    x, y = self._cap_measurement_step(
+                        x, y, self._last_meas_x, self._last_meas_y, bh, dt_cap
+                    )
         else:
             self._body_bbox = None
         return self.observe(x, y, time_sec)
@@ -376,18 +416,32 @@ class TargetTracker:
         tau = self._effective_tau(dt, speed)
         alpha = alpha_from_tau(dt, tau)
 
-        # Stationary-target jitter deadband: when the smoothed velocity is low
-        # (<90 px/s) AND the new measurement is within 2 px of the current
-        # smoothed position, keep the smoother frozen instead of nudging it
-        # toward every quantised centroid bounce. This is what kills the
-        # "swimming dot" visible on stationary enemies — without it the
-        # detector's pixel-grid bias on the chest centroid feeds 1–3 px
-        # corrections into the smoother every frame and the user perceives
-        # that as glitch. The 90 px/s ceiling is well below the slow-strafe
-        # speed of an Apex enemy peeking (>120 px/s on screen at typical
-        # FOVs) so real lateral motion still escapes the deadband cleanly.
+        # M5 (audit): hysteresis deadband. Enter when speed < 90 AND
+        # meas_drift < 2.5; exit only when (meas_drift > 5.0 AND
+        # instantaneous velocity > 30 px/s) for 2 consecutive frames.
+        # The binary 2.0-px threshold previously oscillated against mask
+        # noise (1.5-3 px). Hysteresis stabilises the dot — small drift
+        # stays frozen, real movement triggers a clean exit.
         meas_drift = math.hypot(x - self._smooth_x, y - self._smooth_y)
-        in_deadband = speed < 90.0 and meas_drift < 2.0
+        inst_speed = 0.0
+        if self._last_meas_x is not None and self._last_meas_y is not None:
+            ix = (x - self._last_meas_x) / max(_MIN_DT, dt)
+            iy = (y - self._last_meas_y) / max(_MIN_DT, dt)
+            inst_speed = math.hypot(ix, iy)
+        if self._in_deadband:
+            exits_now = meas_drift > 5.0 and inst_speed > 30.0
+            if exits_now:
+                self._deadband_exit_frames += 1
+                if self._deadband_exit_frames >= 2:
+                    self._in_deadband = False
+                    self._deadband_exit_frames = 0
+            else:
+                self._deadband_exit_frames = 0
+        else:
+            if speed < 90.0 and meas_drift < 2.5:
+                self._in_deadband = True
+                self._deadband_exit_frames = 0
+        in_deadband = self._in_deadband
         if not in_deadband:
             self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
             self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
@@ -441,6 +495,14 @@ class TargetTracker:
         if self._fov_radius is not None and self._fov_cx is not None and self._fov_cy is not None:
             fx, fy = self._clamp_to_fov(motion.x, motion.y)
             motion = TargetMotion(fx, fy, motion.vx, motion.vy)
+            # M4 (audit): re-apply body-bbox clamp AFTER the FOV clamp so
+            # a radial FOV pull cannot push Y above the chest band. Order
+            # used to be body -> FOV; FOV could drag Y up onto the head
+            # plate or even out of the bbox at extreme edge positions.
+            if self._body_bbox is not None:
+                bx, by, bw, bh = self._body_bbox
+                cbx, cby = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
+                motion = TargetMotion(cbx, cby, motion.vx, motion.vy)
 
         self._last_pred_offset = (motion.x - pre_x, motion.y - pre_y)
         self._last = motion

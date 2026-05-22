@@ -121,15 +121,28 @@ class AssistRuntime:
         self,
         target: Target | None,
         time_sec: float,
+        *,
+        stale: bool = False,
     ) -> TargetMotion | None:
         """
         Upper-chest body column via observe_target(bbox_*).
         Returns None when no target — overlay/pull must not use raw plate centroids.
+
+        M1 (audit): when ``stale`` is True (the runtime is returning a
+        frozen lock during the grace window because no fresh detection
+        was made this frame) we DO NOT call ``observe_target`` — that
+        would keep feeding the smoother with the stale centroid every
+        frame and accumulate motion the user perceives as glitchy chase.
+        Instead we hold ``_last_motion`` so the overlay/pull see a frozen
+        anchor until detection refreshes or the lock expires.
         """
         if target is None:
             self._aim_tracker.reset()
             self._last_motion = None
             return None
+
+        if stale:
+            return self._last_motion
 
         fov_r = float(self.config.get("_runtime_detect_fov", 0) or 0)
         if fov_r > 0 and hasattr(self, "_frame_cx"):
@@ -631,11 +644,16 @@ class AssistRuntime:
     ):
         cfg = self.config
         with self._lock:
-            sticky = self._locked_target if self._target_lost_frames < int(
-                cfg["target_lost_frames_before_unlock"]
-            ) else None
+            lost_max_local = int(cfg["target_lost_frames_before_unlock"])
+            sticky = self._locked_target if self._target_lost_frames < lost_max_local else None
+            # M3 (audit): currently_locked must remain True for the full
+            # grace window so the confidence floor applies and a transient
+            # detector dip doesn't unlock onto junk. Previously the floor
+            # only applied when target_lost_frames == 0, leaving the entire
+            # 1..lost_max-1 grace period exposed to weak re-lock candidates.
             currently_locked = (
-                self._locked_target is not None and self._target_lost_frames == 0
+                self._locked_target is not None
+                and self._target_lost_frames < lost_max_local
             )
         result = find_best_target(
             frame_bgr,
@@ -699,7 +717,13 @@ class AssistRuntime:
                         self._switch_candidate = None
                         self._switch_frames = 0
                         return result
-                    self._target_lost_frames = 0
+                    # M2 (audit): do NOT reset target_lost_frames to 0
+                    # while switch hysteresis is pending. The old code set
+                    # it to 0, masking the fact that detection isn't on
+                    # the locked target. We bump it up to 1 (at minimum)
+                    # so M1's stale-detection path can fire and the dot
+                    # stops chasing the frozen lock position.
+                    self._target_lost_frames = max(1, self._target_lost_frames)
                     return DetectionResult(
                         self._locked_target,
                         result.candidates,
@@ -996,7 +1020,7 @@ class AssistRuntime:
                     with self._lock:
                         self._frame_has_target = detection_fresh
 
-                    motion = self._smooth_aim(target, t0)
+                    motion = self._smooth_aim(target, t0, stale=stale_det)
                     pull_target = (
                         self._target_for_pull(target, motion)
                         if target is not None and motion is not None
@@ -1124,7 +1148,18 @@ class AssistRuntime:
 
                     if self._overlay is not None and self._should_run():
                         overlay_pt = None
-                        if motion is not None and math.isfinite(motion.x) and math.isfinite(motion.y):
+                        # M1 (audit): hide the overlay dot after >=2 stale
+                        # frames so the user does not see it parked on the
+                        # last-known position when the target has moved.
+                        hide_overlay_stale = (
+                            target is not None
+                            and self._target_lost_frames >= 2
+                        )
+                        if (
+                            not hide_overlay_stale
+                            and motion is not None
+                            and math.isfinite(motion.x) and math.isfinite(motion.y)
+                        ):
                             ox, oy = to_monitor_coords(motion.x, motion.y, cap_region)
                             fov_cx_mon = float(center_x)
                             fov_cy_mon = float(center_y)
