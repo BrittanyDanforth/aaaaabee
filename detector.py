@@ -84,6 +84,12 @@ class Target:
     head_score: float = 0.0
     torso_score: float = 0.0
     limb_stack_score: float = 0.0
+    # Fraction of bbox covered by the Apex red-enemy HSV mask. Used by
+    # score_target to soften the single-part penalty when the silhouette is
+    # clearly a red enemy whose body just happens to be one connected blob
+    # (real Apex characters often are — armour + helmet merge into one mass
+    # against dim terrain). 0.0 when no red coverage / red mask not built.
+    red_coverage: float = 0.0
     reject_reason: str = RejectReason.OK.value
 
 
@@ -238,36 +244,34 @@ def build_chroma_spread_mask(frame_bgr: np.ndarray) -> np.ndarray:
     return mask
 
 
-# Apex red-enemy-outline highlight (BGR red plus auto-color saturated edges).
+# Apex red enemy highlight (BGR red plus auto-color saturated edges).
 # Apex draws a reddish silhouette / glow around enemies; the hue wraps around
 # 0/180 in OpenCV HSV (H is 0..179). We split the lower/upper red band and
-# also slightly relax saturation/value so dimmer enemy outlines at range still
-# pass — the morphology pass below ties broken outline arcs back together so
-# the rest of the pipeline can extract a cluster.
-_APEX_RED_HSV_LO_A = np.array([0, 90, 90], dtype=np.uint8)
+# loosen saturation/value floors so dim-lit red armour and red base skins
+# (Crypto red, Bloodhound rust, Revenant maroon, Lifeline red shield etc.)
+# still pass — the morphology pass below cleans pepper noise and stitches
+# small gaps without stripping the filled interior.
+_APEX_RED_HSV_LO_A = np.array([0, 80, 70], dtype=np.uint8)
 _APEX_RED_HSV_HI_A = np.array([12, 255, 255], dtype=np.uint8)
-_APEX_RED_HSV_LO_B = np.array([168, 90, 90], dtype=np.uint8)
+_APEX_RED_HSV_LO_B = np.array([168, 80, 70], dtype=np.uint8)
 _APEX_RED_HSV_HI_B = np.array([180, 255, 255], dtype=np.uint8)
 
 
-def build_red_outline_mask(frame_bgr: np.ndarray) -> np.ndarray:
-    """Apex enemy red-outline / red-highlight mask.
+def build_red_enemy_mask(frame_bgr: np.ndarray) -> np.ndarray:
+    """Apex red-enemy mask — filled red regions, not just an outline ribbon.
 
-    Apex Legends draws a reddish silhouette outline around visible enemies. It
-    is THE single most reliable detection cue against the dull/desaturated
-    background palettes of the maps and survives armor/optic variation better
-    than raw body silhouette. This mask captures that *outline* as a thin
-    connected band so downstream contour extraction can treat it as additional
-    silhouette evidence without flooding the analyze_figure stage with a
-    fully-filled bbox (which would zero the vertical-profile score).
+    Live-game testing showed the previous outline-only implementation
+    (MORPH_GRADIENT after CLOSE) collapsed solid red characters — red armour,
+    red helmet, red gloves — down to a thin perimeter band whose pixel count
+    was too small to clear ``_extract_parts`` and whose fill ratio looked
+    like a hollow ring to ``analyze_figure``. The detector then fell back to
+    shape + chroma + motion alone and missed the dead-centre red enemy.
 
-    Implementation: HSV threshold on Apex red, then a morphological CLOSE to
-    stitch broken outline arcs, then a MORPH_GRADIENT to retain only the
-    *perimeter / outline* of red regions. For real Apex enemies whose
-    highlight is already a 2–5 px ring, the gradient preserves the ring; for
-    solid red regions (test plates, walls) it shrinks to just the boundary so
-    the OR-fused mask in :func:`build_detection_mask` keeps the natural body
-    structure intact.
+    The new implementation keeps the interior filled. Two HSV bands cover
+    the hue wrap at 0/180; we OR the bands, run a small MORPH_OPEN to drop
+    pepper noise, and a slightly larger MORPH_CLOSE to bridge tiny gaps
+    (red gap between helmet/chest plates etc.). Downstream contour
+    extraction then sees a coherent humanoid silhouette.
     """
     h, w = frame_bgr.shape[:2]
     scale = _scale(w, h)
@@ -275,13 +279,22 @@ def build_red_outline_mask(frame_bgr: np.ndarray) -> np.ndarray:
     a = cv2.inRange(hsv, _APEX_RED_HSV_LO_A, _APEX_RED_HSV_HI_A)
     b = cv2.inRange(hsv, _APEX_RED_HSV_LO_B, _APEX_RED_HSV_HI_B)
     raw = cv2.bitwise_or(a, b)
-    k_small = max(3, int(3 * scale) | 1)
-    kernel_s = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_small, k_small))
-    closed = cv2.morphologyEx(raw, cv2.MORPH_CLOSE, kernel_s, iterations=1)
-    # Outline-only: dilate - erode keeps just the perimeter band. For thin
-    # natural outlines this is approximately the original outline.
-    outline = cv2.morphologyEx(closed, cv2.MORPH_GRADIENT, kernel_s, iterations=1)
-    return outline
+    k_open = max(3, int(3 * scale) | 1)
+    k_close = max(5, int(5 * scale) | 1)
+    kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_open, k_open))
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_close, k_close))
+    cleaned = cv2.morphologyEx(raw, cv2.MORPH_OPEN, kernel_open, iterations=1)
+    filled = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel_close, iterations=1)
+    return filled
+
+
+# Back-compat shim: existing call sites still import build_red_outline_mask.
+# The function no longer produces an outline-only ribbon; it returns the
+# filled red-enemy mask. Kept as an alias so external scripts continue to
+# work; new code should use build_red_enemy_mask().
+def build_red_outline_mask(frame_bgr: np.ndarray) -> np.ndarray:
+    """Deprecated alias for :func:`build_red_enemy_mask` (filled mask)."""
+    return build_red_enemy_mask(frame_bgr)
 
 
 def build_motion_diff_mask(
@@ -450,11 +463,20 @@ def build_detection_mask(
         context.update_prev(gray)
 
     if mode == DETECTION_MODE_APEX:
-        # The Apex red-enemy outline is the strongest single cue when present.
-        # We fuse it UNCONDITIONALLY with shape/contrast/motion so the rest of
-        # the pipeline (cluster + body-shape gate) sees both signal types and
-        # picks whichever produced the strongest silhouette.
-        return cv2.bitwise_or(shape_m, build_red_outline_mask(frame_bgr))
+        # The Apex red-enemy mask is fused into the cluster-discovery mask
+        # only via its PERIMETER (gradient of the filled mask). Fusing the
+        # filled interior would collapse the vertical-profile + fill-ratio
+        # signals in analyze_figure on uniformly red silhouettes (whole
+        # bbox column reads as 1s, transitions=0, body_shape_score plunges
+        # to 0). The FILLED mask is still used downstream by the candidate
+        # scorer (Target.red_coverage) so a clearly red humanoid that the
+        # shape mask only barely picks up still gets its single-part
+        # penalty softened on the way to the confidence gate.
+        filled = build_red_enemy_mask(frame_bgr)
+        k = max(3, int(3 * _scale(frame_bgr.shape[1], frame_bgr.shape[0])) | 1)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+        outline = cv2.morphologyEx(filled, cv2.MORPH_GRADIENT, kernel, iterations=1)
+        return cv2.bitwise_or(shape_m, outline)
     if mode == DETECTION_MODE_SHAPE:
         return shape_m
     if mode == DETECTION_MODE_HSV:
@@ -1759,6 +1781,18 @@ def _collect_candidates(
     mask = cv2.bitwise_and(mask, mask, mask=fov)
     mask = cv2.bitwise_and(mask, mask, mask=vm)
 
+    # FILLED red-enemy mask (separate from `mask` above which only fuses
+    # the red outline for clustering). Used to compute Target.red_coverage:
+    # a per-bbox fraction that lets score_target soften the single-part
+    # penalty on a clearly red humanoid that the shape mask collapses to a
+    # single connected blob. Only built in apex mode — keeps shape/hsv/
+    # hybrid modes free of any color-bias side-effects.
+    red_filled = (
+        build_red_enemy_mask(frame_bgr)
+        if _normalize_detection_mode(detection_mode) == DETECTION_MODE_APEX
+        else None
+    )
+
     parts = _extract_parts(mask, w, h, fov_cx=cx, fov_cy=cy)
     clusters = _cluster_parts(parts, w, h)
     max_area = float(h * w) * _MAX_AREA_RATIO
@@ -1816,6 +1850,17 @@ def _collect_candidates(
                 lines.append(f"cand[{idx}] {RejectReason.OUTSIDE_FOV.value} bbox_center")
             continue
 
+        red_cov = 0.0
+        if red_filled is not None and fig.bw > 0 and fig.bh > 0:
+            x0 = max(0, int(fig.bx))
+            y0 = max(0, int(fig.by))
+            x1 = min(red_filled.shape[1], int(fig.bx + fig.bw))
+            y1 = min(red_filled.shape[0], int(fig.by + fig.bh))
+            if x1 > x0 and y1 > y0:
+                roi = red_filled[y0:y1, x0:x1]
+                if roi.size > 0:
+                    red_cov = float((roi > 0).sum()) / float(roi.size)
+
         targets.append(
             Target(
                 centroid_x=aim_x,
@@ -1833,6 +1878,7 @@ def _collect_candidates(
                 head_score=fig.head_score,
                 torso_score=fig.torso_score,
                 limb_stack_score=fig.limb_stack_score,
+                red_coverage=red_cov,
                 reject_reason=fig.reject_reason.value,
             )
         )
@@ -1875,6 +1921,16 @@ def score_target(
     # diff region — these are confirmed *moving* silhouettes (real Apex enemies)
     # vs static red walls/panels whose shape may look humanoid by accident.
     motion_bonus = min(1.0, max(0.0, motion_overlap)) * fov_radius * 0.55
+    # Red-coverage bonus: Apex enemies whose body is materially covered by
+    # the red-enemy HSV mask are almost always real targets (the only
+    # in-game source of that hue at that saturation is the enemy highlight).
+    # The bonus is gated on bbox height so red props (test panels, blurred
+    # plate stubs) with accidental humanoid aspect cannot exploit it; only
+    # candidates tall enough to be a real Apex character at engagement
+    # distance receive the additive boost.
+    red_cov = min(1.0, max(0.0, target.red_coverage))
+    red_humanoid_height = target.bbox_h >= 110.0 and target.bbox_h >= target.bbox_w * 1.55
+    red_bonus = red_cov * fov_radius * 0.15 if red_humanoid_height else 0.0
     penalty = 0.0
     if center_y is not None:
         if target.centroid_y < center_y:
@@ -1888,29 +1944,45 @@ def score_target(
             penalty += fov_radius * 2.2
     if target.bbox_w >= target.bbox_h:
         penalty += fov_radius * 0.8
-    # Single-part target: harsh penalty by default; soft penalty when motion
-    # confirms a real moving body whose silhouette is one connected blob
-    # (low-contrast Apex armor on similar-toned terrain).
+    # Single-part target: harsh penalty by default; soft penalty when EITHER
+    # motion confirms a real moving body OR the bbox is clearly red-covered
+    # (a real Apex enemy whose armour merged into one connected silhouette
+    # against same-toned terrain — the live-game case the user reported).
+    # Red-coverage softener is gated by a stricter height threshold (≥110 px)
+    # so blurred-plate synthetic blobs (~98 px tall) cannot exploit it.
+    is_humanoid_column = (
+        target.bbox_h >= 80.0
+        and target.bbox_h >= target.bbox_w * 1.55
+        and target.body_shape_score >= 0.45
+    )
+    red_humanoid_column = (
+        target.bbox_h >= 110.0
+        and target.bbox_h >= target.bbox_w * 1.55
+        and target.body_shape_score >= 0.45
+    )
+    motion_confirms = is_humanoid_column and motion_overlap >= 0.12
+    red_confirms = red_humanoid_column and red_cov >= 0.35
     if target.part_count < 2:
-        is_humanoid_column = (
-            target.bbox_h >= 80.0
-            and target.bbox_h >= target.bbox_w * 1.55
-            and target.body_shape_score >= 0.45
-        )
-        if is_humanoid_column and motion_overlap >= 0.12:
+        if motion_confirms or red_confirms:
             penalty += fov_radius * 0.35
         else:
             penalty += fov_radius * 1.4
     if target.bbox_h < target.bbox_w * 1.25:
         penalty += fov_radius * 1.8
-    if target.body_shape_score < 0.48:
+    # The body<0.48 penalty is normally a strong rejection of marginal
+    # silhouettes — but when motion or red coverage independently confirm
+    # a tall humanoid bbox, we trust the geometric / chromatic evidence
+    # over a small dip in the analyze_figure body score (which is fragile
+    # against motion-fused masks that saturate the bbox fill).
+    if target.body_shape_score < 0.48 and not (motion_confirms or red_confirms):
         penalty += fov_radius * 0.9
-    return body_term + dist_term + area_term + closeness_term + motion_bonus - penalty
+    return body_term + dist_term + area_term + closeness_term + motion_bonus + red_bonus - penalty
 
 
 def _normalize_confidence(raw: float, fov_radius: float, body_shape: float = 0.0) -> float:
     from_dist = raw / max(fov_radius * 2.8, 1.0)
-    return max(0.0, min(1.0, 0.55 * body_shape + 0.45 * from_dist))
+    base = 0.55 * body_shape + 0.45 * from_dist
+    return max(0.0, min(1.0, base))
 
 
 def find_best_target(

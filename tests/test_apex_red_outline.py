@@ -1,9 +1,11 @@
-"""Apex red-outline mask + DETECTION_MODE_APEX default behaviour.
+"""Apex red-enemy mask + DETECTION_MODE_APEX default behaviour.
 
 Pins:
-- build_red_outline_mask produces non-empty output on red enemy outlines
-  and shrinks solid red regions to their perimeter (preserving body
-  structure for analyze_figure).
+- build_red_enemy_mask (filled, no MORPH_GRADIENT) captures both thin
+  red outlines AND solid red interiors — the previous outline-only mask
+  collapsed solid red enemies to a hollow ribbon that downstream
+  analyze_figure could not score, causing dead-centre red Apex enemies
+  to be missed entirely.
 - DETECTION_MODE_APEX is the default when no mode is passed.
 - find_best_target with default mode picks up an Apex-style enemy whose
   silhouette is *only* a red outline against dark background (the
@@ -62,38 +64,49 @@ def _draw_red_outline_humanoid(
     )
 
 
-class RedOutlineMaskTests(unittest.TestCase):
-    def test_red_outline_mask_picks_up_outline(self) -> None:
+class RedEnemyMaskTests(unittest.TestCase):
+    def test_red_enemy_mask_picks_up_outline(self) -> None:
         frame = np.zeros((H, W, 3), dtype=np.uint8) + 20
         _draw_red_outline_humanoid(frame, CX, CY + 80, scale=1.0, thickness=3)
-        mask = detector.build_red_outline_mask(frame)
-        # The mask must have a sensible number of pixels (the outline ribbon).
+        mask = detector.build_red_enemy_mask(frame)
+        # The mask must have a sensible number of pixels for a thin outline.
         on = int((mask > 0).sum())
-        self.assertGreater(on, 100, "outline mask must capture the red ribbon")
-        self.assertLess(on, 50000, "outline mask must NOT flood the frame")
+        self.assertGreater(on, 100, "enemy mask must capture the red ribbon")
+        self.assertLess(on, 80000, "enemy mask must NOT flood the frame")
 
-    def test_red_outline_mask_collapses_solid_to_perimeter(self) -> None:
-        """A solid red rectangle should produce only a perimeter band in the
-        outline mask — not a filled region. This preserves the vertical
-        structure that analyze_figure relies on."""
+    def test_red_enemy_mask_keeps_solid_interior_filled(self) -> None:
+        """A solid red rectangle MUST stay filled in the new mask — the prior
+        outline-only collapse caused dead-centre red Apex enemies to be
+        missed because the hollow ring failed the part-area filters."""
         frame = np.zeros((H, W, 3), dtype=np.uint8)
         cv2.rectangle(frame, (CX - 40, CY - 60), (CX + 40, CY + 60), (0, 0, 255), -1)
-        outline = detector.build_red_outline_mask(frame)
-        bbox = outline[CY - 60: CY + 60, CX - 40: CX + 40]
+        mask = detector.build_red_enemy_mask(frame)
+        bbox = mask[CY - 60: CY + 60, CX - 40: CX + 40]
         fill = float((bbox > 0).mean())
-        # Outline-only — fill must be well under 50 % (perimeter band only).
-        self.assertLess(
-            fill, 0.55,
-            f"solid red region must collapse to outline, got fill={fill:.2f}",
+        # Filled interior — fill must be very close to 1.0 (whole rectangle).
+        self.assertGreater(
+            fill, 0.95,
+            f"solid red region must stay filled, got fill={fill:.2f}",
         )
 
-    def test_red_outline_mask_ignores_blue_and_green(self) -> None:
+    def test_red_enemy_mask_ignores_blue_and_green(self) -> None:
         frame = np.zeros((H, W, 3), dtype=np.uint8)
         # Pure blue and green rectangles must NOT trigger the red mask.
         cv2.rectangle(frame, (200, 200), (320, 360), (255, 0, 0), -1)  # blue
         cv2.rectangle(frame, (700, 200), (820, 360), (0, 255, 0), -1)  # green
-        mask = detector.build_red_outline_mask(frame)
+        mask = detector.build_red_enemy_mask(frame)
         self.assertEqual(int((mask > 0).sum()), 0)
+
+    def test_build_red_outline_mask_alias_returns_filled(self) -> None:
+        """The old name MUST keep working but produce the new filled mask."""
+        frame = np.zeros((H, W, 3), dtype=np.uint8)
+        cv2.rectangle(frame, (CX - 40, CY - 60), (CX + 40, CY + 60), (0, 0, 255), -1)
+        a = detector.build_red_outline_mask(frame)
+        b = detector.build_red_enemy_mask(frame)
+        self.assertEqual(int((a > 0).sum()), int((b > 0).sum()))
+        # And the alias must be filled, not outline.
+        bbox = a[CY - 60: CY + 60, CX - 40: CX + 40]
+        self.assertGreater(float((bbox > 0).mean()), 0.95)
 
 
 class ApexModeDefaultTests(unittest.TestCase):
