@@ -377,24 +377,28 @@ class TargetTracker:
         alpha = alpha_from_tau(dt, tau)
 
         # Stationary-target jitter deadband: when the smoothed velocity is low
-        # (<50 px/s) AND the new measurement is within 2 px of the current
+        # (<90 px/s) AND the new measurement is within 2 px of the current
         # smoothed position, keep the smoother frozen instead of nudging it
         # toward every quantised centroid bounce. This is what kills the
         # "swimming dot" visible on stationary enemies — without it the
-        # detector's pixel-grid bias on chest centroid feeds 1–3 px corrections
-        # into the smoother every frame, and the user perceives that as glitch.
+        # detector's pixel-grid bias on the chest centroid feeds 1–3 px
+        # corrections into the smoother every frame and the user perceives
+        # that as glitch. The 90 px/s ceiling is well below the slow-strafe
+        # speed of an Apex enemy peeking (>120 px/s on screen at typical
+        # FOVs) so real lateral motion still escapes the deadband cleanly.
         meas_drift = math.hypot(x - self._smooth_x, y - self._smooth_y)
-        if speed < 50.0 and meas_drift < 2.0:
-            pass  # keep smoothed position as-is
-        else:
+        in_deadband = speed < 90.0 and meas_drift < 2.0
+        if not in_deadband:
             self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
             self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
 
         pre_x, pre_y = self._smooth_x, self._smooth_y
         self._last_pre_predict = (pre_x, pre_y)
 
-        use_inline_lead = self._prediction_enabled and not (
-            self._aim_is_body_anchor and self._body_bbox is not None
+        use_inline_lead = (
+            self._prediction_enabled
+            and not (self._aim_is_body_anchor and self._body_bbox is not None)
+            and not in_deadband
         )
         if use_inline_lead:
             lead_dt = min(dt, _MAX_PRED_LEAD_S)
@@ -423,6 +427,7 @@ class TargetTracker:
             and self._prediction_lead_s > 0.0
             and self._prediction_max_px > 0.0
             and not (self._aim_is_body_anchor and self._body_bbox is not None)
+            and not in_deadband
         )
         if use_second_predict:
             px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
