@@ -132,6 +132,21 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         cfg, "humanize_jerk_limit", default=2.5, minimum=0.0
     )
 
+    # Engagement-gated recoil compensator (only fires while LMB held + locked).
+    # Defaults are OFF / zero so adding the keys does not change existing
+    # tracking behaviour for users on older profiles.
+    cfg["recoil_compensation_enabled"] = bool(cfg.get("recoil_compensation_enabled", False))
+    cfg["recoil_pull_down_pixels_per_second"] = _require_number(
+        cfg, "recoil_pull_down_pixels_per_second", default=0.0, minimum=0.0, maximum=180.0
+    )
+    cfg["jitter_enabled"] = bool(cfg.get("jitter_enabled", False))
+    cfg["jitter_amplitude_pixels"] = _require_number(
+        cfg, "jitter_amplitude_pixels", default=0.0, minimum=0.0, maximum=6.0
+    )
+    cfg["jitter_frequency_hz"] = _require_number(
+        cfg, "jitter_frequency_hz", default=6.0, minimum=0.5, maximum=20.0
+    )
+
     cfg["target_stickiness_pixels"] = _require_number(
         cfg, "target_stickiness_pixels", default=45.0, minimum=0.0
     )

@@ -10,6 +10,7 @@ from typing import Any
 from detector import Target
 from motion import (
     HumanizedMotion,
+    RecoilCompensator,
     TargetTracker,
     alpha_from_tau,
     apply_smoothing_curve,
@@ -46,6 +47,12 @@ class PullTuning:
     aim_pre_smoothed: bool = True
     # Seconds to reach ~63% of desired pull velocity (lower = snappier mouse).
     velocity_tau_seconds: float = 0.0
+    # Recoil compensator (engagement-gated, applied only when is_firing=True).
+    recoil_compensation_enabled: bool = False
+    recoil_pull_down_pixels_per_second: float = 0.0
+    jitter_enabled: bool = False
+    jitter_amplitude_pixels: float = 0.0
+    jitter_frequency_hz: float = 6.0
 
 
 @dataclass
@@ -97,6 +104,17 @@ class PullController:
             tuning.humanize_amplitude,
             tuning.humanize_jerk_limit,
         )
+        self._recoil = self._build_recoil(tuning)
+
+    @staticmethod
+    def _build_recoil(tuning: PullTuning) -> RecoilCompensator:
+        return RecoilCompensator(
+            recoil_enabled=tuning.recoil_compensation_enabled,
+            pull_down_px_per_s=tuning.recoil_pull_down_pixels_per_second,
+            jitter_enabled=tuning.jitter_enabled,
+            jitter_amplitude_px=tuning.jitter_amplitude_pixels,
+            jitter_frequency_hz=tuning.jitter_frequency_hz,
+        )
 
     def update_tuning(self, **kwargs: Any) -> None:
         """Hot-update tuning fields without resetting pull state."""
@@ -108,6 +126,15 @@ class PullController:
                 self._tuning.humanize_amplitude,
                 self._tuning.humanize_jerk_limit,
             )
+        recoil_keys = {
+            "recoil_compensation_enabled",
+            "recoil_pull_down_pixels_per_second",
+            "jitter_enabled",
+            "jitter_amplitude_pixels",
+            "jitter_frequency_hz",
+        }
+        if recoil_keys.intersection(kwargs):
+            self._recoil = self._build_recoil(self._tuning)
 
     def reset(self) -> None:
         self._vel_x = 0.0
@@ -118,6 +145,7 @@ class PullController:
         self._last_time = None
         self._tracker.reset()
         self._humanize.reset()
+        self._recoil.reset()
 
     def _magnetism_scale(self, dist: float) -> float:
         radius = self._tuning.magnetism_radius
@@ -210,6 +238,7 @@ class PullController:
         *,
         time_sec: float | None = None,
         stale_detection: bool = False,
+        is_firing: bool = False,
     ) -> PullResult:
         if not (math.isfinite(target.centroid_x) and math.isfinite(target.centroid_y)):
             return PullResult(0, 0, 0.0, 0.0, 0.0)
@@ -268,12 +297,14 @@ class PullController:
             self._vel_y = 0.0
             self._residual_x = 0.0
             self._residual_y = 0.0
+            self._recoil.reset()
             return PullResult(0, 0, 0.0, 0.0, 0.0)
         if dist > self._tuning.fov_radius * 1.02:
             self._vel_x *= 0.0
             self._vel_y *= 0.0
             self._residual_x = 0.0
             self._residual_y = 0.0
+            self._recoil.reset()
             return PullResult(0, 0, 0.0, 0.0, dist)
 
         if dist <= self._tuning.deadzone:
@@ -284,8 +315,37 @@ class PullController:
             decay = alpha_from_tau(dt, self._velocity_tau() * max(0.5, decay))
             self._vel_x *= 1.0 - decay
             self._vel_y *= 1.0 - decay
+            # Recoil compensation is engagement-gated, not aim-gated: when the
+            # user is firing at a centred (in-deadzone) target the gun is still
+            # recoiling, so the pull-down / horizontal-jitter biases must still
+            # emit. They are applied as a separate additive integer delta,
+            # bypassing the velocity smoother and the residual accumulator
+            # (otherwise the bias would bleed into _vel_y and the cursor would
+            # keep drifting downward for several frames after release).
+            if is_firing and self._recoil.active:
+                bias_x, bias_y = self._recoil.compute_bias(is_firing=True, dt=dt)
+                self._residual_x += bias_x
+                self._residual_y += bias_y
+                move_x = int(self._residual_x)
+                move_y = int(self._residual_y)
+                self._residual_x -= move_x
+                self._residual_y -= move_y
+                if move_x == 0 and abs(self._residual_x) >= 0.55:
+                    move_x = 1 if self._residual_x > 0 else -1
+                    self._residual_x -= move_x
+                if move_y == 0 and abs(self._residual_y) >= 0.55:
+                    move_y = 1 if self._residual_y > 0 else -1
+                    self._residual_y -= move_y
+                return PullResult(
+                    move_x,
+                    move_y,
+                    math.hypot(move_x, move_y),
+                    0.0,
+                    dist,
+                )
             self._residual_x = 0.0
             self._residual_y = 0.0
+            self._recoil.compute_bias(is_firing=False, dt=dt)
             return PullResult(0, 0, 0.0, 0.0, dist)
 
         magnet = self._magnetism_scale(dist)
@@ -336,6 +396,17 @@ class PullController:
         out_x, out_y = self._vel_x, self._vel_y
         if self._tuning.humanize_enabled:
             out_x, out_y = self._humanize.apply(out_x, out_y)
+
+        # Recoil + jitter bias is added AFTER the velocity smoother (so it
+        # doesn't bleed into _vel_x/_vel_y and cause oscillation post-fire)
+        # but BEFORE integer truncation (so the fractional pixel residual
+        # accumulator drains the bias correctly across frames).
+        if is_firing and self._recoil.active:
+            bias_x, bias_y = self._recoil.compute_bias(is_firing=True, dt=dt)
+            out_x += bias_x
+            out_y += bias_y
+        elif not is_firing:
+            self._recoil.compute_bias(is_firing=False, dt=dt)
 
         move_x, move_y = self._emit_integer_delta(out_x, out_y)
         mag = math.hypot(move_x, move_y)
