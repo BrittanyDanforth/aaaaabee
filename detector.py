@@ -264,6 +264,13 @@ class DetectionContext:
     channel. The most recent motion-diff mask is cached so the scoring stage can
     boost candidates whose bbox overlaps real movement (suppresses false positives
     on static walls/UI panels). Reset() clears state when assist is paused/idle.
+
+    A short-lived "motion-validated" memory keeps a body that *was* moving from
+    losing its motion bonus the instant it stops strafing — without this the
+    confidence dips below threshold for one frame, the target is dropped, and
+    the dot flickers as the runtime re-locks. The credit decays linearly to zero
+    over ``motion_memory_frames`` detection frames after the last live motion
+    coverage above ``motion_validate_threshold``.
     """
 
     prev_gray: np.ndarray | None = None
@@ -272,11 +279,17 @@ class DetectionContext:
     motion_threshold: int = 10
     motion_decay: float = 0.55
     last_motion_mask: np.ndarray | None = None
+    motion_memory_frames: int = 12
+    motion_validate_threshold: float = 0.12
+    _validated_bbox: tuple[int, int, int, int] | None = None
+    _validated_credit: int = 0
 
     def reset(self) -> None:
         self.prev_gray = None
         self.prev_size = (0, 0)
         self.last_motion_mask = None
+        self._validated_bbox = None
+        self._validated_credit = 0
 
     def update_prev(self, gray: np.ndarray) -> None:
         if self.prev_gray is None or self.prev_gray.shape != gray.shape:
@@ -285,6 +298,8 @@ class DetectionContext:
             decay = max(0.0, min(0.95, self.motion_decay))
             cv2.addWeighted(self.prev_gray, decay, gray, 1.0 - decay, 0, dst=self.prev_gray)
         self.prev_size = (gray.shape[1], gray.shape[0])
+        if self._validated_credit > 0:
+            self._validated_credit -= 1
 
     def motion_coverage_ratio(self, bx: int, by: int, bw: int, bh: int) -> float:
         """
@@ -307,6 +322,39 @@ class DetectionContext:
         if roi.size == 0:
             return 0.0
         return float((roi > 0).sum()) / float(roi.size)
+
+    def note_motion_validated(self, bx: int, by: int, bw: int, bh: int) -> None:
+        """Record the bbox of a target whose LIVE motion coverage cleared the
+        ``motion_validate_threshold`` gate. Refreshes the decay credit so the
+        next few frames inherit the validation even if the body stops moving."""
+        if bw <= 0 or bh <= 0:
+            return
+        self._validated_bbox = (int(bx), int(by), int(bw), int(bh))
+        self._validated_credit = max(self._validated_credit, int(self.motion_memory_frames))
+
+    def motion_coverage_with_memory(self, bx: int, by: int, bw: int, bh: int) -> float:
+        """Live coverage, falling back to a decaying remembered coverage if the
+        bbox overlaps the last motion-validated target. This prevents a freshly
+        stationary enemy from losing the motion bonus, dropping below the
+        confidence floor, and triggering a relock flicker.
+        """
+        live = self.motion_coverage_ratio(bx, by, bw, bh)
+        if live >= 0.04:
+            return live
+        vb = self._validated_bbox
+        if vb is None or self._validated_credit <= 0 or bw <= 0 or bh <= 0:
+            return live
+        vbx, vby, vbw, vbh = vb
+        cx_q = bx + bw * 0.5
+        cy_q = by + bh * 0.5
+        cx_v = vbx + vbw * 0.5
+        cy_v = vby + vbh * 0.5
+        tol = max(float(vbw), float(vbh), float(bw), float(bh)) * 0.6
+        if math.hypot(cx_q - cx_v, cy_q - cy_v) > tol:
+            return live
+        ratio = self._validated_credit / max(1, int(self.motion_memory_frames))
+        virtual = 0.20 * max(0.0, min(1.0, ratio))
+        return max(live, virtual)
 
 
 def build_detection_mask(
@@ -1856,7 +1904,7 @@ def find_best_target(
     def _motion_overlap(t: Target) -> float:
         if context is None:
             return 0.0
-        return context.motion_coverage_ratio(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+        return context.motion_coverage_with_memory(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
 
     def rank(t: Target) -> float:
         return score_target(
@@ -1872,6 +1920,13 @@ def find_best_target(
         raw = rank(t)
         t.confidence = _normalize_confidence(raw, float(fov_radius), t.body_shape_score)
         return t
+
+    def _refresh_validation(t: Target) -> None:
+        if context is None:
+            return
+        live = context.motion_coverage_ratio(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+        if live >= context.motion_validate_threshold:
+            context.note_motion_validated(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
 
     if sticky_target is not None and stickiness_pixels > 0:
         pool = []
@@ -1902,6 +1957,7 @@ def find_best_target(
             if chosen.confidence < min_confidence:
                 dbg.append(f"selected reject low_conf={chosen.confidence:.2f}")
                 return DetectionResult(None, len(candidates), chosen.confidence, debug_lines=dbg, active=False)
+            _refresh_validation(chosen)
             dbg.append(
                 f"SELECTED body={chosen.body_shape_score:.2f} head={chosen.head_score:.2f} "
                 f"dist={chosen.distance_to_center:.0f} reason={chosen.reject_reason}"
@@ -1913,6 +1969,7 @@ def find_best_target(
     if best.confidence < min_confidence:
         dbg.append(f"selected reject low_conf={best.confidence:.2f}")
         return DetectionResult(None, len(candidates), best.confidence, debug_lines=dbg, active=False)
+    _refresh_validation(best)
     dbg.append(
         f"SELECTED body={best.body_shape_score:.2f} head={best.head_score:.2f} "
         f"dist={best.distance_to_center:.0f} bbox={best.bbox_w}x{best.bbox_h}"
