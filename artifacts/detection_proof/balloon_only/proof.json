@@ -1,0 +1,15 @@
+{
+  "name": "balloon_only",
+  "frame": [
+    1280,
+    720
+  ],
+  "active": false,
+  "selected": null,
+  "runtime_wired_bbox": null,
+  "runtime_aim": null,
+  "candidates": [],
+  "detection_debug": [
+    "accepted=0 from 0 clusters / 0 parts"
+  ]
+}
