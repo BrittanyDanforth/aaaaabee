@@ -8,8 +8,8 @@ set "ABA_ROOT=%ROOT%\..\OverlayAssist"
 set "LOGDIR=%ROOT%\logs"
 set "LOGFILE=%LOGDIR%\hwid_setup.log"
 set "MARKER=%LOGDIR%\hwid_step.ok"
-set "EXE=%ROOT%\target\x86_64-pc-windows-msvc\release\hwspoof.exe"
-if not exist "%EXE%" set "EXE=%ROOT%\target\release\hwspoof.exe"
+set "EXE="
+call :ResolveExe
 set "SKIP_APPLY=0"
 set "FAILMSG="
 
@@ -89,14 +89,12 @@ set "FAILMSG=verify-last failed code !EXITCODE!"
 goto :Fail
 
 :EnsureExe
-if exist "%EXE%" exit /b 0
+call :ResolveExe
+if defined EXE if exist "%EXE%" exit /b 0
 where cargo >nul 2>&1
 if errorlevel 1 (
-  if not exist "%EXE%" (
-    set "FAILMSG=Install Rust from https://rustup.rs/ or use Run_As_Admin after building once."
-    exit /b 1
-  )
-  exit /b 0
+  set "FAILMSG=Install Rust from https://rustup.rs/ or use Run_As_Admin after building once."
+  exit /b 1
 )
 echo Building hwspoof.exe - first run may take several minutes...
 pushd "%ROOT%"
@@ -107,9 +105,39 @@ if not "!BERR!"=="0" (
   set "FAILMSG=cargo build failed."
   exit /b 1
 )
-if not exist "%EXE%" (
-  set "FAILMSG=Build finished but EXE missing."
+call :ResolveExe
+if not defined EXE (
+  set "FAILMSG=Build finished but hwspoof.exe was not produced under HWIDTool\target. Open a shell here and run 'cargo build --release' to see the real error."
   exit /b 1
+)
+if not exist "%EXE%" (
+  set "FAILMSG=Build finished but resolved EXE path does not exist: %EXE%"
+  exit /b 1
+)
+exit /b 0
+
+REM ----------------------------------------------------------------------
+REM Locate hwspoof.exe. Cargo's default output path depends on the Rust
+REM host triple (msvc vs gnu) and whether --target was passed. We try the
+REM common locations first then recursively search target\ as a fallback.
+REM ----------------------------------------------------------------------
+:ResolveExe
+set "EXE="
+if exist "%ROOT%\target\release\hwspoof.exe" (
+  set "EXE=%ROOT%\target\release\hwspoof.exe"
+  exit /b 0
+)
+if exist "%ROOT%\target\x86_64-pc-windows-msvc\release\hwspoof.exe" (
+  set "EXE=%ROOT%\target\x86_64-pc-windows-msvc\release\hwspoof.exe"
+  exit /b 0
+)
+if exist "%ROOT%\target\x86_64-pc-windows-gnu\release\hwspoof.exe" (
+  set "EXE=%ROOT%\target\x86_64-pc-windows-gnu\release\hwspoof.exe"
+  exit /b 0
+)
+REM Last-resort recursive search — catches custom CARGO_TARGET_DIR layouts.
+if exist "%ROOT%\target" for /r "%ROOT%\target" %%E in (hwspoof.exe) do (
+  if not defined EXE set "EXE=%%E"
 )
 exit /b 0
 
