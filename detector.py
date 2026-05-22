@@ -27,7 +27,13 @@ _MIN_BODY_SHAPE_PARTIAL = 0.34
 DETECTION_MODE_SHAPE = "shape"
 DETECTION_MODE_HSV = "hsv"
 DETECTION_MODE_HYBRID = "hybrid"
-_VALID_DETECTION_MODES = frozenset({DETECTION_MODE_SHAPE, DETECTION_MODE_HSV, DETECTION_MODE_HYBRID})
+# Default "best-of-all-signals" mode tuned for Apex Legends. Fuses shape edges,
+# saturation, motion difference, and the Apex red-enemy-outline cue.
+DETECTION_MODE_APEX = "apex"
+_VALID_DETECTION_MODES = frozenset(
+    {DETECTION_MODE_SHAPE, DETECTION_MODE_HSV, DETECTION_MODE_HYBRID, DETECTION_MODE_APEX}
+)
+DETECTION_MODE_DEFAULT = DETECTION_MODE_APEX
 
 _LAST_DEBUG_LINES: list[str] = []
 
@@ -176,9 +182,9 @@ def build_hsv_mask(frame_bgr: np.ndarray, hsv_ranges: list[dict[str, Any]]) -> n
 
 
 def _normalize_detection_mode(mode: str | None) -> str:
-    m = (mode or DETECTION_MODE_SHAPE).strip().lower()
+    m = (mode or DETECTION_MODE_DEFAULT).strip().lower()
     if m not in _VALID_DETECTION_MODES:
-        return DETECTION_MODE_SHAPE
+        return DETECTION_MODE_DEFAULT
     return m
 
 
@@ -232,6 +238,52 @@ def build_chroma_spread_mask(frame_bgr: np.ndarray) -> np.ndarray:
     return mask
 
 
+# Apex red-enemy-outline highlight (BGR red plus auto-color saturated edges).
+# Apex draws a reddish silhouette / glow around enemies; the hue wraps around
+# 0/180 in OpenCV HSV (H is 0..179). We split the lower/upper red band and
+# also slightly relax saturation/value so dimmer enemy outlines at range still
+# pass — the morphology pass below ties broken outline arcs back together so
+# the rest of the pipeline can extract a cluster.
+_APEX_RED_HSV_LO_A = np.array([0, 90, 90], dtype=np.uint8)
+_APEX_RED_HSV_HI_A = np.array([12, 255, 255], dtype=np.uint8)
+_APEX_RED_HSV_LO_B = np.array([168, 90, 90], dtype=np.uint8)
+_APEX_RED_HSV_HI_B = np.array([180, 255, 255], dtype=np.uint8)
+
+
+def build_red_outline_mask(frame_bgr: np.ndarray) -> np.ndarray:
+    """Apex enemy red-outline / red-highlight mask.
+
+    Apex Legends draws a reddish silhouette outline around visible enemies. It
+    is THE single most reliable detection cue against the dull/desaturated
+    background palettes of the maps and survives armor/optic variation better
+    than raw body silhouette. This mask captures that *outline* as a thin
+    connected band so downstream contour extraction can treat it as additional
+    silhouette evidence without flooding the analyze_figure stage with a
+    fully-filled bbox (which would zero the vertical-profile score).
+
+    Implementation: HSV threshold on Apex red, then a morphological CLOSE to
+    stitch broken outline arcs, then a MORPH_GRADIENT to retain only the
+    *perimeter / outline* of red regions. For real Apex enemies whose
+    highlight is already a 2–5 px ring, the gradient preserves the ring; for
+    solid red regions (test plates, walls) it shrinks to just the boundary so
+    the OR-fused mask in :func:`build_detection_mask` keeps the natural body
+    structure intact.
+    """
+    h, w = frame_bgr.shape[:2]
+    scale = _scale(w, h)
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+    a = cv2.inRange(hsv, _APEX_RED_HSV_LO_A, _APEX_RED_HSV_HI_A)
+    b = cv2.inRange(hsv, _APEX_RED_HSV_LO_B, _APEX_RED_HSV_HI_B)
+    raw = cv2.bitwise_or(a, b)
+    k_small = max(3, int(3 * scale) | 1)
+    kernel_s = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_small, k_small))
+    closed = cv2.morphologyEx(raw, cv2.MORPH_CLOSE, kernel_s, iterations=1)
+    # Outline-only: dilate - erode keeps just the perimeter band. For thin
+    # natural outlines this is approximately the original outline.
+    outline = cv2.morphologyEx(closed, cv2.MORPH_GRADIENT, kernel_s, iterations=1)
+    return outline
+
+
 def build_motion_diff_mask(
     gray_now: np.ndarray,
     prev_gray: np.ndarray,
@@ -279,7 +331,10 @@ class DetectionContext:
     motion_threshold: int = 10
     motion_decay: float = 0.55
     last_motion_mask: np.ndarray | None = None
-    motion_memory_frames: int = 12
+    # Raised from 12 → 24 so a still-locked target keeps its motion-validated
+    # bonus across a longer dry spell (≈400 ms at 60 FPS) — prevents the
+    # single-part penalty from snapping the dot off a stationary enemy.
+    motion_memory_frames: int = 24
     motion_validate_threshold: float = 0.12
     _validated_bbox: tuple[int, int, int, int] | None = None
     _validated_credit: int = 0
@@ -376,7 +431,7 @@ def build_detection_mask(
     bg_mean = float(np.mean(gray))
     shape_px = int((shape_m > 0).sum())
 
-    # Chroma spread fuses for shape/hybrid modes — Apex armor/skin is more
+    # Chroma spread fuses for shape/hybrid/apex modes — Apex armor/skin is more
     # saturated than dull terrain, so this catches the low-contrast cases the
     # plain edge+contrast mask misses (yellow on grass, olive on grass).
     # Gate stays tight to avoid merging plates of high-contrast targets.
@@ -394,6 +449,12 @@ def build_detection_mask(
             context.last_motion_mask = None
         context.update_prev(gray)
 
+    if mode == DETECTION_MODE_APEX:
+        # The Apex red-enemy outline is the strongest single cue when present.
+        # We fuse it UNCONDITIONALLY with shape/contrast/motion so the rest of
+        # the pipeline (cluster + body-shape gate) sees both signal types and
+        # picks whichever produced the strongest silhouette.
+        return cv2.bitwise_or(shape_m, build_red_outline_mask(frame_bgr))
     if mode == DETECTION_MODE_SHAPE:
         return shape_m
     if mode == DETECTION_MODE_HSV:
@@ -1782,6 +1843,20 @@ def _collect_candidates(
     return targets, lines
 
 
+def _closeness_bonus(target: Target, fov_radius: float) -> float:
+    """Closer-enemy preference: bigger bbox height = closer enemy.
+
+    Capped at 1.5x FOV radius so giant nearby targets don't saturate the
+    score. The weight is tuned so a 2x-taller body clearly outscores a
+    similarly-positioned smaller body, but a marginally taller body (≤1.1x)
+    does NOT override a center-distance advantage from a similarly-sized
+    target — see ``tests/test_target_size_priority.py``.
+    """
+    bbox_h_eff = max(0.0, float(target.bbox_h))
+    closeness_unit = min(bbox_h_eff, fov_radius * 1.5) / max(fov_radius, 1.0)
+    return closeness_unit * fov_radius * 0.42
+
+
 def score_target(
     target: Target,
     fov_radius: float,
@@ -1790,10 +1865,12 @@ def score_target(
     *,
     center_y: float | None = None,
     motion_overlap: float = 0.0,
+    include_closeness: bool = False,
 ) -> float:
     body_term = target.body_shape_score * fov_radius * 1.15
     dist_term = max(0.0, fov_radius - target.distance_to_center) * distance_weight * 0.35
     area_term = min(math.sqrt(target.area), 80.0) * area_weight
+    closeness_term = _closeness_bonus(target, fov_radius) if include_closeness else 0.0
     # Motion-overlap bonus rewards candidates whose bbox covers an inter-frame
     # diff region — these are confirmed *moving* silhouettes (real Apex enemies)
     # vs static red walls/panels whose shape may look humanoid by accident.
@@ -1828,7 +1905,7 @@ def score_target(
         penalty += fov_radius * 1.8
     if target.body_shape_score < 0.48:
         penalty += fov_radius * 0.9
-    return body_term + dist_term + area_term + motion_bonus - penalty
+    return body_term + dist_term + area_term + closeness_term + motion_bonus - penalty
 
 
 def _normalize_confidence(raw: float, fov_radius: float, body_shape: float = 0.0) -> float:
@@ -1864,6 +1941,7 @@ def find_best_target(
     debug: bool = False,
     detection_mode: str | None = None,
     context: DetectionContext | None = None,
+    currently_locked: bool = False,
 ) -> DetectionResult:
     _ = (min_aspect, max_aspect, min_solidity)
     h, w = frame_bgr.shape[:2]
@@ -1872,7 +1950,7 @@ def find_best_target(
 
     resolved_mode = detection_mode
     if resolved_mode is None:
-        resolved_mode = DETECTION_MODE_SHAPE
+        resolved_mode = DETECTION_MODE_DEFAULT
 
     candidates, dbg = _collect_candidates(
         frame_bgr,
@@ -1907,6 +1985,11 @@ def find_best_target(
         return context.motion_coverage_with_memory(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
 
     def rank(t: Target) -> float:
+        # Ranking includes closeness so a clearly larger (closer) enemy beats a
+        # similarly-positioned smaller one. The bonus is NOT applied to the
+        # confidence calculation — confidence must measure detection quality,
+        # not target proximity, otherwise small far enemies would never make
+        # the threshold and large but low-quality blobs would always pass.
         return score_target(
             t,
             float(fov_radius),
@@ -1914,10 +1997,19 @@ def find_best_target(
             area_weight,
             center_y=cy,
             motion_overlap=_motion_overlap(t),
+            include_closeness=True,
         )
 
     def finalize(t: Target) -> Target:
-        raw = rank(t)
+        raw = score_target(
+            t,
+            float(fov_radius),
+            distance_weight,
+            area_weight,
+            center_y=cy,
+            motion_overlap=_motion_overlap(t),
+            include_closeness=False,
+        )
         t.confidence = _normalize_confidence(raw, float(fov_radius), t.body_shape_score)
         return t
 
@@ -1941,7 +2033,13 @@ def find_best_target(
         if pool:
             sticky_best = max(pool, key=rank)
             global_best = max(candidates, key=rank)
-            if (
+            # Size-based switch guard: a clearly larger (closer) enemy can
+            # win, but the existing _STICKY_SWITCH_RATIO must still bound how
+            # easily two similarly-sized enemies flicker the lock.
+            sticky_h = max(1.0, float(sticky_best.bbox_h))
+            global_h = max(1.0, float(global_best.bbox_h))
+            size_ratio = global_h / sticky_h
+            switch_allowed = (
                 rank(global_best) > rank(sticky_best) * _STICKY_SWITCH_RATIO
                 and global_best.body_shape_score > sticky_best.body_shape_score + 0.15
                 and global_best.part_count >= 2
@@ -1950,13 +2048,39 @@ def find_best_target(
                     sticky_target.bbox_x, sticky_target.bbox_y, sticky_target.bbox_w, sticky_target.bbox_h,
                     global_best.bbox_x, global_best.bbox_y, global_best.bbox_w, global_best.bbox_h,
                 ) < 0.08
-            ):
+                and size_ratio >= 1.8
+            )
+            if switch_allowed:
                 chosen = finalize(global_best)
             else:
                 chosen = finalize(sticky_best)
+            # Locked-target confidence floor: when the runtime indicates the
+            # current candidate is the same enemy we were already locked on
+            # (sticky overlap proves this), do NOT drop below the confidence
+            # threshold on a single weak frame. The motion-memory channel
+            # already softens transient dips, but a hard floor here prevents
+            # one bad detection from breaking the lock and causing a re-acquire
+            # flicker visible to the user as a "glitching" dot.
+            iou_lock = _bbox_iou(
+                sticky_target.bbox_x, sticky_target.bbox_y,
+                sticky_target.bbox_w, sticky_target.bbox_h,
+                chosen.bbox_x, chosen.bbox_y, chosen.bbox_w, chosen.bbox_h,
+            )
+            lock_dist = math.hypot(
+                chosen.centroid_x - sticky_target.centroid_x,
+                chosen.centroid_y - sticky_target.centroid_y,
+            )
+            lock_overlap = currently_locked and (iou_lock >= 0.5 or lock_dist < 60.0)
             if chosen.confidence < min_confidence:
-                dbg.append(f"selected reject low_conf={chosen.confidence:.2f}")
-                return DetectionResult(None, len(candidates), chosen.confidence, debug_lines=dbg, active=False)
+                if lock_overlap:
+                    floor = max(min_confidence, _MIN_CONFIDENCE)
+                    chosen.confidence = floor
+                    dbg.append(
+                        f"locked floor applied conf->{floor:.2f} iou={iou_lock:.2f} d={lock_dist:.0f}"
+                    )
+                else:
+                    dbg.append(f"selected reject low_conf={chosen.confidence:.2f}")
+                    return DetectionResult(None, len(candidates), chosen.confidence, debug_lines=dbg, active=False)
             _refresh_validation(chosen)
             dbg.append(
                 f"SELECTED body={chosen.body_shape_score:.2f} head={chosen.head_score:.2f} "
