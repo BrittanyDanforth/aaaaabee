@@ -8,11 +8,14 @@ from dataclasses import dataclass
 _MAX_VELOCITY = 3200.0
 _MAX_DT = 0.12
 _MIN_DT = 0.001
-_TAU_POS_STILL = 0.062
-_TAU_POS_MOVING = 0.028
-_TAU_VEL = 0.040
-_TAU_PRED_BLEND = 0.018
-_MAX_PRED_LEAD_S = 0.038
+# Apex-tuned smoothing time constants. Tighter than the previous defaults so the
+# aim point keeps up with strafing enemies — overall feel is snappier without
+# inducing jitter (verified by moving_body_lag_bounded tests).
+_TAU_POS_STILL = 0.042
+_TAU_POS_MOVING = 0.018
+_TAU_VEL = 0.032
+_TAU_PRED_BLEND = 0.016
+_MAX_PRED_LEAD_S = 0.040
 _MAX_PRED_PX = 22.0
 _MAX_UPWARD_LEAD_PX = 4.0
 _BODY_Y_LO_FRAC = 0.28
@@ -23,7 +26,9 @@ _tau_still = _TAU_POS_STILL
 _tau_moving = _TAU_POS_MOVING
 _max_upward_lead_px = _MAX_UPWARD_LEAD_PX
 _BODY_X_MARGIN_FRAC = 0.18
-_SPEED_MOVING_PX_S = 85.0
+# Velocity threshold (px/s) where smoothing slides from "still" tau to "moving" tau.
+# Lower threshold = quicker response to small movements (peeking, strafing).
+_SPEED_MOVING_PX_S = 60.0
 
 
 def _finite(v: float, fallback: float = 0.0) -> float:
@@ -212,8 +217,12 @@ class TargetTracker:
         bbox_h: int,
         dt: float,
     ) -> tuple[float, float]:
-        """Limit per-frame detector jumps so overlay dot does not teleport."""
-        max_step = max(6.0, min(32.0, bbox_h * 0.22)) * max(0.35, min(1.8, dt * 60.0))
+        """
+        Limit per-frame detector jumps so overlay dot does not teleport across the
+        screen, but allow generous travel proportional to bbox height so the
+        smoother keeps up with strafing/sliding enemies.
+        """
+        max_step = max(8.0, min(34.0, bbox_h * 0.24)) * max(0.35, min(2.2, dt * 60.0))
         dx = x - last_x
         dy = y - last_y
         dist = math.hypot(dx, dy)
@@ -310,9 +319,12 @@ class TargetTracker:
         if self._last_meas_x is not None and self._last_meas_y is not None:
             inst_vx = (x - self._last_meas_x) / dt
             inst_vy = (y - self._last_meas_y) / dt
-            cap_v = 120.0
+            # Velocity ceiling scaled to bbox height — bigger (closer) targets move
+            # more screen pixels per second, so cap accordingly. Raised from
+            # 200 -> 600 px/s baseline to accommodate Apex strafing/slide speeds.
+            cap_v = 360.0
             if self._body_bbox is not None:
-                cap_v = max(55.0, min(200.0, self._body_bbox[3] * 1.6))
+                cap_v = max(120.0, min(800.0, self._body_bbox[3] * 4.5))
             ivmag = math.hypot(inst_vx, inst_vy)
             if ivmag > cap_v and ivmag > 0.0:
                 s = cap_v / ivmag
