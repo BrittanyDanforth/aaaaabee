@@ -117,6 +117,8 @@ def run_body_detection_check(
         kwargs["min_aspect"] = float(config["humanoid_min_aspect"])
     if "humanoid_max_aspect" in config:
         kwargs["max_aspect"] = float(config["humanoid_max_aspect"])
+    if config.get("detection_mode"):
+        kwargs["detection_mode"] = str(config["detection_mode"])
 
     det = find_best_target(
         frame,

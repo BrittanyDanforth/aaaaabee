@@ -109,6 +109,9 @@ class TargetTracker:
         self._prediction_max_px: float = _MAX_PRED_PX
         self._body_bbox: tuple[int, int, int, int] | None = None
         self._aim_is_body_anchor: bool = True
+        self._fov_cx: float | None = None
+        self._fov_cy: float | None = None
+        self._fov_radius: float | None = None
         self._last_pred_offset: tuple[float, float] = (0.0, 0.0)
         self._last_pre_predict: tuple[float, float] | None = None
 
@@ -134,6 +137,16 @@ class TargetTracker:
         _body_y_lo_frac = lo
         _body_y_hi_frac = hi
 
+    def configure_fov_clamp(
+        self,
+        center_x: float,
+        center_y: float,
+        radius: float,
+    ) -> None:
+        self._fov_cx = float(center_x)
+        self._fov_cy = float(center_y)
+        self._fov_radius = max(1.0, float(radius))
+
     def configure_smoothing_tau(self, still: float, moving: float) -> None:
         global _tau_still, _tau_moving
         _tau_still = max(0.01, float(still))
@@ -150,6 +163,9 @@ class TargetTracker:
         self._vy = 0.0
         self._body_bbox = None
         self._aim_is_body_anchor = True
+        self._fov_cx = None
+        self._fov_cy = None
+        self._fov_radius = None
         self._last_pred_offset = (0.0, 0.0)
         self._last_pre_predict = None
 
@@ -349,6 +365,10 @@ class TargetTracker:
             bx, by, bw, bh = self._body_bbox
             clamped_x, clamped_y = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
             motion = TargetMotion(clamped_x, clamped_y, motion.vx, motion.vy)
+
+        if self._fov_radius is not None and self._fov_cx is not None and self._fov_cy is not None:
+            fx, fy = self._clamp_to_fov(motion.x, motion.y)
+            motion = TargetMotion(fx, fy, motion.vx, motion.vy)
 
         self._last_pred_offset = (motion.x - pre_x, motion.y - pre_y)
         self._last = motion

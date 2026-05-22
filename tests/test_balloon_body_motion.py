@@ -42,6 +42,7 @@ class BalloonRejectionTests(unittest.TestCase):
             sticky_target=sticky,
             stickiness_pixels=90,
             debug=True,
+            detection_mode="hybrid",
         )
 
     def test_sky_balloon_inside_fov_no_target(self) -> None:

@@ -20,5 +20,6 @@
   "prediction_max_pixels": 12,
   "humanize_enabled": false,
   "verbose_logging": false,
-  "trace_pull": true
+  "trace_pull": true,
+  "detection_mode": "shape"
 }

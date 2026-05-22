@@ -12,6 +12,7 @@ from targeting_runtime import TargetingRuntime
 from tests.reference_body_frames import CX, CY, FRAME_H, FRAME_W, gen_firing_range_standing
 
 CONFIG = {
+    "detection_mode": "shape",
     "hsv_ranges": [
         {"lower": [0, 100, 100], "upper": [12, 255, 255]},
         {"lower": [170, 100, 100], "upper": [180, 255, 255]},
@@ -106,6 +107,7 @@ class E2EProofTests(unittest.TestCase):
             40.0,
             float(CX),
             float(CY),
+            detection_mode="hybrid",
         )
         proofs["4_body_beats_balloon"] = r4.active and r4.target.centroid_y > CY
 

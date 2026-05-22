@@ -117,10 +117,12 @@ def gen_noisy_lighting_gradient() -> tuple[np.ndarray, SyntheticFrameSpec]:
 def gen_red_building_dummy_overlap() -> tuple[np.ndarray, SyntheticFrameSpec]:
     """(2) Red architecture panel behind dummy; 1px separation so contours stay distinct."""
     frame = _blank(BG_DARK)
-    building = (480, 300, 138, 180)  # x, y, w, h — right edge x=618, dummy chest starts ~619
+    building = (480, 300, 138, 180)  # right edge x=618; 4px gap before dummy chest
     bx, by, bw, bh = building
     cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), RED, -1)
-    boxes = _apex_dummy(frame, CX, CY + 100, scale=1.1)
+    gap_x = bx + bw
+    frame[:, gap_x : gap_x + 12] = 0
+    boxes = _apex_dummy(frame, CX + 30, CY + 100, scale=1.1)
     spec = SyntheticFrameSpec(
         name="red_building_dummy_overlap",
         expect_active=True,

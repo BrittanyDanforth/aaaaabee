@@ -8,7 +8,6 @@ from profiles import normalize_profile_name
 
 REQUIRED_KEYS = frozenset(
     {
-        "hsv_ranges",
         "fov_radius_pixels",
         "max_pull_speed_pixels_per_frame",
     }
@@ -76,7 +75,14 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         raise ConfigError(f"Missing required keys: {', '.join(sorted(missing))}")
 
     cfg: dict[str, Any] = dict(raw)
-    cfg["hsv_ranges"] = _validate_hsv_ranges(cfg["hsv_ranges"])
+    mode = str(cfg.get("detection_mode", "shape")).strip().lower()
+    if mode not in ("shape", "hsv", "hybrid"):
+        raise ConfigError("detection_mode must be shape, hsv, or hybrid")
+    cfg["detection_mode"] = mode
+    if mode in ("hsv", "hybrid"):
+        cfg["hsv_ranges"] = _validate_hsv_ranges(cfg.get("hsv_ranges"))
+    else:
+        cfg["hsv_ranges"] = cfg.get("hsv_ranges") or []
 
     cfg["fov_radius_pixels"] = int(_require_number(cfg, "fov_radius_pixels", minimum=1))
     cfg["max_pull_speed_pixels_per_frame"] = _require_number(

@@ -1,4 +1,4 @@
-"""Apex-style body-structure targeting: shape first, color second, area last."""
+"""Humanoid targeting: shape/structure only (no HSV/skin color). Color mask optional legacy."""
 
 from __future__ import annotations
 
@@ -23,6 +23,11 @@ _MIN_CONFIDENCE = 0.30
 _STICKY_SWITCH_RATIO = 2.2
 _MIN_BODY_SHAPE_ACCEPT = 0.40
 _MIN_BODY_SHAPE_PARTIAL = 0.34
+
+DETECTION_MODE_SHAPE = "shape"
+DETECTION_MODE_HSV = "hsv"
+DETECTION_MODE_HYBRID = "hybrid"
+_VALID_DETECTION_MODES = frozenset({DETECTION_MODE_SHAPE, DETECTION_MODE_HSV, DETECTION_MODE_HYBRID})
 
 _LAST_DEBUG_LINES: list[str] = []
 
@@ -168,6 +173,103 @@ def build_hsv_mask(frame_bgr: np.ndarray, hsv_ranges: list[dict[str, Any]]) -> n
     return combined
 
 
+
+def _normalize_detection_mode(mode: str | None) -> str:
+    m = (mode or DETECTION_MODE_SHAPE).strip().lower()
+    if m not in _VALID_DETECTION_MODES:
+        return DETECTION_MODE_SHAPE
+    return m
+
+
+def build_shape_mask(frame_bgr: np.ndarray) -> np.ndarray:
+    """
+    Color-free foreground mask: local contrast + edges, morphology to join body plates.
+    Works across Apex skin colors; shape scoring rejects UI/HUD blobs.
+    """
+    h, w = frame_bgr.shape[:2]
+    scale = _scale(w, h)
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    k_small = max(3, int(3 * scale) | 1)
+    k_large = max(5, int(7 * scale) | 1)
+    kernel_s = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_small, k_small))
+    kernel_l = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_large, k_large))
+
+    bg_blur = cv2.GaussianBlur(blur, (max(15, int(21 * scale)) | 1, max(15, int(21 * scale)) | 1), 0)
+    local = cv2.absdiff(blur, bg_blur)
+    contrast_thr = max(8, int(12 * scale))
+    _, contrast = cv2.threshold(local, contrast_thr, 255, cv2.THRESH_BINARY)
+    canny_lo = max(18, int(25 * scale))
+    canny_hi = max(50, int(85 * scale))
+    edges = cv2.Canny(blur, canny_lo, canny_hi)
+    edges = cv2.dilate(edges, kernel_s, iterations=2)
+
+    mask = cv2.bitwise_or(contrast, edges)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_l, iterations=1)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_s, iterations=1)
+    return mask
+
+
+
+def build_chroma_spread_mask(frame_bgr: np.ndarray) -> np.ndarray:
+    """Saturation spread (max-min BGR) — vivid targets vs dull BG, hue-neutral."""
+    scale = _scale(frame_bgr.shape[1], frame_bgr.shape[0])
+    b, g, r = cv2.split(frame_bgr)
+    mx = cv2.max(cv2.max(r, g), b)
+    mn = cv2.min(cv2.min(r, g), b)
+    spread = cv2.subtract(mx, mn)
+    thr = max(22, int(32 * scale))
+    _, mask = cv2.threshold(spread, thr, 255, cv2.THRESH_BINARY)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
+    return mask
+
+def build_detection_mask(
+    frame_bgr: np.ndarray,
+    hsv_ranges: list[dict[str, Any]] | None,
+    *,
+    detection_mode: str | None = None,
+) -> np.ndarray:
+    """Build binary mask for contour extraction (default: shape-only)."""
+    mode = _normalize_detection_mode(detection_mode)
+    shape_m = build_shape_mask(frame_bgr)
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    bg_mean = float(np.mean(gray))
+    shape_px = int((shape_m > 0).sum())
+    if bg_mean > 35.0 and shape_px < 15000:
+        shape_m = cv2.bitwise_or(shape_m, build_chroma_spread_mask(frame_bgr))
+    if mode == DETECTION_MODE_SHAPE:
+        return shape_m
+    if mode == DETECTION_MODE_HSV:
+        return build_hsv_mask(frame_bgr, hsv_ranges or [])
+    # hybrid: union shape + optional HSV (legacy tuning)
+    if hsv_ranges:
+        return cv2.bitwise_or(shape_m, build_hsv_mask(frame_bgr, hsv_ranges))
+    return shape_m
+
+
+def clamp_point_to_fov(
+    x: float,
+    y: float,
+    center_x: float,
+    center_y: float,
+    radius: float,
+    *,
+    margin_frac: float = 0.92,
+) -> tuple[float, float]:
+    """Keep aim point inside detection FOV — prevents overlay dot at screen edge."""
+    if radius <= 0.0 or not (math.isfinite(x) and math.isfinite(y)):
+        return x, y
+    dx = x - center_x
+    dy = y - center_y
+    dist = math.hypot(dx, dy)
+    cap = max(1.0, radius * max(0.5, min(1.0, margin_frac)))
+    if dist <= cap or dist <= 0.0:
+        return x, y
+    s = cap / dist
+    return center_x + dx * s, center_y + dy * s
+
+
 def _is_health_bar(part: _RedPart, scale: float) -> bool:
     return (
         part.aspect_wh >= 3.6
@@ -213,7 +315,7 @@ def _is_diamond_sign(part: _RedPart, scale: float) -> bool:
 def _extract_parts(mask: np.ndarray, frame_w: int, frame_h: int) -> list[_RedPart]:
     scale = _scale(frame_w, frame_h)
     area_lo = 60 * scale * scale
-    area_hi = 16000 * scale * scale
+    area_hi = 95000 * scale * scale
     parts: list[_RedPart] = []
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -225,7 +327,9 @@ def _extract_parts(mask: np.ndarray, frame_w: int, frame_h: int) -> list[_RedPar
         x, y, w, h = cv2.boundingRect(contour)
         if w <= 0 or h <= 0:
             continue
-        if w > frame_w * 0.26 or h > frame_h * 0.42:
+        if w > frame_w * 0.26:
+            continue
+        if h > frame_h * 0.42 and w < frame_w * 0.22:
             continue
 
         hull = cv2.convexHull(contour)
@@ -256,7 +360,12 @@ def _extract_parts(mask: np.ndarray, frame_w: int, frame_h: int) -> list[_RedPar
             continue
         if _is_diamond_sign(part, scale):
             continue
-        if area >= 9000 * scale * scale and w > frame_w * 0.14 and extent >= 0.74:
+        if (
+            area >= 9000 * scale * scale
+            and w > frame_w * 0.14
+            and extent >= 0.74
+            and w >= h * 1.12
+        ):
             continue
         parts.append(part)
 
@@ -304,7 +413,18 @@ def _cluster_parts(parts: list[_RedPart], frame_w: int, frame_h: int | None = No
             cl_cx = float(np.mean([p.cx for p in cl]))
             x0 = min(p.x for p in cl)
             x1 = max(p.x + p.w for p in cl)
+            cl_y1 = max(p.y + p.h for p in cl)
+            cl_y0 = min(p.y for p in cl)
             overlap = max(0, min(part.x + part.w, x1) - max(part.x, x0))
+            py0, py1 = part.y, part.y + part.h
+            if py1 < cl_y0:
+                v_sep = float(cl_y0 - py1)
+            elif py0 > cl_y1:
+                v_sep = float(py0 - cl_y1)
+            else:
+                v_sep = -1.0
+            if v_sep > max(85.0, 95.0 * _scale(frame_w, fh)):
+                continue
             if abs(part.cx - cl_cx) <= x_tol or overlap / max(1, min(part.w, x1 - x0)) >= 0.25:
                 cl.append(part)
                 placed = True
@@ -332,7 +452,12 @@ def _clusters_should_merge(
     y_overlap = min(by1 + bh1, by2 + bh2) - max(by1, by2)
     if y_overlap >= -8 * scale:
         return True
-    gap = max(by1 + bh1, by2 + bh2) - min(by1, by2)
+    if by2 + bh2 < by1:
+        gap = float(by1 - (by2 + bh2))
+    elif by1 + bh1 < by2:
+        gap = float(by2 - (by1 + bh1))
+    else:
+        gap = 0.0
     return gap <= 95 * scale
 
 
@@ -413,7 +538,11 @@ def _body_structure_reject(
 
     if len(parts) == 1:
         p = parts[0]
-        if p.circularity >= 0.68 and aspect < 1.45:
+        if (
+            p.circularity >= 0.68
+            and aspect < 1.45
+            and not (v_score >= 0.45 and bh >= 60 * scale and aspect >= 0.90)
+        ):
             return RejectReason.ROUND_NON_BODY
         if p.circularity >= 0.52 and aspect < 1.2 and bh < 70 * scale:
             return RejectReason.ROUND_NON_BODY
@@ -691,6 +820,10 @@ def _hard_reject(
         return RejectReason.ARCHITECTURE_PANEL
     if aspect < 0.95:
         return RejectReason.HORIZONTAL_STRIPE
+    if bw >= bh * 1.08 and fill < 0.35 and len(parts) >= 2:
+        return RejectReason.HORIZONTAL_STRIPE
+    if bw >= bh * 1.05 and bh < frame_h * 0.08:
+        return RejectReason.HORIZONTAL_STRIPE
     if bw >= bh * 1.02 and bh < frame_h * 0.12:
         return RejectReason.HORIZONTAL_STRIPE
     if fill > 0.94 and len(parts) <= 1:
@@ -707,7 +840,11 @@ def _hard_reject(
             return RejectReason.HEALTH_BAR_ONLY
         if _is_diamond_sign(p, _scale(frame_w, frame_h)):
             return RejectReason.DIAMOND_SIGN
-        if p.extent >= 0.82 and p.area >= 4500 * _scale(frame_w, frame_h) ** 2 and aspect < 2.0:
+        if (
+            p.extent >= 0.82
+            and p.area >= 4500 * _scale(frame_w, frame_h) ** 2
+            and aspect < 1.08
+        ):
             return RejectReason.SOLID_WALL
 
     if aspect < 1.65 and bh <= 22 * _scale(frame_w, frame_h) and len(parts) <= 2:
@@ -866,8 +1003,17 @@ def analyze_figure(
         or (len(parts) >= 3 and limb_s >= 0.42 and v_score >= 0.30 and aspect >= 1.35)
         or (aspect >= 1.55 and bh >= 65 * scale and align_s >= 0.45 and v_score >= 0.28)
     )
-    if len(parts) == 1 and (v_score < 0.35 or fill > 0.88):
-        structure_ok = False
+    if len(parts) == 1:
+        if (
+            aspect >= 1.40
+            and torso_s >= 0.28
+            and v_score >= 0.30
+            and fill <= 0.92
+            and bh >= 50 * scale
+        ):
+            structure_ok = True
+        elif v_score < 0.35 or fill > 0.88:
+            structure_ok = False
     foot_y = by + bh
     if foot_y < frame_h * 0.42 and len(parts) < 3:
         structure_ok = False
@@ -982,7 +1128,7 @@ class CandidateInfo:
 
 def enumerate_candidates(
     frame_bgr: np.ndarray,
-    hsv_ranges: list[dict[str, Any]],
+    hsv_ranges: list[dict[str, Any]] | None,
     fov_radius: int,
     min_area: float,
     fov_center_x: float | None = None,
@@ -996,12 +1142,13 @@ def enumerate_candidates(
     limb_stack_score_weight: float = 0.22,
     aim_y_min_fraction: float = 0.28,
     aim_y_max_fraction: float = 0.52,
+    detection_mode: str | None = None,
 ) -> tuple[list[CandidateInfo], np.ndarray, list[_RedPart]]:
     """All clusters with scores/reject reasons — for debug artifacts (not color-only)."""
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
-    mask = build_hsv_mask(frame_bgr, hsv_ranges)
+    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=detection_mode)
     fov = _build_fov_mask(h, w, cx, cy, fov_radius)
     vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
@@ -1216,16 +1363,18 @@ def render_debug_artifacts(
 
 def inspect_frame(
     frame_bgr: np.ndarray,
-    hsv_ranges: list[dict[str, Any]],
+    hsv_ranges: list[dict[str, Any]] | None,
     fov_radius: int,
     fov_center_x: float | None = None,
     fov_center_y: float | None = None,
+    *,
+    detection_mode: str | None = None,
 ) -> dict[str, Any]:
     """Dump mask/part/cluster stats for tuning on real screenshots."""
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
-    mask = build_hsv_mask(frame_bgr, hsv_ranges)
+    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=detection_mode)
     fov = _build_fov_mask(h, w, cx, cy, fov_radius)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
     parts = _extract_parts(mask, w, h)
@@ -1255,7 +1404,7 @@ def inspect_frame(
 
 def _collect_candidates(
     frame_bgr: np.ndarray,
-    hsv_ranges: list[dict[str, Any]],
+    hsv_ranges: list[dict[str, Any]] | None,
     fov_radius: int,
     min_area: float,
     cx: float,
@@ -1270,10 +1419,11 @@ def _collect_candidates(
     aim_y_min_fraction: float = 0.28,
     aim_y_max_fraction: float = 0.52,
     debug: bool = False,
+    detection_mode: str | None = None,
 ) -> tuple[list[Target], list[str]]:
     global _LAST_DEBUG_LINES
     h, w = frame_bgr.shape[:2]
-    mask = build_hsv_mask(frame_bgr, hsv_ranges)
+    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=detection_mode)
     fov = _build_fov_mask(h, w, cx, cy, fov_radius)
     vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
@@ -1313,16 +1463,24 @@ def _collect_candidates(
         if not fig.accepted:
             continue
 
-        dist = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))
-        if dist > fov_radius:
+        aim_x, aim_y = clamp_point_to_fov(fig.aim_x, fig.aim_y, cx, cy, float(fov_radius))
+        dist = float(np.hypot(aim_x - cx, aim_y - cy))
+        if dist > float(fov_radius) * 1.02:
             if debug:
                 lines.append(f"cand[{idx}] {RejectReason.OUTSIDE_FOV.value}")
+            continue
+        # Reject screen-edge junk: bbox center far outside FOV
+        bcx = fig.bx + fig.bw * 0.5
+        bcy = fig.by + fig.bh * 0.5
+        if float(np.hypot(bcx - cx, bcy - cy)) > float(fov_radius) * 1.08:
+            if debug:
+                lines.append(f"cand[{idx}] {RejectReason.OUTSIDE_FOV.value} bbox_center")
             continue
 
         targets.append(
             Target(
-                centroid_x=fig.aim_x,
-                centroid_y=fig.aim_y,
+                centroid_x=aim_x,
+                centroid_y=aim_y,
                 area=fig.total_area,
                 distance_to_center=dist,
                 bbox_x=fig.bx,
@@ -1386,7 +1544,7 @@ def _normalize_confidence(raw: float, fov_radius: float, body_shape: float = 0.0
 
 def find_best_target(
     frame_bgr: np.ndarray,
-    hsv_ranges: list[dict[str, Any]],
+    hsv_ranges: list[dict[str, Any]] | None,
     fov_radius: int,
     min_area: float,
     fov_center_x: float | None = None,
@@ -1410,11 +1568,16 @@ def find_best_target(
     min_confidence: float = _MIN_CONFIDENCE,
     exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
     debug: bool = False,
+    detection_mode: str | None = None,
 ) -> DetectionResult:
     _ = (min_height_px, min_aspect, max_aspect, min_solidity)
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
+
+    resolved_mode = detection_mode
+    if resolved_mode is None:
+        resolved_mode = DETECTION_MODE_SHAPE
 
     candidates, dbg = _collect_candidates(
         frame_bgr,
@@ -1432,6 +1595,7 @@ def find_best_target(
         aim_y_min_fraction=aim_y_min_fraction,
         aim_y_max_fraction=aim_y_max_fraction,
         debug=debug,
+        detection_mode=resolved_mode,
     )
     if not candidates:
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
@@ -1529,17 +1693,16 @@ def draw_debug(
     cx = int(round(w / 2 if fov_center_x is None else fov_center_x))
     cy = int(round(h / 2 if fov_center_y is None else fov_center_y))
 
-    if hsv_ranges:
-        cx_f = float(cx)
-        cy_f = float(cy)
-        mask = build_hsv_mask(frame_bgr, hsv_ranges)
-        fov = _build_fov_mask(h, w, cx_f, cy_f, fov_radius)
-        vm = _build_viewmodel_exclude_mask(h, w, _VIEWMODEL_EXCLUDE_FRAC)
-        mask = cv2.bitwise_and(mask, mask, mask=fov)
-        mask = cv2.bitwise_and(mask, mask, mask=vm)
-        tint = np.zeros_like(out)
-        tint[:, :] = (0, 255, 0)
-        out = np.where(mask[:, :, None] > 0, cv2.addWeighted(out, 0.5, tint, 0.5, 0), out)
+    cx_f = float(cx)
+    cy_f = float(cy)
+    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=DETECTION_MODE_SHAPE)
+    fov = _build_fov_mask(h, w, cx_f, cy_f, fov_radius)
+    vm = _build_viewmodel_exclude_mask(h, w, _VIEWMODEL_EXCLUDE_FRAC)
+    mask = cv2.bitwise_and(mask, mask, mask=fov)
+    mask = cv2.bitwise_and(mask, mask, mask=vm)
+    tint = np.zeros_like(out)
+    tint[:, :] = (0, 255, 0)
+    out = np.where(mask[:, :, None] > 0, cv2.addWeighted(out, 0.5, tint, 0.5, 0), out)
 
     cv2.circle(out, (cx, cy), fov_radius, (0, 255, 0), 2)
     cv2.drawMarker(out, (cx, cy), (255, 255, 255), cv2.MARKER_CROSS, 12, 2)

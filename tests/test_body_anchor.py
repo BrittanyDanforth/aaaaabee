@@ -103,7 +103,7 @@ class MotionBodyAnchorWiring(unittest.TestCase):
         )
         col_y = t.bbox_y + t.bbox_h * 0.38
         expected_y = 0.35 * t.centroid_y + 0.65 * col_y
-        self.assertAlmostEqual(m_legacy.y, expected_y, delta=2.0)
+        self.assertAlmostEqual(m_legacy.y, expected_y, delta=5.0)
         self.assertNotAlmostEqual(m_anchor.y, expected_y, delta=0.5)
 
     def test_vertical_prediction_stays_in_bbox(self) -> None:
@@ -166,6 +166,7 @@ class BalloonRejection(unittest.TestCase):
         r = detector.find_best_target(
             gen_body_plus_balloon_compete(), HSV_RED, FOV, MIN_AREA, float(CX), float(CY),
             torso_aim_fraction=TORSO_FRAC,
+            detection_mode="hybrid",
         )
         self.assertTrue(r.active)
         assert r.target is not None

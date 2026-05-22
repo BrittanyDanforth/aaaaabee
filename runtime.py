@@ -121,6 +121,9 @@ class AssistRuntime:
             self._last_motion = None
             return None
 
+        fov_r = float(self.config.get("_runtime_detect_fov", 0) or 0)
+        if fov_r > 0 and hasattr(self, "_frame_cx"):
+            self._aim_tracker.configure_fov_clamp(self._frame_cx, self._frame_cy, fov_r)
         motion = self._aim_tracker.observe_target(
             target.centroid_x,
             target.centroid_y,
@@ -628,6 +631,7 @@ class AssistRuntime:
             aim_y_min_fraction=float(cfg.get("aim_body_y_min_fraction", 0.28)),
             aim_y_max_fraction=float(cfg.get("aim_body_y_max_fraction", 0.52)),
             debug=bool(cfg.get("verbose_logging", False)),
+            detection_mode=str(cfg.get("detection_mode", "shape")),
         )
         with self._lock:
             if result.target is not None:
@@ -639,7 +643,8 @@ class AssistRuntime:
                         new_t.centroid_x - self._locked_target.centroid_x,
                         new_t.centroid_y - self._locked_target.centroid_y,
                     )
-                    if drift < 25:
+                    fov_lim = float(cfg.get("_runtime_detect_fov", 200) or 200) * 0.55
+                    if drift < 25 and drift < fov_lim:
                         self._locked_target = new_t
                         self._target_lost_frames = 0
                         self._switch_candidate = None
@@ -818,7 +823,7 @@ class AssistRuntime:
         print(f"[ABA] Profile: {profile} | capture_fps={fps} | Mouse: {self._mouse.name}")
         print(f"[ABA] Target process: {cfg.get('target_process_name', '') or '(none)'}")
         print(
-            "[ABA] Aim path: detector body-shape -> motion.observe_target(bbox) -> pull/overlay"
+            "[ABA] Aim path: shape-only detect -> motion.observe_target(bbox+FOV) -> pull/overlay"
         )
         if cfg.get("pause_on_target_closed", True) and cfg.get("target_process_name"):
             print("[ABA] Assist pauses when target process is not running.")

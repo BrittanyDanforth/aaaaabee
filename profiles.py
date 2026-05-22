@@ -8,7 +8,7 @@ from typing import Any
 # Apex Legends PC executables (DX11 + DX12). Process presence only — no injection.
 APEX_PROCESS_NAME = "r5apex.exe,r5apex_dx12.exe"
 
-# Shared Apex tuning (HSV, pull, humanoid filters, pull/gate trace).
+# Shared Apex tuning (shape detection default; optional HSV legacy).
 _APEX_TUNING: dict[str, Any] = {
     "target_process_name": APEX_PROCESS_NAME,
     "target_window_title": "",

@@ -222,6 +222,13 @@ class PullController:
             if abs(err_y) > max_ey:
                 err_y = max(-max_ey, min(max_ey, err_y))
         dist = math.hypot(err_x, err_y)
+        if dist > self._tuning.fov_radius * 1.02:
+            self._vel_x *= 0.0
+            self._vel_y *= 0.0
+            self._residual_x = 0.0
+            self._residual_y = 0.0
+            return PullResult(0, 0, 0.0, 0.0, dist)
+
         if dist <= self._tuning.deadzone:
             decay = apply_smoothing_curve(
                 self._tuning.velocity_smoothing,
