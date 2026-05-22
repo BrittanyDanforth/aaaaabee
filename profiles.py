@@ -63,6 +63,7 @@ _APEX_TUNING: dict[str, Any] = {
     "smoothing_tau_still": 0.042,
     "smoothing_tau_moving": 0.018,
     "body_shape_min_score": 0.40,
+    "detection_mode": "apex",
     "detection_motion_assist": True,
     "detection_motion_threshold": 10,
     "head_score_weight": 0.26,

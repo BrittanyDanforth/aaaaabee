@@ -21,7 +21,7 @@
   "humanize_enabled": false,
   "verbose_logging": false,
   "trace_pull": true,
-  "detection_mode": "shape",
+  "detection_mode": "apex",
   "detection_motion_assist": true,
   "detection_motion_threshold": 9
 }

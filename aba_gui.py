@@ -63,6 +63,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "target_stickiness_pixels": 100,
         "body_shape_min_score": 0.50,
         "deadzone_pixels": 4,
+        "detection_mode": "apex",
         "detection_motion_assist": True,
         "detection_motion_threshold": 12,
     },
@@ -76,6 +77,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "target_stickiness_pixels": 60,
         "body_shape_min_score": 0.40,
         "deadzone_pixels": 2,
+        "detection_mode": "apex",
         "detection_motion_assist": True,
         "detection_motion_threshold": 9,
     },
@@ -89,6 +91,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "target_stickiness_pixels": 45,
         "body_shape_min_score": 0.35,
         "deadzone_pixels": 1,
+        "detection_mode": "apex",
         "detection_motion_assist": True,
         "detection_motion_threshold": 8,
         # Strong is the only built-in preset that arms the recoil/jitter
@@ -110,6 +113,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "target_stickiness_pixels": 60,
         "body_shape_min_score": 0.40,
         "deadzone_pixels": 2,
+        "detection_mode": "apex",
         "detection_motion_assist": True,
         "detection_motion_threshold": 9,
         "enable_overlay": True,
@@ -117,6 +121,15 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "verbose_logging": True,
     },
 }
+
+# Detection-mode dropdown options for the Basic tab. The default ("apex") auto-fuses
+# the Apex red-enemy-outline cue with shape edges, saturation, and motion difference.
+DETECTION_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("apex", "Apex (default — auto-fuses red outline + shape + motion)"),
+    ("shape", "Shape only (no colour cue)"),
+    ("hybrid", "Hybrid (shape + HSV)"),
+    ("hsv", "HSV only (legacy colour mask)"),
+)
 
 
 def _fmt_num(value: float, *, suffix: str = "", precision: int = 1) -> str:

@@ -75,9 +75,9 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         raise ConfigError(f"Missing required keys: {', '.join(sorted(missing))}")
 
     cfg: dict[str, Any] = dict(raw)
-    mode = str(cfg.get("detection_mode", "shape")).strip().lower()
-    if mode not in ("shape", "hsv", "hybrid"):
-        raise ConfigError("detection_mode must be shape, hsv, or hybrid")
+    mode = str(cfg.get("detection_mode", "apex")).strip().lower()
+    if mode not in ("shape", "hsv", "hybrid", "apex"):
+        raise ConfigError("detection_mode must be apex, shape, hsv, or hybrid")
     cfg["detection_mode"] = mode
     if mode in ("hsv", "hybrid"):
         cfg["hsv_ranges"] = _validate_hsv_ranges(cfg.get("hsv_ranges"))
