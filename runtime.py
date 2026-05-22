@@ -1166,12 +1166,18 @@ class AssistRuntime:
                             odx = ox - fov_cx_mon
                             ody = oy - fov_cy_mon
                             odist = math.hypot(odx, ody)
-                            # Use detection FOV for the overlay clamp too so a
-                            # target accepted by detection never produces an
-                            # overlay dot that pops off the visible ring when
-                            # ADS-toggling. 0.96 margin matches the tracker's
-                            # internal FOV clamp so all three stages agree.
-                            fov_limit = max(1.0, float(detect_fov)) * 0.96
+                            # O2 (audit): clamp the overlay dot to the
+                            # SMALLER of (display_fov, detect_fov) so the
+                            # dot always stays inside the GREEN ring the
+                            # user sees on screen. The previous clamp used
+                            # detect_fov alone which is wider than the
+                            # display ring when detection_fov_margin_pixels
+                            # is non-zero — that's why the user saw the
+                            # dot pop outside the visible ring.
+                            fov_limit = max(
+                                1.0,
+                                min(float(detect_fov), float(display_fov)),
+                            ) * 0.96
                             if math.isfinite(odist) and odist > fov_limit and odist > 0.0:
                                 s = fov_limit / odist
                                 ox = fov_cx_mon + odx * s
@@ -1181,6 +1187,17 @@ class AssistRuntime:
                                 # dot does not flicker in/out when the centroid
                                 # oscillates across the FOV ring boundary.
                                 sx, sy = self._aim_tracker.smooth_overlay_point(ox, oy)
+                                # O3 (audit): re-clamp AFTER the EMA so
+                                # boundary-motion drift can't drag the
+                                # dot outside the ring on a smoothed
+                                # frame.
+                                sodx = sx - fov_cx_mon
+                                sody = sy - fov_cy_mon
+                                sodist = math.hypot(sodx, sody)
+                                if math.isfinite(sodist) and sodist > fov_limit and sodist > 0.0:
+                                    scale_r = fov_limit / sodist
+                                    sx = fov_cx_mon + sodx * scale_r
+                                    sy = fov_cy_mon + sody * scale_r
                                 overlay_pt = (sx, sy)
                         else:
                             self._aim_tracker.reset_overlay_smoothing()
@@ -1203,6 +1220,15 @@ class AssistRuntime:
                             hsv_ranges=hsv_ranges,
                             stats_lines=self._stats.format_lines() if self._stats else [],
                             detection_debug=det.debug_lines if hasattr(det, "debug_lines") else None,
+                            # O1 (audit): draw the green ring at the
+                            # SAME radius as the live overlay so the
+                            # debug window can't show a phantom second
+                            # ring at the detection FOV. The second
+                            # detect-FOV ring is opt-in via cfg flag.
+                            display_fov_radius=display_fov,
+                            debug_show_detect_ring=bool(
+                                cfg.get("debug_show_detect_ring", False)
+                            ),
                         )
                         if motion is not None:
                             cv2.drawMarker(

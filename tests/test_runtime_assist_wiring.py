@@ -42,9 +42,15 @@ class RuntimeSourceWiringTests(unittest.TestCase):
             text,
             "overlay dot must guard against non-finite motion coords",
         )
-        # Defence against detect_fov collapsing to 0 (would divide-by-zero
-        # inside the FOV clamp). The clamp uses the DETECTION FOV radius (not
-        # the smaller display ring) so a target accepted by detection never
-        # produces an overlay dot that pops off the visible area when ADS
-        # toggling expands the ring.
-        self.assertIn("max(1.0, float(detect_fov)) * 0.96", text)
+        # O2 (audit): clamp the overlay dot to the SMALLER of the
+        # display ring and the detection ring so the dot always stays
+        # inside the GREEN ring the user sees on screen. The previous
+        # clamp used detect_fov alone which is wider than the display
+        # ring when detection_fov_margin_pixels is non-zero — that was
+        # the "dot outside the ring" symptom in the user screenshots.
+        self.assertIn(
+            "min(float(detect_fov), float(display_fov))",
+            text,
+            "overlay clamp must use the smaller of detect_fov and display_fov",
+        )
+        self.assertIn(") * 0.96", text)

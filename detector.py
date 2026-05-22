@@ -2369,7 +2369,20 @@ def draw_debug(
     stats_lines: list[str] | None = None,
     *,
     detection_debug: list[str] | None = None,
+    display_fov_radius: int | None = None,
+    debug_show_detect_ring: bool = False,
 ) -> np.ndarray:
+    """Render the OpenCV debug-window frame.
+
+    O1 (audit): the debug ring is now drawn at ``display_fov_radius``
+    (matching the on-screen overlay ring the user sees) rather than the
+    larger ``fov_radius`` (the detection radius). When ``display_fov_radius``
+    is None we fall back to the detection radius; the optional
+    ``debug_show_detect_ring`` flag draws a SECOND faint ring at the
+    detection radius (off by default) only when explicit comparison is
+    needed. Default behaviour now shows a single ring matching the live
+    overlay so the "two FOV rings" screenshot artefact cannot recur.
+    """
     out = frame_bgr.copy()
     h, w = out.shape[:2]
     cx = int(round(w / 2 if fov_center_x is None else fov_center_x))
@@ -2386,7 +2399,12 @@ def draw_debug(
     tint[:, :] = (0, 255, 0)
     out = np.where(mask[:, :, None] > 0, cv2.addWeighted(out, 0.5, tint, 0.5, 0), out)
 
-    cv2.circle(out, (cx, cy), fov_radius, (0, 255, 0), 2)
+    ring_r = int(display_fov_radius) if display_fov_radius is not None else int(fov_radius)
+    cv2.circle(out, (cx, cy), ring_r, (0, 255, 0), 2)
+    if debug_show_detect_ring and display_fov_radius is not None and int(display_fov_radius) != int(fov_radius):
+        # Optional second faint ring at detection FOV. Off by default so
+        # the user only ever sees ONE green ring matching the live overlay.
+        cv2.circle(out, (cx, cy), int(fov_radius), (0, 128, 0), 1)
     cv2.drawMarker(out, (cx, cy), (255, 255, 255), cv2.MARKER_CROSS, 12, 2)
     if target is not None:
         tx, ty = int(target.centroid_x), int(target.centroid_y)

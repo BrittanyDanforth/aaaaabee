@@ -269,6 +269,11 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         "debug_show_reject_reasons",
         "debug_show_mask_overlay",
         "debug_show_timing",
+        # O1 (audit): when True, the OpenCV debug window draws a faint
+        # second ring at the detection FOV alongside the live display
+        # ring. Off by default so only ONE green ring is ever visible
+        # — kills the "two FOV rings" screenshot artefact.
+        "debug_show_detect_ring",
     ):
         cfg[flag] = bool(cfg.get(flag, False))
 
