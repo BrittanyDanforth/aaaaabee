@@ -23,9 +23,10 @@ if not exist "%LOGDIR%" (
 call :Log "=== ABA setup started ==="
 call :Log "Root folder: %ROOT%"
 
-REM --- HWID pre-step (separate tool; not part of ABA UI) ---
-set "HWID_ROOT=%ROOT%\..\HWIDTool"
-set "HWID_BAT=%HWID_ROOT%\run_hwid.bat"
+REM --- HWID pre-step (separate tool; vendored at .\HWIDTool inside this repo,
+REM     legacy layout had it at ..\HWIDTool as a sibling folder — check both). ---
+set "HWID_BAT=%ROOT%\HWIDTool\run_hwid.bat"
+if not exist "%HWID_BAT%" set "HWID_BAT=%ROOT%\..\HWIDTool\run_hwid.bat"
 if /I "%HWID_SKIP%"=="1" goto :HwidSkipped
 if not exist "%HWID_BAT%" goto :HwidMissing
 call :Log "Running HWID pre-step: %HWID_BAT%"
@@ -150,8 +151,17 @@ if errorlevel 1 (
 )
 "%PY%" --version >> "%LOGFILE%" 2>&1
 
-if exist "%DEPS_OK%" goto :DepsDone
+if not exist "%DEPS_OK%" goto :DoInstall
 
+REM Don't trust the marker alone — smoke-test that the real imports load.
+REM Catches the case where requirements.txt grew new entries between runs.
+"%PY%" -c "import numpy, cv2, mss, psutil, pynput" 1>nul 2>nul
+if not errorlevel 1 goto :DepsDone
+call :Log "DEPS_OK marker present but imports failed — reinstalling."
+echo Dependency check failed — reinstalling missing packages...
+del "%DEPS_OK%" 1>nul 2>nul
+
+:DoInstall
 call :Log "Installing dependencies..."
 echo Installing dependencies (PyPI only; delete .deps_ok to reinstall)...
 set "PIP_NO_CACHE_DIR=1"
