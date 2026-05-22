@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import sys
 import threading
 import time
@@ -908,6 +909,7 @@ class AssistRuntime:
                         self._frame_cx = center_x - cap_region.offset_x
                         self._frame_cy = center_y - cap_region.offset_y
                         self._last_fov_radius = detect_fov
+                        cfg["_runtime_detect_fov"] = detect_fov
                         if self._pull is not None:
                             self._pull._tuning.fov_radius = float(detect_fov)
                         if self._overlay is not None:
@@ -1075,6 +1077,16 @@ class AssistRuntime:
                     if self._overlay is not None and self._should_run():
                         if motion is not None:
                             ox, oy = to_monitor_coords(motion.x, motion.y, cap_region)
+                            fov_cx_mon = float(center_x)
+                            fov_cy_mon = float(center_y)
+                            odx = ox - fov_cx_mon
+                            ody = oy - fov_cy_mon
+                            odist = math.hypot(odx, ody)
+                            fov_limit = float(display_fov) * 0.96
+                            if odist > fov_limit and odist > 0.0:
+                                s = fov_limit / odist
+                                ox = fov_cx_mon + odx * s
+                                oy = fov_cy_mon + ody * s
                             overlay_pt = (ox, oy)
                         else:
                             overlay_pt = None

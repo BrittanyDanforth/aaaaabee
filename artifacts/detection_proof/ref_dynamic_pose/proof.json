@@ -6,62 +6,62 @@
   ],
   "active": true,
   "selected": {
-    "body": 1.0,
-    "head": 1.0,
-    "torso": 0.5857510729613734,
-    "limb": 1.0,
+    "body": 0.7708759010892601,
+    "head": 0.36666666666666664,
+    "torso": 0.8489284309870232,
+    "limb": 0.62,
     "bbox": [
-      596,
-      361,
-      35,
-      113
+      580,
+      353,
+      99,
+      151
     ],
     "aim": [
-      612.45,
-      420.068
+      620.6966702702703,
+      409.71089909909904
     ],
-    "parts": 5
+    "parts": 2
   },
   "runtime_wired_bbox": [
-    596,
-    361,
-    35,
-    113
+    580,
+    353,
+    99,
+    151
   ],
   "runtime_aim": [
-    613.1325,
-    409.58480000000003
+    620.6966702702703,
+    409.71089909909904
   ],
   "candidates": [
     {
       "idx": 0,
       "accepted": true,
       "reject": "ok",
-      "body": 1.0,
-      "head": 1.0,
-      "torso": 0.5857510729613734,
-      "limb": 1.0,
+      "body": 0.7708759010892601,
+      "head": 0.36666666666666664,
+      "torso": 0.8489284309870232,
+      "limb": 0.62,
       "vert": 1.0,
-      "aspect": 3.2285714285714286,
-      "fill": 0.4690265357494354,
-      "circ": 0.7965803878446122,
+      "aspect": 1.5252525252525253,
+      "fill": 0.6423841118812561,
+      "circ": 0.46160516396458606,
       "bbox": [
-        596,
-        361,
-        35,
-        113
+        580,
+        353,
+        99,
+        151
       ],
       "aim": [
-        612.45,
-        420.068
+        620.6966702702703,
+        409.71089909909904
       ],
-      "parts": 5,
-      "detail": "parts=5 head=1.00 torso=0.59 limb=1.00 vert=1.00 geom=0.92 align=0.66 circ=0.80 fill=0.47"
+      "parts": 2,
+      "detail": "parts=2 head=0.37 torso=0.85 limb=0.62 vert=1.00 geom=0.57 align=0.72 circ=0.46 fill=0.64"
     }
   ],
   "detection_debug": [
-    "cand[0] reject=ok body=1.00 head=1.00 torso=0.59 limb=1.00 aspect=3.23 fill=0.47 circ=0.80 bbox=(596,361,35x113) area=1165 dist=66 parts=5 | parts=5 head=1.00 torso=0.59 limb=1.00 vert=1.00 geom=0.92 align=0.66 circ=0.80 fill=0.47",
-    "accepted=1 from 1 clusters / 5 parts",
-    "SELECTED body=1.00 head=1.00 dist=66 bbox=35x113"
+    "cand[0] reject=ok body=0.77 head=0.37 torso=0.85 limb=0.62 aspect=1.53 fill=0.64 circ=0.46 bbox=(580,353,99x151) area=7629 dist=53 parts=2 | parts=2 head=0.37 torso=0.85 limb=0.62 vert=1.00 geom=0.57 align=0.72 circ=0.46 fill=0.64",
+    "accepted=1 from 1 clusters / 2 parts",
+    "SELECTED body=0.77 head=0.37 dist=53 bbox=99x151"
   ]
 }

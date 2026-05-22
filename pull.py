@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
+from typing import Any
 
 from detector import Target
 from motion import (
@@ -94,6 +95,17 @@ class PullController:
             tuning.humanize_amplitude,
             tuning.humanize_jerk_limit,
         )
+
+    def update_tuning(self, **kwargs: Any) -> None:
+        """Hot-update tuning fields without resetting pull state."""
+        for k, v in kwargs.items():
+            if hasattr(self._tuning, k):
+                object.__setattr__(self._tuning, k, v)
+        if "humanize_amplitude" in kwargs or "humanize_jerk_limit" in kwargs:
+            self._humanize = HumanizedMotion(
+                self._tuning.humanize_amplitude,
+                self._tuning.humanize_jerk_limit,
+            )
 
     def reset(self) -> None:
         self._vel_x = 0.0

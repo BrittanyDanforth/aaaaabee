@@ -82,6 +82,14 @@ class RuntimeController:
                     float(merged.get("smoothing_tau_still", 0.062)),
                     float(merged.get("smoothing_tau_moving", 0.028)),
                 )
+            if hasattr(live, "_pull") and live._pull is not None:
+                live._pull.update_tuning(
+                    pull_strength=float(merged.get("pull_strength", 0.82)),
+                    deadzone=float(merged.get("deadzone_pixels", 3)),
+                    max_speed=float(merged.get("max_pull_speed_pixels_per_frame", 22)),
+                    magnetism_radius=float(merged.get("magnetism_radius_pixels", 80)),
+                    velocity_smoothing=float(merged.get("velocity_smoothing", 0.5)),
+                )
         return merged
 
     def set_benchmark_summary(self, text: str) -> None:

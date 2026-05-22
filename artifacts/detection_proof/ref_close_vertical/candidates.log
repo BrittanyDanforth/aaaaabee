@@ -1,6 +1,6 @@
 === ref_close_vertical ===
 active=True
-cand[0] accept=True reject=ok body=1.00 head=1.00 torso=0.67 limb=1.00 aspect=3.54 circ=0.83 bbox=(622,391,39x138)
-cand[0] reject=ok body=1.00 head=1.00 torso=0.67 limb=1.00 aspect=3.54 fill=0.67 circ=0.83 bbox=(622,391,39x138) area=2699 dist=86 parts=6 | parts=6 head=1.00 torso=0.67 limb=1.00 vert=1.00 geom=0.97 align=0.71 circ=0.83 fill=0.67
-accepted=1 from 1 clusters / 6 parts
-SELECTED body=1.00 head=1.00 dist=86 bbox=39x138
+cand[0] accept=True reject=ok body=1.00 head=1.00 torso=0.70 limb=1.00 aspect=2.92 circ=0.86 bbox=(610,383,61x178)
+cand[0] reject=ok body=1.00 head=1.00 torso=0.70 limb=1.00 aspect=2.92 fill=0.94 circ=0.86 bbox=(610,383,61x178) area=6480 dist=91 parts=4 | parts=4 head=1.00 torso=0.70 limb=1.00 vert=1.00 geom=0.75 align=0.96 circ=0.86 fill=0.94
+accepted=1 from 1 clusters / 4 parts
+SELECTED body=1.00 head=1.00 dist=91 bbox=61x178

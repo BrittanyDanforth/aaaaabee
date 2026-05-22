@@ -1,4 +1,4 @@
-"""ABA desktop UI — ONYX-inspired dark control panel, fully wired."""
+"""ABA desktop UI — simplified Basic/Advanced layout with presets."""
 
 from __future__ import annotations
 
@@ -39,6 +39,8 @@ UI_TEXT = "#e8e8e8"
 UI_MUTED = "#9a9a9a"
 UI_SLIDER = "#ffffff"
 UI_ACTIVE_TAB = "#2e2e2e"
+UI_PRESET_BG = "#1a3a2a"
+UI_PRESET_FG = "#7dffb0"
 
 STATUS_COLORS = {
     AbaStatus.GAME_CLOSED: ("#2e2e2e", "#b0b0b0"),
@@ -50,16 +52,66 @@ STATUS_COLORS = {
     AbaStatus.ERROR: ("#4a1818", "#ff8888"),
 }
 
+TUNING_PRESETS: dict[str, dict[str, Any]] = {
+    "Stable": {
+        "pull_strength": 0.55,
+        "smoothing_tau_still": 0.080,
+        "smoothing_tau_moving": 0.040,
+        "velocity_smoothing": 0.60,
+        "max_pull_speed_pixels_per_frame": 18.0,
+        "torso_aim_fraction": 0.38,
+        "target_stickiness_pixels": 100,
+        "body_shape_min_score": 0.50,
+        "deadzone_pixels": 4,
+    },
+    "Responsive": {
+        "pull_strength": 0.82,
+        "smoothing_tau_still": 0.048,
+        "smoothing_tau_moving": 0.020,
+        "velocity_smoothing": 0.48,
+        "max_pull_speed_pixels_per_frame": 26.0,
+        "torso_aim_fraction": 0.40,
+        "target_stickiness_pixels": 60,
+        "body_shape_min_score": 0.40,
+        "deadzone_pixels": 2,
+    },
+    "Strong": {
+        "pull_strength": 1.05,
+        "smoothing_tau_still": 0.035,
+        "smoothing_tau_moving": 0.015,
+        "velocity_smoothing": 0.35,
+        "max_pull_speed_pixels_per_frame": 34.0,
+        "torso_aim_fraction": 0.42,
+        "target_stickiness_pixels": 45,
+        "body_shape_min_score": 0.35,
+        "deadzone_pixels": 1,
+    },
+    "Debug": {
+        "pull_strength": 0.82,
+        "smoothing_tau_still": 0.048,
+        "smoothing_tau_moving": 0.020,
+        "velocity_smoothing": 0.48,
+        "max_pull_speed_pixels_per_frame": 26.0,
+        "torso_aim_fraction": 0.40,
+        "target_stickiness_pixels": 60,
+        "body_shape_min_score": 0.40,
+        "deadzone_pixels": 2,
+        "enable_overlay": True,
+        "trace_pull": True,
+        "verbose_logging": True,
+    },
+}
+
 
 def _fmt_num(value: float, *, suffix: str = "", precision: int = 1) -> str:
     if value < 0:
-        return "unavailable"
+        return "—"
     return f"{value:.{precision}f}{suffix}"
 
 
 def _fmt_int(value: int) -> str:
     if value < 0:
-        return "unavailable"
+        return "—"
     return str(value)
 
 
@@ -76,14 +128,18 @@ class _ConfigControl:
         default: float,
         is_int: bool = False,
         on_change: Callable[[str, float], None],
+        tooltip: str = "",
     ) -> None:
         self.key = key
-        row = tk.Frame(parent, bg=UI_PANEL)
-        row.pack(fill=tk.X, pady=4)
-        tk.Label(row, text=label, bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9)).pack(
+        self.frame = tk.Frame(parent, bg=UI_PANEL)
+        self.frame.pack(fill=tk.X, pady=3)
+        lbl_text = label
+        if tooltip:
+            lbl_text = f"{label}  ({tooltip})"
+        tk.Label(self.frame, text=lbl_text, bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9)).pack(
             anchor="w"
         )
-        inner = tk.Frame(row, bg=UI_PANEL)
+        inner = tk.Frame(self.frame, bg=UI_PANEL)
         inner.pack(fill=tk.X)
         self._var = tk.DoubleVar(value=default)
         scale = tk.Scale(
@@ -144,7 +200,8 @@ class AbaApplication:
         self._closing = False
         self._sliders: dict[str, _ConfigControl] = {}
         self._bool_vars: dict[str, tk.BooleanVar] = {}
-        self._active_tab = "aim"
+        self._active_tab = "basic"
+        self._advanced_mode = False
 
         self._root = tk.Tk()
         self._root.title("ABA")
@@ -169,12 +226,26 @@ class AbaApplication:
             font=("Segoe UI", 9),
         ).pack(side=tk.LEFT, padx=(12, 0))
 
-        ban_frame = tk.Frame(self._root, bg="#4a1515", padx=12, pady=8)
-        ban_frame.pack(fill=tk.X, padx=12, pady=(0, 6))
+        self._adv_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            header,
+            text="Advanced",
+            variable=self._adv_var,
+            bg=UI_BG,
+            fg=UI_MUTED,
+            selectcolor=UI_ACCENT,
+            activebackground=UI_BG,
+            activeforeground=UI_TEXT,
+            font=("Segoe UI", 9),
+            command=self._toggle_advanced,
+        ).pack(side=tk.RIGHT, padx=(0, 8))
+
+        ban_frame = tk.Frame(self._root, bg="#4a1515", padx=12, pady=6)
+        ban_frame.pack(fill=tk.X, padx=12, pady=(0, 4))
         tk.Label(
             ban_frame,
             text="BAN RISK: capture + hooks + synthetic mouse on live EAC. Offline/private only.",
-            font=("Segoe UI", 9, "bold"),
+            font=("Segoe UI", 8, "bold"),
             fg="#ffcccc",
             bg="#4a1515",
             wraplength=860,
@@ -182,49 +253,74 @@ class AbaApplication:
         ).pack(anchor="w")
 
         body = tk.Frame(self._root, bg=UI_BG)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
 
-        sidebar = tk.Frame(body, bg=UI_SIDEBAR, width=140)
+        sidebar = tk.Frame(body, bg=UI_SIDEBAR, width=130)
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
         sidebar.pack_propagate(False)
         self._tab_buttons: dict[str, tk.Button] = {}
-        for tab_id, title in (
-            ("aim", "Aim / Track"),
-            ("trigger", "Trigger"),
-            ("detector", "Body Shape"),
-            ("motion", "Motion / Pull"),
-            ("overlay", "Overlay / Debug"),
+        self._tab_defs = [
+            ("basic", "Basic"),
+            ("body", "Body Targeting"),
+            ("motion", "Motion"),
+            ("debug", "Debug"),
             ("setup", "Setup"),
-        ):
+        ]
+        self._advanced_tabs = {
+            ("aim_adv", "Aim Advanced"),
+            ("detector_adv", "Detector Adv"),
+            ("overlay_adv", "Overlay Adv"),
+        }
+        for tab_id, title in self._tab_defs:
             btn = tk.Button(
                 sidebar,
                 text=title,
                 anchor="w",
-                padx=12,
-                pady=10,
+                padx=10,
+                pady=8,
                 bg=UI_SIDEBAR,
                 fg=UI_MUTED,
                 activebackground=UI_ACTIVE_TAB,
                 activeforeground=UI_TEXT,
                 relief=tk.FLAT,
                 borderwidth=0,
+                font=("Segoe UI", 9),
                 command=lambda t=tab_id: self._show_tab(t),
             )
             btn.pack(fill=tk.X)
             self._tab_buttons[tab_id] = btn
 
+        self._adv_tab_btns: dict[str, tk.Button] = {}
+        for tab_id, title in self._advanced_tabs:
+            btn = tk.Button(
+                sidebar,
+                text=title,
+                anchor="w",
+                padx=10,
+                pady=8,
+                bg=UI_SIDEBAR,
+                fg=UI_MUTED,
+                activebackground=UI_ACTIVE_TAB,
+                activeforeground=UI_TEXT,
+                relief=tk.FLAT,
+                borderwidth=0,
+                font=("Segoe UI", 8),
+                command=lambda t=tab_id: self._show_tab(t),
+            )
+            self._adv_tab_btns[tab_id] = btn
+
         right = tk.Frame(body, bg=UI_BG)
-        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0))
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
 
         status_row = tk.Frame(right, bg=UI_BG)
         status_row.pack(fill=tk.X)
-        self._status_badge = tk.Frame(status_row, bg=STATUS_COLORS[AbaStatus.IDLE][0], padx=12, pady=10)
+        self._status_badge = tk.Frame(status_row, bg=STATUS_COLORS[AbaStatus.IDLE][0], padx=12, pady=8)
         self._status_badge.pack(fill=tk.X)
         self._status_var = tk.StringVar(value="STATUS: IDLE")
         self._status_label = tk.Label(
             self._status_badge,
             textvariable=self._status_var,
-            font=("Segoe UI", 15, "bold"),
+            font=("Segoe UI", 14, "bold"),
             bg=STATUS_COLORS[AbaStatus.IDLE][0],
             fg=STATUS_COLORS[AbaStatus.IDLE][1],
         )
@@ -238,22 +334,25 @@ class AbaApplication:
             wraplength=680,
             justify=tk.LEFT,
             font=("Segoe UI", 9),
-        ).pack(anchor="w", pady=(6, 8))
+        ).pack(anchor="w", pady=(4, 6))
 
         self._panels: dict[str, tk.Frame] = {}
         scroll_host = tk.Frame(right, bg=UI_BG)
         scroll_host.pack(fill=tk.BOTH, expand=True)
-        for tab_id in ("aim", "trigger", "detector", "motion", "overlay", "setup"):
-            panel = tk.Frame(scroll_host, bg=UI_PANEL, padx=14, pady=12)
+        all_tabs = [t[0] for t in self._tab_defs] + [t[0] for t in self._advanced_tabs]
+        for tab_id in all_tabs:
+            panel = tk.Frame(scroll_host, bg=UI_PANEL, padx=14, pady=10)
             self._panels[tab_id] = panel
 
-        self._build_aim_panel(self._panels["aim"])
-        self._build_trigger_panel(self._panels["trigger"])
-        self._build_detector_panel(self._panels["detector"])
+        self._build_basic_panel(self._panels["basic"])
+        self._build_body_panel(self._panels["body"])
         self._build_motion_panel(self._panels["motion"])
-        self._build_overlay_panel(self._panels["overlay"])
+        self._build_debug_panel(self._panels["debug"])
         self._build_setup_panel(self._panels["setup"])
-        self._show_tab("aim")
+        self._build_aim_adv_panel(self._panels["aim_adv"])
+        self._build_detector_adv_panel(self._panels["detector_adv"])
+        self._build_overlay_adv_panel(self._panels["overlay_adv"])
+        self._show_tab("basic")
 
         live = tk.LabelFrame(
             right,
@@ -261,11 +360,11 @@ class AbaApplication:
             bg=UI_PANEL,
             fg=UI_MUTED,
             font=("Segoe UI", 9),
-            padx=10,
-            pady=8,
+            padx=8,
+            pady=6,
             labelanchor="nw",
         )
-        live.pack(fill=tk.X, pady=(8, 0))
+        live.pack(fill=tk.X, pady=(6, 0))
         self._live_vars: dict[str, tk.StringVar] = {}
         live_grid = tk.Frame(live, bg=UI_PANEL)
         live_grid.pack(fill=tk.X)
@@ -284,16 +383,16 @@ class AbaApplication:
         for i, (label, key) in enumerate(live_rows):
             r, c = divmod(i, 2)
             tk.Label(live_grid, text=f"{label}:", bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8)).grid(
-                row=r, column=c * 2, sticky="w", padx=(0, 4), pady=2
+                row=r, column=c * 2, sticky="w", padx=(0, 4), pady=1
             )
             var = tk.StringVar(value="—")
             self._live_vars[key] = var
             tk.Label(live_grid, textvariable=var, bg=UI_PANEL, fg=UI_TEXT, font=("Consolas", 8)).grid(
-                row=r, column=c * 2 + 1, sticky="w", padx=(0, 16)
+                row=r, column=c * 2 + 1, sticky="w", padx=(0, 14)
             )
 
         btn = tk.Frame(right, bg=UI_BG)
-        btn.pack(fill=tk.X, pady=12)
+        btn.pack(fill=tk.X, pady=8)
         self._start_btn = tk.Button(
             btn,
             text="Start ABA",
@@ -324,7 +423,7 @@ class AbaApplication:
             bg=UI_ACCENT,
             fg=UI_TEXT,
             relief=tk.FLAT,
-            padx=12,
+            padx=10,
             pady=6,
         ).pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(
@@ -334,7 +433,7 @@ class AbaApplication:
             bg=UI_ACCENT,
             fg=UI_TEXT,
             relief=tk.FLAT,
-            padx=12,
+            padx=10,
             pady=6,
         ).pack(side=tk.LEFT, padx=(0, 8))
         tk.Button(
@@ -344,7 +443,7 @@ class AbaApplication:
             bg=UI_ACCENT,
             fg=UI_TEXT,
             relief=tk.FLAT,
-            padx=12,
+            padx=10,
             pady=6,
         ).pack(side=tk.RIGHT)
 
@@ -367,6 +466,7 @@ class AbaApplication:
         maximum: float,
         resolution: float = 0.01,
         is_int: bool = False,
+        tooltip: str = "",
     ) -> _ConfigControl:
         default = float(self.config.get(key, minimum))
         ctrl = _ConfigControl(
@@ -379,6 +479,7 @@ class AbaApplication:
             default=default,
             is_int=is_int,
             on_change=self._on_slider_change,
+            tooltip=tooltip,
         )
         self._sliders[key] = ctrl
         return ctrl
@@ -387,7 +488,7 @@ class AbaApplication:
         var = tk.BooleanVar(value=bool(self.config.get(key, False)))
         self._bool_vars[key] = var
         row = tk.Frame(parent, bg=UI_PANEL)
-        row.pack(fill=tk.X, pady=3)
+        row.pack(fill=tk.X, pady=2)
         tk.Checkbutton(
             row,
             text=label,
@@ -433,195 +534,163 @@ class AbaApplication:
                 btn.config(bg=UI_ACTIVE_TAB, fg=UI_TEXT)
             else:
                 btn.config(bg=UI_SIDEBAR, fg=UI_MUTED)
+        for tid, btn in self._adv_tab_btns.items():
+            if tid == tab_id:
+                btn.config(bg=UI_ACTIVE_TAB, fg=UI_TEXT)
+            else:
+                btn.config(bg=UI_SIDEBAR, fg=UI_MUTED)
+
+    def _toggle_advanced(self) -> None:
+        self._advanced_mode = bool(self._adv_var.get())
+        if self._advanced_mode:
+            for tab_id, btn in self._adv_tab_btns.items():
+                btn.pack(fill=tk.X)
+        else:
+            for tab_id, btn in self._adv_tab_btns.items():
+                btn.pack_forget()
+            if self._active_tab in [t[0] for t in self._advanced_tabs]:
+                self._show_tab("basic")
 
     def _section(self, parent: tk.Widget, title: str) -> tk.Frame:
         tk.Label(parent, text=title, bg=UI_PANEL, fg=UI_TEXT, font=("Segoe UI", 11, "bold")).pack(
-            anchor="w", pady=(0, 6)
+            anchor="w", pady=(0, 4)
         )
         return parent
 
-    def _build_aim_panel(self, parent: tk.Frame) -> None:
-        self._section(parent, "Aim anchor (fixes dot above/side)")
-        self._slider(parent, "Torso aim fraction", "torso_aim_fraction", minimum=0.32, maximum=0.52)
+    def _apply_preset(self, name: str) -> None:
+        if name not in TUNING_PRESETS:
+            return
+        preset = TUNING_PRESETS[name]
+        try:
+            self.config = self._controller.apply_config_patch(preset, persist=False)
+            self._sync_controls_from_config()
+            self._detail_var.set(f"Preset '{name}' applied. Save Settings to keep.")
+        except Exception as exc:
+            self._error_var.set(f"Preset failed: {exc}")
+
+    # === BASIC TAB ===
+    def _build_basic_panel(self, parent: tk.Frame) -> None:
+        self._section(parent, "Quick controls")
+
+        preset_row = tk.Frame(parent, bg=UI_PANEL)
+        preset_row.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(preset_row, text="Presets:", bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9)).pack(
+            side=tk.LEFT, padx=(0, 8)
+        )
+        for name in TUNING_PRESETS:
+            tk.Button(
+                preset_row,
+                text=name,
+                command=lambda n=name: self._apply_preset(n),
+                bg=UI_PRESET_BG,
+                fg=UI_PRESET_FG,
+                relief=tk.FLAT,
+                padx=10,
+                pady=3,
+                font=("Segoe UI", 9),
+            ).pack(side=tk.LEFT, padx=2)
+
         self._slider(
-            parent,
-            "Aim vertical clamp min",
-            "aim_body_y_min_fraction",
-            minimum=0.20,
-            maximum=0.45,
+            parent, "Tracking Strength", "pull_strength",
+            minimum=0.2, maximum=1.2,
+            tooltip="how hard the aim pulls toward target",
         )
         self._slider(
-            parent,
-            "Aim vertical clamp max",
-            "aim_body_y_max_fraction",
-            minimum=0.40,
-            maximum=0.60,
-        )
-        self._section(parent, "Prediction")
-        self._toggle(parent, "Prediction enabled", "prediction_enabled")
-        self._slider(
-            parent,
-            "Lead seconds",
-            "prediction_lead_seconds",
-            minimum=0.0,
-            maximum=0.12,
-            resolution=0.001,
+            parent, "Smoothness", "smoothing_tau_still",
+            minimum=0.02, maximum=0.15, resolution=0.002,
+            tooltip="higher = smoother but laggier",
         )
         self._slider(
-            parent,
-            "Max lead pixels",
-            "prediction_max_pixels",
-            minimum=0.0,
-            maximum=40.0,
+            parent, "Moving Target Response", "smoothing_tau_moving",
+            minimum=0.01, maximum=0.10, resolution=0.002,
+            tooltip="how fast aim catches a strafing target",
         )
         self._slider(
-            parent,
-            "Vertical prediction cap (px)",
-            "prediction_vertical_cap_pixels",
-            minimum=0.0,
-            maximum=16.0,
-            resolution=0.5,
-        )
-        self._section(parent, "Sticky lock")
-        self._slider(
-            parent,
-            "Stickiness pixels",
-            "target_stickiness_pixels",
-            minimum=20.0,
-            maximum=140.0,
-            resolution=1.0,
-            is_int=True,
+            parent, "Aim Height", "torso_aim_fraction",
+            minimum=0.32, maximum=0.52,
+            tooltip="where on body: 0.35=upper chest, 0.50=belly",
         )
         self._slider(
-            parent,
-            "Lost frames before unlock",
-            "target_lost_frames_before_unlock",
-            minimum=3,
-            maximum=40,
-            resolution=1,
-            is_int=True,
+            parent, "Stickiness", "target_stickiness_pixels",
+            minimum=20.0, maximum=140.0, resolution=1.0, is_int=True,
+            tooltip="px hysteresis before switching targets",
+        )
+        self._toggle(parent, "Show overlay (red dot + FOV ring)", "enable_overlay")
+
+    # === BODY TARGETING TAB ===
+    def _build_body_panel(self, parent: tk.Frame) -> None:
+        self._section(parent, "Body targeting")
+        self._slider(
+            parent, "Body Shape Strictness", "body_shape_min_score",
+            minimum=0.28, maximum=0.65,
+            tooltip="higher = fewer false positives, may miss small targets",
+        )
+        self._slider(
+            parent, "Aim band top", "aim_body_y_min_fraction",
+            minimum=0.20, maximum=0.45,
+            tooltip="upper limit of aim clamp on body (lower = higher aim)",
+        )
+        self._slider(
+            parent, "Aim band bottom", "aim_body_y_max_fraction",
+            minimum=0.40, maximum=0.60,
+            tooltip="lower limit of aim clamp on body",
+        )
+        self._slider(
+            parent, "Min target area (px)", "min_target_area_pixels",
+            minimum=10, maximum=120, resolution=1, is_int=True,
+            tooltip="reject blobs smaller than this",
+        )
+        self._slider(
+            parent, "Min humanoid height (px)", "humanoid_min_height_pixels",
+            minimum=8, maximum=60, resolution=1,
+            tooltip="reject short non-body shapes",
         )
 
-    def _build_trigger_panel(self, parent: tk.Frame) -> None:
-        self._section(parent, "Trigger")
-        tk.Label(
-            parent,
-            text="Trigger = hold RIGHT MOUSE BUTTON (ADS).\n"
-            "No extra keybinds. Assist runs while RMB is held and a body target is locked.",
-            bg=UI_PANEL,
-            fg=UI_MUTED,
-            justify=tk.LEFT,
-            font=("Segoe UI", 10),
-            wraplength=640,
-        ).pack(anchor="w", pady=8)
-        tk.Label(
-            parent,
-            text=f"ADS input mode (config): {self._ads_mode}",
-            bg=UI_PANEL,
-            fg=UI_TEXT,
-            font=("Consolas", 9),
-        ).pack(anchor="w")
-
-    def _build_detector_panel(self, parent: tk.Frame) -> None:
-        self._section(parent, "Body-shape detection")
-        self._slider(
-            parent,
-            "Body shape min score",
-            "body_shape_min_score",
-            minimum=0.28,
-            maximum=0.65,
-        )
-        self._slider(parent, "Head score weight", "head_score_weight", minimum=0.0, maximum=0.5)
-        self._slider(parent, "Torso score weight", "torso_score_weight", minimum=0.0, maximum=0.5)
-        self._slider(
-            parent,
-            "Limb stack weight",
-            "limb_stack_score_weight",
-            minimum=0.0,
-            maximum=0.5,
-        )
-        self._slider(
-            parent,
-            "Min target area (px)",
-            "min_target_area_pixels",
-            minimum=10,
-            maximum=120,
-            resolution=1,
-            is_int=True,
-        )
-        self._slider(
-            parent,
-            "Humanoid min height",
-            "humanoid_min_height_pixels",
-            minimum=8,
-            maximum=60,
-            resolution=1,
-        )
-
+    # === MOTION TAB ===
     def _build_motion_panel(self, parent: tk.Frame) -> None:
-        self._section(parent, "Motion / pull responsiveness")
+        self._section(parent, "Motion & pull")
         self._slider(
-            parent,
-            "Velocity smoothing",
-            "velocity_smoothing",
-            minimum=0.05,
-            maximum=0.95,
+            parent, "Pull speed smoothing", "velocity_smoothing",
+            minimum=0.05, maximum=0.95,
+            tooltip="EMA on pull velocity (lower = snappier)",
         )
         self._slider(
-            parent,
-            "Smoothing tau (still)",
-            "smoothing_tau_still",
-            minimum=0.02,
-            maximum=0.15,
-            resolution=0.001,
+            parent, "Max pull speed / frame", "max_pull_speed_pixels_per_frame",
+            minimum=4.0, maximum=40.0,
+            tooltip="cap on mouse movement per frame",
         )
         self._slider(
-            parent,
-            "Smoothing tau (moving)",
-            "smoothing_tau_moving",
-            minimum=0.01,
-            maximum=0.10,
-            resolution=0.001,
+            parent, "Deadzone", "deadzone_pixels",
+            minimum=0.0, maximum=20.0,
+            tooltip="no pull inside this radius of crosshair",
         )
         self._slider(
-            parent,
-            "Max pull speed / frame",
-            "max_pull_speed_pixels_per_frame",
-            minimum=4.0,
-            maximum=40.0,
-        )
-        self._slider(parent, "Pull strength", "pull_strength", minimum=0.2, maximum=1.2)
-        self._slider(parent, "Deadzone px", "deadzone_pixels", minimum=0.0, maximum=20.0)
-        self._slider(
-            parent,
-            "Magnetism radius",
-            "magnetism_radius_pixels",
-            minimum=30,
-            maximum=120,
-            resolution=1,
-            is_int=True,
+            parent, "Magnetism radius", "magnetism_radius_pixels",
+            minimum=30, maximum=120, resolution=1, is_int=True,
+            tooltip="distance-based pull scaling radius",
         )
         self._slider(
-            parent,
-            "Mouse gate stale grace frames",
-            "mouse_gate_stale_grace_frames",
-            minimum=0,
-            maximum=30,
-            resolution=1,
-            is_int=True,
+            parent, "Lost frames before unlock", "target_lost_frames_before_unlock",
+            minimum=3, maximum=40, resolution=1, is_int=True,
+            tooltip="frames without detection before dropping lock",
+        )
+        self._slider(
+            parent, "Stale grace frames", "mouse_gate_stale_grace_frames",
+            minimum=0, maximum=30, resolution=1, is_int=True,
+            tooltip="frames mouse can still move after losing detection",
         )
 
-    def _build_overlay_panel(self, parent: tk.Frame) -> None:
-        self._section(parent, "Overlay & debug visualization")
+    # === DEBUG TAB ===
+    def _build_debug_panel(self, parent: tk.Frame) -> None:
+        self._section(parent, "Debug & diagnostics")
+        tk.Label(
+            parent,
+            text="Live telemetry shows real values from the running pipeline below.",
+            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(0, 6))
         self._toggle(parent, "Enable overlay (click-through)", "enable_overlay")
-        self._toggle(parent, "OpenCV debug window", "show_debug_window")
-        self._toggle(parent, "Show body bbox", "debug_show_body_bbox")
-        self._toggle(parent, "Show selected anchor", "debug_show_anchor")
-        self._toggle(parent, "Show rejected candidates", "debug_show_rejected")
-        self._toggle(parent, "Show top 3 candidates", "debug_show_top_candidates")
-        self._toggle(parent, "Show reject reasons", "debug_show_reject_reasons")
-        self._toggle(parent, "Show mask overlay", "debug_show_mask_overlay")
-        self._toggle(parent, "Show FPS / timing", "debug_show_timing")
+        self._toggle(parent, "Verbose logging", "verbose_logging")
+        self._toggle(parent, "Pull trace log", "trace_pull")
         tk.Button(
             parent,
             text="Save debug frame (next capture)",
@@ -630,16 +699,68 @@ class AbaApplication:
             fg=UI_TEXT,
             relief=tk.FLAT,
             padx=10,
-            pady=6,
-        ).pack(anchor="w", pady=10)
+            pady=5,
+        ).pack(anchor="w", pady=8)
         tk.Label(
             parent,
-            text=f"Output folder: {self.config.get('debug_frames_dir', 'artifacts/debug_frames')}",
-            bg=UI_PANEL,
-            fg=UI_MUTED,
-            font=("Consolas", 8),
+            text=f"Debug frames: {self.config.get('debug_frames_dir', 'artifacts/debug_frames')}",
+            bg=UI_PANEL, fg=UI_MUTED, font=("Consolas", 8),
+        ).pack(anchor="w")
+        tk.Label(
+            parent,
+            text=f"Pull trace: {self.config.get('trace_pull_log_file', 'logs/pull_trace.log')}",
+            bg=UI_PANEL, fg=UI_MUTED, font=("Consolas", 8),
         ).pack(anchor="w")
 
+    # === ADVANCED: Aim ===
+    def _build_aim_adv_panel(self, parent: tk.Frame) -> None:
+        self._section(parent, "Advanced aim (prediction & lock)")
+        tk.Label(
+            parent,
+            text="Prediction is auto-disabled with body-anchor mode (default). "
+            "These only apply if aim_is_body_anchor is False.",
+            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
+        ).pack(anchor="w", pady=(0, 6))
+        self._toggle(parent, "Prediction enabled", "prediction_enabled")
+        self._slider(
+            parent, "Lead seconds", "prediction_lead_seconds",
+            minimum=0.0, maximum=0.12, resolution=0.001,
+        )
+        self._slider(
+            parent, "Max lead pixels", "prediction_max_pixels",
+            minimum=0.0, maximum=40.0,
+        )
+        self._slider(
+            parent, "Vertical prediction cap (px)", "prediction_vertical_cap_pixels",
+            minimum=0.0, maximum=16.0, resolution=0.5,
+        )
+
+    # === ADVANCED: Detector ===
+    def _build_detector_adv_panel(self, parent: tk.Frame) -> None:
+        self._section(parent, "Advanced body scoring weights")
+        self._slider(parent, "Head score weight", "head_score_weight", minimum=0.0, maximum=0.5)
+        self._slider(parent, "Torso score weight", "torso_score_weight", minimum=0.0, maximum=0.5)
+        self._slider(
+            parent, "Limb stack weight", "limb_stack_score_weight",
+            minimum=0.0, maximum=0.5,
+        )
+
+    # === ADVANCED: Overlay ===
+    def _build_overlay_adv_panel(self, parent: tk.Frame) -> None:
+        self._section(parent, "Advanced overlay & debug flags")
+        self._toggle(parent, "OpenCV debug window (CLI only)", "show_debug_window")
+        tk.Label(
+            parent,
+            text="ADS input mode (config): " + str(self.config.get("ads_input_mode", "both")),
+            bg=UI_PANEL, fg=UI_TEXT, font=("Consolas", 9),
+        ).pack(anchor="w", pady=4)
+        tk.Label(
+            parent,
+            text="Trigger = hold RIGHT MOUSE BUTTON (ADS). No extra keybinds.",
+            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9), wraplength=600,
+        ).pack(anchor="w", pady=4)
+
+    # === SETUP TAB ===
     def _build_setup_panel(self, parent: tk.Frame) -> None:
         self._setup_var = tk.StringVar(value=self._setup_status)
         self._mode_var = tk.StringVar(
@@ -926,14 +1047,13 @@ class AbaApplication:
         allow = proc_running or not self._process_required or not self._process_name.strip()
         self._start_btn.config(state=tk.NORMAL if allow else tk.DISABLED)
 
-
     def _update_live_cfg_label(self) -> None:
         if not hasattr(self, "_live_cfg_var"):
             return
         live_on = bool(self.config.get("allow_live_mouse", False))
         ack = bool(self.config.get("offline_dev_mode", True))
         self._live_cfg_var.set(
-            f"Live mouse: {"ON" if live_on else "OFF (dry-run)"} · "
+            f"Live mouse: {'ON' if live_on else 'OFF (dry-run)'} · "
             f"offline_dev_mode={ack} (private-build ack — required for live)"
         )
 
@@ -952,13 +1072,13 @@ class AbaApplication:
                 f"{snap.anchor_x:.0f}, {snap.anchor_y:.0f}"
             )
         else:
-            self._live_vars["anchor"].set("unavailable")
+            self._live_vars["anchor"].set("—")
         if snap.bbox_w >= 0:
             self._live_vars["bbox"].set(
                 f"{snap.bbox_x},{snap.bbox_y} {snap.bbox_w}x{snap.bbox_h}"
             )
         else:
-            self._live_vars["bbox"].set("unavailable")
+            self._live_vars["bbox"].set("—")
         self._live_vars["timing"].set(
             f"fps {_fmt_num(snap.fps, precision=0)} · cap {_fmt_int(snap.detect_ms)}ms · "
             f"capture {_fmt_num(snap.capture_ms, precision=1)}ms"
