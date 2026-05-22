@@ -195,7 +195,8 @@ def build_shape_mask(frame_bgr: np.ndarray) -> np.ndarray:
     kernel_s = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_small, k_small))
     kernel_l = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_large, k_large))
 
-    bg_blur = cv2.GaussianBlur(blur, (max(15, int(21 * scale)) | 1, max(15, int(21 * scale)) | 1), 0)
+    bg_k = max(15, int(21 * scale)) | 1
+    bg_blur = cv2.GaussianBlur(blur, (bg_k, bg_k), 0)
     local = cv2.absdiff(blur, bg_blur)
     contrast_thr = max(8, int(12 * scale))
     _, contrast = cv2.threshold(local, contrast_thr, 255, cv2.THRESH_BINARY)
@@ -212,32 +213,138 @@ def build_shape_mask(frame_bgr: np.ndarray) -> np.ndarray:
 
 
 def build_chroma_spread_mask(frame_bgr: np.ndarray) -> np.ndarray:
-    """Saturation spread (max-min BGR) — vivid targets vs dull BG, hue-neutral."""
-    scale = _scale(frame_bgr.shape[1], frame_bgr.shape[0])
-    b, g, r = cv2.split(frame_bgr)
-    mx = cv2.max(cv2.max(r, g), b)
-    mn = cv2.min(cv2.min(r, g), b)
-    spread = cv2.subtract(mx, mn)
-    thr = max(22, int(32 * scale))
-    _, mask = cv2.threshold(spread, thr, 255, cv2.THRESH_BINARY)
+    """
+    HSV saturation × brightness — vivid Apex armor/skin vs dull terrain, hue-neutral.
+    Uses HSV S directly (not raw BGR spread) so highly saturated grass/sand do NOT
+    flood the mask; only strongly saturated foreground regions pass.
+    """
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+    s = hsv[:, :, 1]
+    v = hsv[:, :, 2]
+    sat_thr = 120
+    val_thr = 70
+    sat_ok = cv2.threshold(s, sat_thr, 255, cv2.THRESH_BINARY)[1]
+    val_ok = cv2.threshold(v, val_thr, 255, cv2.THRESH_BINARY)[1]
+    mask = cv2.bitwise_and(sat_ok, val_ok)
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
     return mask
+
+
+def build_motion_diff_mask(
+    gray_now: np.ndarray,
+    prev_gray: np.ndarray,
+    *,
+    threshold: int = 14,
+) -> np.ndarray:
+    """
+    Inter-frame absolute difference — picks up *any* moving silhouette regardless
+    of color/contrast. This is the main reason Apex enemies remain detectable when
+    their armor blends into terrain: they move, the background does not.
+
+    Output is a thin edge-of-motion ribbon (no dilation) so it reinforces the
+    current silhouette boundary rather than creating a "ghost" of the prior frame.
+    """
+    if gray_now.shape != prev_gray.shape:
+        return np.zeros_like(gray_now)
+    diff = cv2.absdiff(gray_now, prev_gray)
+    _, mask = cv2.threshold(diff, max(6, int(threshold)), 255, cv2.THRESH_BINARY)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
+    return mask
+
+
+@dataclass
+class DetectionContext:
+    """
+    Per-runtime state for the detection pipeline.
+
+    Holds the previous gray frame so build_detection_mask can fuse a motion-difference
+    channel. The most recent motion-diff mask is cached so the scoring stage can
+    boost candidates whose bbox overlaps real movement (suppresses false positives
+    on static walls/UI panels). Reset() clears state when assist is paused/idle.
+    """
+
+    prev_gray: np.ndarray | None = None
+    prev_size: tuple[int, int] = (0, 0)
+    motion_assist: bool = True
+    motion_threshold: int = 10
+    motion_decay: float = 0.55
+    last_motion_mask: np.ndarray | None = None
+
+    def reset(self) -> None:
+        self.prev_gray = None
+        self.prev_size = (0, 0)
+        self.last_motion_mask = None
+
+    def update_prev(self, gray: np.ndarray) -> None:
+        if self.prev_gray is None or self.prev_gray.shape != gray.shape:
+            self.prev_gray = gray.copy()
+        else:
+            decay = max(0.0, min(0.95, self.motion_decay))
+            cv2.addWeighted(self.prev_gray, decay, gray, 1.0 - decay, 0, dst=self.prev_gray)
+        self.prev_size = (gray.shape[1], gray.shape[0])
+
+    def motion_coverage_ratio(self, bx: int, by: int, bw: int, bh: int) -> float:
+        """
+        Fraction of the bbox covered by recent motion-diff pixels.
+
+        Returns 0.0 when no motion mask is cached (e.g. first frame after reset).
+        Used by the scoring stage to differentiate a real moving body from a
+        static wall whose silhouette happens to look humanoid.
+        """
+        mm = self.last_motion_mask
+        if mm is None or bw <= 0 or bh <= 0:
+            return 0.0
+        x0 = max(0, int(bx))
+        y0 = max(0, int(by))
+        x1 = min(mm.shape[1], int(bx + bw))
+        y1 = min(mm.shape[0], int(by + bh))
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+        roi = mm[y0:y1, x0:x1]
+        if roi.size == 0:
+            return 0.0
+        return float((roi > 0).sum()) / float(roi.size)
+
 
 def build_detection_mask(
     frame_bgr: np.ndarray,
     hsv_ranges: list[dict[str, Any]] | None,
     *,
     detection_mode: str | None = None,
+    context: DetectionContext | None = None,
 ) -> np.ndarray:
-    """Build binary mask for contour extraction (default: shape-only)."""
+    """Build binary mask for contour extraction (default: shape-only).
+
+    If a DetectionContext is provided, an inter-frame motion-difference channel is
+    fused into the result — boosting recall on Apex characters whose color blends
+    into the background but who move dynamically.
+    """
     mode = _normalize_detection_mode(detection_mode)
     shape_m = build_shape_mask(frame_bgr)
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     bg_mean = float(np.mean(gray))
     shape_px = int((shape_m > 0).sum())
-    if bg_mean > 35.0 and shape_px < 15000:
-        shape_m = cv2.bitwise_or(shape_m, build_chroma_spread_mask(frame_bgr))
+
+    # Chroma spread fuses for shape/hybrid modes — Apex armor/skin is more
+    # saturated than dull terrain, so this catches the low-contrast cases the
+    # plain edge+contrast mask misses (yellow on grass, olive on grass).
+    # Gate stays tight to avoid merging plates of high-contrast targets.
+    if mode != DETECTION_MODE_HSV:
+        if bg_mean > 35.0 and shape_px < 15000:
+            shape_m = cv2.bitwise_or(shape_m, build_chroma_spread_mask(frame_bgr))
+
+    # Temporal motion channel — strongest signal for moving enemies regardless of color.
+    if mode != DETECTION_MODE_HSV and context is not None and context.motion_assist:
+        if context.prev_gray is not None and context.prev_gray.shape == gray.shape:
+            motion = build_motion_diff_mask(gray, context.prev_gray, threshold=context.motion_threshold)
+            shape_m = cv2.bitwise_or(shape_m, motion)
+            context.last_motion_mask = motion
+        else:
+            context.last_motion_mask = None
+        context.update_prev(gray)
+
     if mode == DETECTION_MODE_SHAPE:
         return shape_m
     if mode == DETECTION_MODE_HSV:
@@ -567,9 +674,16 @@ def _body_structure_reject(
     has_head = any(p.role == PartRole.HEAD for p in parts) or head_s >= 0.38
     has_torso = any(p.role == PartRole.TORSO for p in parts) or torso_s >= 0.30
     has_limbs = limb_s >= 0.40 or len(parts) >= 3
+    # Single tall narrow blob (Apex character whose silhouette fills uniformly).
+    silhouette_ok = (
+        len(parts) == 1
+        and aspect >= 1.55
+        and bw < frame_w * 0.12
+        and bh >= 70 * scale
+    )
 
     if not has_torso and torso_s < 0.24:
-        if not (len(parts) >= 3 and limb_s >= 0.50 and v_score >= 0.35):
+        if not (len(parts) >= 3 and limb_s >= 0.50 and v_score >= 0.35) and not silhouette_ok:
             return RejectReason.NO_TORSO
 
     stack_ok = (
@@ -577,6 +691,7 @@ def _body_structure_reject(
         or (has_torso and has_limbs)
         or (len(parts) >= 3 and limb_s >= 0.42 and v_score >= 0.28 and aspect >= 1.35)
         or (aspect >= 1.55 and bh >= 65 * scale and v_score >= 0.30 and align_s >= 0.45)
+        or silhouette_ok
     )
     if not stack_ok:
         return RejectReason.NO_BODY_STACK
@@ -835,9 +950,17 @@ def _hard_reject(
         return RejectReason.HORIZONTAL_STRIPE
     if bw >= bh * 1.02 and bh < frame_h * 0.12:
         return RejectReason.HORIZONTAL_STRIPE
-    if fill > 0.94 and len(parts) <= 1:
+    # Tall narrow filled silhouettes (e.g. Apex character whose armor is one color
+    # against a similar-toned terrain — motion-diff fills the body interior) are
+    # legitimate humanoid signals; only reject if proportions match a wall/panel.
+    humanoid_silhouette = (
+        aspect >= 1.55
+        and bw < frame_w * 0.12
+        and bh > frame_h * 0.11
+    )
+    if fill > 0.94 and len(parts) <= 1 and not humanoid_silhouette:
         return RejectReason.SOLID_WALL
-    if fill > 0.97:
+    if fill > 0.97 and not humanoid_silhouette:
         return RejectReason.SOLID_WALL
     if len(parts) == 1 and parts[0].aspect_hw > 5.0:
         return RejectReason.ARCHITECTURE_PANEL
@@ -1028,6 +1151,15 @@ def analyze_figure(
             and bh >= 50 * scale
         ):
             structure_ok = True
+        elif (
+            aspect >= 1.55
+            and bw < frame_w * 0.12
+            and bh >= 70 * scale
+            and torso_s >= 0.25
+        ):
+            # Tall narrow uniform-color humanoid silhouette: shape matches a body
+            # column even though the mask is fully filled. Accept on geometry.
+            structure_ok = True
         elif v_score < 0.35 or fill > 0.88:
             structure_ok = False
     foot_y = by + bh
@@ -1159,12 +1291,13 @@ def enumerate_candidates(
     aim_y_min_fraction: float = 0.28,
     aim_y_max_fraction: float = 0.52,
     detection_mode: str | None = None,
+    context: DetectionContext | None = None,
 ) -> tuple[list[CandidateInfo], np.ndarray, list[_RedPart]]:
     """All clusters with scores/reject reasons — for debug artifacts (not color-only)."""
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
-    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=detection_mode)
+    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=detection_mode, context=context)
     fov = _build_fov_mask(h, w, cx, cy, fov_radius)
     vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
@@ -1436,10 +1569,11 @@ def _collect_candidates(
     aim_y_max_fraction: float = 0.52,
     debug: bool = False,
     detection_mode: str | None = None,
+    context: DetectionContext | None = None,
 ) -> tuple[list[Target], list[str]]:
     global _LAST_DEBUG_LINES
     h, w = frame_bgr.shape[:2]
-    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=detection_mode)
+    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=detection_mode, context=context)
     fov = _build_fov_mask(h, w, cx, cy, fov_radius)
     vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
@@ -1536,10 +1670,15 @@ def score_target(
     area_weight: float,
     *,
     center_y: float | None = None,
+    motion_overlap: float = 0.0,
 ) -> float:
     body_term = target.body_shape_score * fov_radius * 1.15
     dist_term = max(0.0, fov_radius - target.distance_to_center) * distance_weight * 0.35
     area_term = min(math.sqrt(target.area), 80.0) * area_weight
+    # Motion-overlap bonus rewards candidates whose bbox covers an inter-frame
+    # diff region — these are confirmed *moving* silhouettes (real Apex enemies)
+    # vs static red walls/panels whose shape may look humanoid by accident.
+    motion_bonus = min(1.0, max(0.0, motion_overlap)) * fov_radius * 0.55
     penalty = 0.0
     if center_y is not None:
         if target.centroid_y < center_y:
@@ -1553,13 +1692,24 @@ def score_target(
             penalty += fov_radius * 2.2
     if target.bbox_w >= target.bbox_h:
         penalty += fov_radius * 0.8
+    # Single-part target: harsh penalty by default; soft penalty when motion
+    # confirms a real moving body whose silhouette is one connected blob
+    # (low-contrast Apex armor on similar-toned terrain).
     if target.part_count < 2:
-        penalty += fov_radius * 1.4
+        is_humanoid_column = (
+            target.bbox_h >= 80.0
+            and target.bbox_h >= target.bbox_w * 1.55
+            and target.body_shape_score >= 0.45
+        )
+        if is_humanoid_column and motion_overlap >= 0.12:
+            penalty += fov_radius * 0.35
+        else:
+            penalty += fov_radius * 1.4
     if target.bbox_h < target.bbox_w * 1.25:
         penalty += fov_radius * 1.8
     if target.body_shape_score < 0.48:
         penalty += fov_radius * 0.9
-    return body_term + dist_term + area_term - penalty
+    return body_term + dist_term + area_term + motion_bonus - penalty
 
 
 def _normalize_confidence(raw: float, fov_radius: float, body_shape: float = 0.0) -> float:
@@ -1594,6 +1744,7 @@ def find_best_target(
     exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
     debug: bool = False,
     detection_mode: str | None = None,
+    context: DetectionContext | None = None,
 ) -> DetectionResult:
     _ = (min_aspect, max_aspect, min_solidity)
     h, w = frame_bgr.shape[:2]
@@ -1621,6 +1772,7 @@ def find_best_target(
         aim_y_max_fraction=aim_y_max_fraction,
         debug=debug,
         detection_mode=resolved_mode,
+        context=context,
     )
     if min_height_px is not None and min_height_px > 0:
         before = len(candidates)
@@ -1630,8 +1782,20 @@ def find_best_target(
     if not candidates:
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
 
+    def _motion_overlap(t: Target) -> float:
+        if context is None:
+            return 0.0
+        return context.motion_coverage_ratio(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+
     def rank(t: Target) -> float:
-        return score_target(t, float(fov_radius), distance_weight, area_weight, center_y=cy)
+        return score_target(
+            t,
+            float(fov_radius),
+            distance_weight,
+            area_weight,
+            center_y=cy,
+            motion_overlap=_motion_overlap(t),
+        )
 
     def finalize(t: Target) -> Target:
         raw = rank(t)
