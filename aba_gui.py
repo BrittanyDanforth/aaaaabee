@@ -802,6 +802,40 @@ class AbaApplication:
 
     # === ADVANCED: Detector ===
     def _build_detector_adv_panel(self, parent: tk.Frame) -> None:
+        # R2 (audit): expose the detection_mode selection in the GUI so
+        # users can switch between apex / shape / hsv / hybrid without
+        # hand-editing config.json. Defaults to "apex" — the only mode
+        # the audit fixes specifically validate.
+        self._section(parent, "Detection mode")
+        current = str(self.config.get("detection_mode", "apex")).lower()
+        if current not in {"apex", "shape", "hsv", "hybrid"}:
+            current = "apex"
+        self._detection_mode_var = tk.StringVar(value=current)
+        row = tk.Frame(parent, bg=UI_PANEL)
+        row.pack(fill=tk.X, pady=4)
+        tk.Label(
+            row, text="Mode:", bg=UI_PANEL, fg=UI_TEXT, width=10, anchor="w",
+        ).pack(side=tk.LEFT)
+        from tkinter import ttk
+        combo = ttk.Combobox(
+            row,
+            textvariable=self._detection_mode_var,
+            values=("apex", "shape", "hsv", "hybrid"),
+            state="readonly",
+            width=12,
+        )
+        combo.pack(side=tk.LEFT)
+        combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _e: self._on_detection_mode_change(),
+        )
+        tk.Label(
+            parent,
+            text="apex = Apex enemy red outline + shape/chroma/motion fusion (default).\n"
+                 "shape/hsv/hybrid are legacy modes kept for back-compat only.",
+            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
+        ).pack(anchor="w", pady=(0, 8))
+
         self._section(parent, "Advanced body scoring weights")
         self._slider(parent, "Head score weight", "head_score_weight", minimum=0.0, maximum=0.5)
         self._slider(parent, "Torso score weight", "torso_score_weight", minimum=0.0, maximum=0.5)
@@ -809,6 +843,17 @@ class AbaApplication:
             parent, "Limb stack weight", "limb_stack_score_weight",
             minimum=0.0, maximum=0.5,
         )
+
+    def _on_detection_mode_change(self) -> None:
+        mode = self._detection_mode_var.get().strip().lower()
+        if mode not in {"apex", "shape", "hsv", "hybrid"}:
+            mode = "apex"
+        try:
+            self.config = self._controller.apply_config_patch(
+                {"detection_mode": mode}, persist=False
+            )
+        except Exception as exc:
+            self._error_var.set(f"Detection mode update: {exc}")
 
     # === ADVANCED: Overlay ===
     def _build_overlay_adv_panel(self, parent: tk.Frame) -> None:

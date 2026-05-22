@@ -82,6 +82,17 @@ class RuntimeController:
                     float(merged.get("smoothing_tau_still", 0.062)),
                     float(merged.get("smoothing_tau_moving", 0.028)),
                 )
+            # R1 (audit): propagate detection-motion settings to the live
+            # detection context. Without this, toggling motion_assist or
+            # motion_threshold in the GUI required a full Stop -> Start to
+            # take effect; users could not iterate on these settings live.
+            if hasattr(live, "_detect_ctx") and live._detect_ctx is not None:
+                live._detect_ctx.motion_assist = bool(
+                    merged.get("detection_motion_assist", True)
+                )
+                live._detect_ctx.motion_threshold = int(
+                    merged.get("detection_motion_threshold", 10)
+                )
             if hasattr(live, "_pull") and live._pull is not None:
                 live._pull.update_tuning(
                     pull_strength=float(merged.get("pull_strength", 0.82)),
