@@ -4,3 +4,5 @@ __pycache__/
 .venv/
 logs/
 __pycache__/
+test_apex_characters.png
+test_apex_realistic.png
