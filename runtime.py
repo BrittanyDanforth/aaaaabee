@@ -408,16 +408,17 @@ class AssistRuntime:
             overlay = detector.render_debug_artifacts(
                 frame_bgr,
                 candidates,
-                det.target if hasattr(det, "target") else None,
+                det.target if det.target is not None else None,
                 int(fov),
                 cx,
                 cy,
-                show_rejected=bool(cfg.get("debug_show_rejected", True)),
-                show_top_n=3 if cfg.get("debug_show_top_candidates", True) else 0,
+                mask=mask,
             )
             cv2.imwrite(str(out_dir / "03_overlay.png"), overlay)
+            from dataclasses import asdict
+
             meta = {
-                "target": det.target.__dict__ if det.target else None,
+                "target": asdict(det.target) if det.target is not None else None,
                 "candidates": [
                     {
                         "idx": c.idx,

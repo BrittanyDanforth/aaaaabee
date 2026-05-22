@@ -66,11 +66,20 @@ def run_perf_benchmark(cfg: dict[str, Any], *, duration_sec: float = 2.5) -> Ben
     try:
         with mss.mss() as sct:
             mon_idx = int(cfg.get("monitor_index", 1))
+            monitors = sct.monitors
+            if mon_idx < 1 or mon_idx >= len(monitors):
+                mon_idx = 1
+            mon = monitors[mon_idx]
+            center_x = mon["width"] / 2.0 + float(cfg.get("crosshair_offset_x", 0))
+            center_y = mon["height"] / 2.0 + float(cfg.get("crosshair_offset_y", 0))
+            capture_fov = effective_capture_fov_radius(cfg, ads_active=True)
             cap = build_capture_region(
-                sct,
-                mon_idx,
-                effective_detection_fov_radius(cfg, ads_active=True),
-                float(cfg.get("capture_crop_padding", 1.34)),
+                mon,
+                center_x,
+                center_y,
+                capture_fov,
+                use_crop=bool(cfg.get("capture_fov_crop", True)),
+                crop_padding=float(cfg.get("capture_crop_padding", 1.34)),
             )
             cx = cap.width / 2.0
             cy = cap.height / 2.0

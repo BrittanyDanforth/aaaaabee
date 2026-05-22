@@ -273,10 +273,17 @@ def run_self_check_detailed(config: dict[str, Any]) -> SelfCheckResult:
     if proc_name:
         from process_presence import is_target_process_running
 
-        if is_target_process_running(proc_name):
-            lines.append(f"  target process: RUNNING ({proc_name})")
+        try:
+            proc_running = is_target_process_running(proc_name)
+        except Exception as exc:
+            warnings.append(f"process presence check skipped: {exc}")
+            lines.append(f"  WARN process check failed ({exc}) — skipped")
+            proc_running = False
         else:
-            lines.append(f"  target process: not running ({proc_name}) — OK for self-check")
+            if proc_running:
+                lines.append(f"  target process: RUNNING ({proc_name})")
+            else:
+                lines.append(f"  target process: not running ({proc_name}) — OK for self-check")
 
     plat = platform_summary()
     for k, v in plat.items():
