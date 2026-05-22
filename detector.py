@@ -41,6 +41,7 @@ class RejectReason(str, Enum):
     DIAMOND_SIGN = "diamond_sign"
     HEALTH_BAR_ONLY = "health_bar_only"
     SIGHT_PIP = "sight_pip"
+    SCOPE_RETICLE = "scope_reticle"
     NO_BODY_STRUCTURE = "no_body_structure"
     SOLID_WALL = "solid_wall"
     OUTSIDE_FOV = "outside_fov"
@@ -397,6 +398,54 @@ def _is_sight_pip(part: _RedPart, scale: float) -> bool:
     )
 
 
+def _is_scope_reticle(
+    part: _RedPart,
+    scale: float,
+    fov_cx: float | None,
+    fov_cy: float | None,
+) -> bool:
+    """Reject scope/sight reticle artifacts that sit on the crosshair during ADS.
+
+    Scope reticles (1x/2x/3x/4x) overlay the viewmodel near the FOV centre, where
+    the standard ``_VIEWMODEL_EXCLUDE_FRAC`` bottom-mask cannot help. A real body
+    silhouette is much wider/taller than a reticle line and is rarely centred
+    exactly on the crosshair (the player would already be aiming AT the body).
+    This filter is FOV-centre-aware: large body-sized blobs near the crosshair
+    are still allowed; only extreme-aspect lines, pip-sized dots, and small
+    triangular chevrons inside the inner crosshair zone are rejected.
+    """
+    if fov_cx is None or fov_cy is None:
+        return False
+    dx = part.cx - fov_cx
+    dy = part.cy - fov_cy
+    d = math.hypot(dx, dy)
+
+    # Thin horizontal reticle line (e.g. HCOG horizontal bar) inside crosshair zone.
+    if d <= 32.0 * scale and part.h <= max(5.0, 6.0 * scale) and part.aspect_wh >= 6.0:
+        return True
+    # Thin vertical reticle line / chevron stem.
+    if d <= 32.0 * scale and part.w <= max(5.0, 6.0 * scale) and part.aspect_hw >= 6.0:
+        return True
+    # Tiny solid pip (red dot, holo dot) just larger than the _is_sight_pip cap.
+    if (
+        d <= 20.0 * scale
+        and part.area <= max(40.0, 50.0 * scale * scale)
+        and part.solidity >= 0.85
+        and max(part.w, part.h) <= max(16.0, 18.0 * scale)
+    ):
+        return True
+    # Small triangular / chevron / range-marker shape: low extent, small area,
+    # dead-centre. Real bodies have extent >= 0.55 or are far larger.
+    if (
+        d <= 26.0 * scale
+        and part.area <= 220.0 * scale * scale
+        and part.extent < 0.55
+        and max(part.w, part.h) <= max(22.0, 26.0 * scale)
+    ):
+        return True
+    return False
+
+
 def _is_diamond_sign(part: _RedPart, scale: float) -> bool:
     """Practice-board diamond (~45 deg). Axis-aligned rects are armor plates, not signs."""
     if part.area < 500 * scale * scale or part.area > 7000 * scale * scale:
@@ -419,7 +468,14 @@ def _is_diamond_sign(part: _RedPart, scale: float) -> bool:
 
 
 
-def _extract_parts(mask: np.ndarray, frame_w: int, frame_h: int) -> list[_RedPart]:
+def _extract_parts(
+    mask: np.ndarray,
+    frame_w: int,
+    frame_h: int,
+    *,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
+) -> list[_RedPart]:
     scale = _scale(frame_w, frame_h)
     area_lo = 60 * scale * scale
     area_hi = 95000 * scale * scale
@@ -464,6 +520,8 @@ def _extract_parts(mask: np.ndarray, frame_w: int, frame_h: int) -> list[_RedPar
         if _is_health_bar(part, scale):
             continue
         if _is_sight_pip(part, scale):
+            continue
+        if _is_scope_reticle(part, scale, fov_cx, fov_cy):
             continue
         if _is_diamond_sign(part, scale):
             continue
@@ -1230,6 +1288,19 @@ def _strip_non_body_parts(parts: list[_RedPart], scale: float) -> list[_RedPart]
     return [p for p in parts if not _is_health_bar(p, scale) and not _is_diamond_sign(p, scale)]
 
 
+def _filter_scope_reticles(
+    parts: list[_RedPart],
+    scale: float,
+    fov_cx: float | None,
+    fov_cy: float | None,
+) -> list[_RedPart]:
+    """Belt-and-braces: drop reticle artefacts even if they survived contour extraction
+    (e.g. when entering via mask paths that did not have a FOV centre to consult)."""
+    if fov_cx is None or fov_cy is None:
+        return parts
+    return [p for p in parts if not _is_scope_reticle(p, scale, fov_cx, fov_cy)]
+
+
 def _bbox_iou(
     ax: int, ay: int, aw: int, ah: int,
     bx: int, by: int, bw: int, bh: int,
@@ -1302,7 +1373,7 @@ def enumerate_candidates(
     vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
     mask = cv2.bitwise_and(mask, mask, mask=vm)
-    parts = _extract_parts(mask, w, h)
+    parts = _extract_parts(mask, w, h, fov_cx=cx, fov_cy=cy)
     clusters = _cluster_parts(parts, w, h)
     max_area = float(h * w) * _MAX_AREA_RATIO
     out: list[CandidateInfo] = []
@@ -1526,7 +1597,7 @@ def inspect_frame(
     mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=detection_mode)
     fov = _build_fov_mask(h, w, cx, cy, fov_radius)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
-    parts = _extract_parts(mask, w, h)
+    parts = _extract_parts(mask, w, h, fov_cx=cx, fov_cy=cy)
     clusters = _cluster_parts(parts, w, h)
     report: dict[str, Any] = {
         "frame": (w, h),
@@ -1579,7 +1650,7 @@ def _collect_candidates(
     mask = cv2.bitwise_and(mask, mask, mask=fov)
     mask = cv2.bitwise_and(mask, mask, mask=vm)
 
-    parts = _extract_parts(mask, w, h)
+    parts = _extract_parts(mask, w, h, fov_cx=cx, fov_cy=cy)
     clusters = _cluster_parts(parts, w, h)
     max_area = float(h * w) * _MAX_AREA_RATIO
     targets: list[Target] = []
