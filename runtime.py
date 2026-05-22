@@ -880,6 +880,7 @@ class AssistRuntime:
                     if not self._should_run():
                         break
 
+                    cfg = self.config
                     paused = self._update_target_pause(cfg)
                     if paused:
                         with self._lock:

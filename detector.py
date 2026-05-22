@@ -367,6 +367,13 @@ def _extract_parts(mask: np.ndarray, frame_w: int, frame_h: int) -> list[_RedPar
             and w >= h * 1.12
         ):
             continue
+        if (
+            circ >= 0.62
+            and 0.70 <= (w / float(h)) <= 1.42
+            and area >= 400 * scale * scale
+            and (y + h) < frame_h * 0.50
+        ):
+            continue
         parts.append(part)
 
     return parts
@@ -690,11 +697,13 @@ def _clamp_aim_to_body_bbox(
     bh: int,
     parts: list[_RedPart],
     torso_fraction: float,
+    aim_y_lo_frac: float = _BODY_Y_LO_FRAC,
+    aim_y_hi_frac: float = _BODY_Y_HI_FRAC,
 ) -> tuple[float, float]:
     """Keep aim inside upper-chest band; never above head plate or into sky above bbox."""
     frac = max(0.32, min(0.48, torso_fraction))
-    y_lo = by + bh * _BODY_Y_LO_FRAC
-    y_hi = by + bh * min(_BODY_Y_HI_FRAC, frac + 0.10)
+    y_lo = by + bh * aim_y_lo_frac
+    y_hi = by + bh * min(aim_y_hi_frac, frac + 0.10)
     heads = [p for p in parts if p.role == PartRole.HEAD]
     if heads:
         head_bottom = heads[0].y + heads[0].h
@@ -862,6 +871,8 @@ def _figure_aim_point(
     bw: int,
     bh: int,
     torso_fraction: float = 0.38,
+    aim_y_lo_frac: float = _BODY_Y_LO_FRAC,
+    aim_y_hi_frac: float = _BODY_Y_HI_FRAC,
 ) -> tuple[float, float]:
     """
     Upper-chest anchor from mask mass in torso band; clamped below head, inside bbox.
@@ -875,8 +886,8 @@ def _figure_aim_point(
         ax = 0.40 * ax + 0.60 * chest[0]
         ay = 0.50 * ay + 0.50 * chest[1]
 
-    y_lo = by + bh * _BODY_Y_LO_FRAC
-    y_hi = by + bh * _BODY_Y_HI_FRAC
+    y_lo = by + bh * aim_y_lo_frac
+    y_hi = by + bh * aim_y_hi_frac
 
     if len(parts) >= 2:
         torsos = [p for p in parts if p.role == PartRole.TORSO]
@@ -891,7 +902,7 @@ def _figure_aim_point(
             ax = 0.90 * ax + 0.10 * cx_parts
             ay = 0.80 * ay + 0.20 * cy_parts
 
-    return _clamp_aim_to_body_bbox(ax, ay, bx, by, bw, bh, parts, frac)
+    return _clamp_aim_to_body_bbox(ax, ay, bx, by, bw, bh, parts, frac, aim_y_lo_frac, aim_y_hi_frac)
 
 
 def analyze_figure(
@@ -1023,7 +1034,7 @@ def analyze_figure(
     if accepted and body_shape < min_accept:
         reason = RejectReason.LOW_SCORE
 
-    ax, ay = _figure_aim_point(parts, mask, bx, by, bw, bh, torso_aim_fraction)
+    ax, ay = _figure_aim_point(parts, mask, bx, by, bw, bh, torso_aim_fraction, aim_y_min_fraction, aim_y_max_fraction)
     if not _aim_inside_body_bbox(ax, ay, bx, by, bw, bh):
         return _FigureAnalysis(
             accepted=False,
@@ -1447,7 +1458,16 @@ def _collect_candidates(
             if debug:
                 lines.append(f"cand[{idx}] {RejectReason.NO_BODY_STRUCTURE.value} (junk only)")
             continue
-        fig = analyze_figure(body_parts, mask, w, h, torso_aim_fraction=torso_aim_fraction)
+        fig = analyze_figure(
+            body_parts, mask, w, h,
+            torso_aim_fraction=torso_aim_fraction,
+            body_shape_min_score=body_shape_min_score,
+            head_score_weight=head_score_weight,
+            torso_score_weight=torso_score_weight,
+            limb_stack_score_weight=limb_stack_score_weight,
+            aim_y_min_fraction=aim_y_min_fraction,
+            aim_y_max_fraction=aim_y_max_fraction,
+        )
         mc = _max_part_circularity(body_parts)
         dist_c = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))
         line = (
@@ -1570,7 +1590,7 @@ def find_best_target(
     debug: bool = False,
     detection_mode: str | None = None,
 ) -> DetectionResult:
-    _ = (min_height_px, min_aspect, max_aspect, min_solidity)
+    _ = (min_aspect, max_aspect, min_solidity)
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
@@ -1597,6 +1617,11 @@ def find_best_target(
         debug=debug,
         detection_mode=resolved_mode,
     )
+    if min_height_px is not None and min_height_px > 0:
+        before = len(candidates)
+        candidates = [t for t in candidates if t.bbox_h >= min_height_px]
+        if len(candidates) < before:
+            dbg.append(f"min_height filter: {before} -> {len(candidates)} (min_h={min_height_px})")
     if not candidates:
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
 
