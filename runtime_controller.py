@@ -89,6 +89,18 @@ class RuntimeController:
                     max_speed=float(merged.get("max_pull_speed_pixels_per_frame", 22)),
                     magnetism_radius=float(merged.get("magnetism_radius_pixels", 80)),
                     velocity_smoothing=float(merged.get("velocity_smoothing", 0.5)),
+                    humanize_amplitude=float(merged.get("humanize_amplitude_pixels", 0.0)),
+                    humanize_jerk_limit=float(merged.get("humanize_jerk_limit", 2.5)),
+                    humanize_enabled=bool(merged.get("humanize_enabled", False)),
+                    recoil_compensation_enabled=bool(
+                        merged.get("recoil_compensation_enabled", False)
+                    ),
+                    recoil_pull_down_pixels_per_second=float(
+                        merged.get("recoil_pull_down_pixels_per_second", 0.0)
+                    ),
+                    jitter_enabled=bool(merged.get("jitter_enabled", False)),
+                    jitter_amplitude_pixels=float(merged.get("jitter_amplitude_pixels", 0.0)),
+                    jitter_frequency_hz=float(merged.get("jitter_frequency_hz", 6.0)),
                 )
         return merged
 

@@ -39,6 +39,14 @@ _APEX_TUNING: dict[str, Any] = {
     "humanize_enabled": True,
     "humanize_amplitude_pixels": 0.20,
     "humanize_jerk_limit": 10.0,
+    # Engagement-gated recoil compensator + jitter — defaults OFF on every
+    # profile so existing tracking behaviour is preserved.  The Strong preset
+    # in aba_gui.py is the only built-in shortcut that turns these on.
+    "recoil_compensation_enabled": False,
+    "recoil_pull_down_pixels_per_second": 0.0,
+    "jitter_enabled": False,
+    "jitter_amplitude_pixels": 0.0,
+    "jitter_frequency_hz": 6.0,
     "target_stickiness_pixels": 60,
     "target_lost_frames_before_unlock": 18,
     "distance_score_weight": 2.6,

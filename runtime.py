@@ -113,6 +113,9 @@ class AssistRuntime:
         self._last_gate_allowed = True
         self._pending_debug_save = False
         self._last_frame_bgr = None
+        # LMB-held flag for recoil compensator engagement gating. Updated by
+        # the pynput mouse listener under _lock; read by the runtime loop.
+        self._is_firing = False
 
     def _smooth_aim(
         self,
@@ -154,6 +157,7 @@ class AssistRuntime:
             self.running = False
             self._mouse_enabled = False
             self._stopping = True
+            self._is_firing = False
         self._ads.clear()
         self._release_ads()
         self._process_debounce.reset()
@@ -531,15 +535,27 @@ class AssistRuntime:
         self._aim_tracker.reset()
         self._last_motion = None
         self._detect_ctx.reset()
+        # Releasing ADS implicitly ends an engagement — drop the firing edge
+        # so the recoil compensator phase resets cleanly. The LMB listener
+        # will re-arm on the next LMB press.
+        self._is_firing = False
         if self._pull is not None:
             self._pull.reset()
 
     def _on_click(self, _x: int, _y: int, button, pressed: bool) -> None:
-        if getattr(button, "name", None) == "right" or str(button).endswith("right"):
+        name = getattr(button, "name", None)
+        label = str(button)
+        if name == "right" or label.endswith("right"):
             was = self._ads.is_ads_active()
             self._ads.set_pynput_ads(pressed)
             if was and not pressed:
                 self._release_ads()
+        elif name == "left" or label.endswith("left"):
+            # Recoil compensator engagement signal — `_is_firing` is read under
+            # `_lock` from the main runtime loop. Polling pynput state would be
+            # race-prone; tracking edges here is the only thread-safe path.
+            with self._lock:
+                self._is_firing = bool(pressed)
 
     @staticmethod
     def _key_label(key) -> str | None:
@@ -716,6 +732,7 @@ class AssistRuntime:
         with self._lock:
             self._mouse_enabled = False
             self._stopping = True
+            self._is_firing = False
         self._ads.clear()
         self._release_ads()
         self._process_debounce.reset()
@@ -808,6 +825,15 @@ class AssistRuntime:
                 humanize_amplitude=float(cfg["humanize_amplitude_pixels"]),
                 humanize_jerk_limit=float(cfg["humanize_jerk_limit"]),
                 aim_pre_smoothed=True,
+                recoil_compensation_enabled=bool(
+                    cfg.get("recoil_compensation_enabled", False)
+                ),
+                recoil_pull_down_pixels_per_second=float(
+                    cfg.get("recoil_pull_down_pixels_per_second", 0.0)
+                ),
+                jitter_enabled=bool(cfg.get("jitter_enabled", False)),
+                jitter_amplitude_pixels=float(cfg.get("jitter_amplitude_pixels", 0.0)),
+                jitter_frequency_hz=float(cfg.get("jitter_frequency_hz", 6.0)),
             )
         )
 
@@ -982,12 +1008,15 @@ class AssistRuntime:
                         and pull_target is not None
                         and self._pull is not None
                     ):
+                        with self._lock:
+                            firing_now = self._is_firing
                         pr = self._pull.compute_delta(
                             pull_target,
                             frame_cx,
                             frame_cy,
                             time_sec=t0,
                             stale_detection=stale_det,
+                            is_firing=firing_now,
                         )
                         pull_px = pr.magnitude
                         pull_strength = pr.effective_strength
