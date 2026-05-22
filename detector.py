@@ -90,6 +90,16 @@ class Target:
     # (real Apex characters often are — armour + helmet merge into one mass
     # against dim terrain). 0.0 when no red coverage / red mask not built.
     red_coverage: float = 0.0
+    # D3 (audit): fill_ratio (mask fill within bbox) is plumbed onto the
+    # target so the red-coverage softener path can reject solid red blobs
+    # (fill ~1.0 — synthetic blurred test blobs / red panels) while still
+    # accepting real characters (fill ~0.40-0.85 with head/torso/limb gaps).
+    fill_ratio: float = 0.0
+    # D3 (audit) cont: max part-circularity for the cluster. Real humanoid
+    # silhouettes are jagged (max_circ < 0.55 — head/torso/limb transitions
+    # spike the perimeter). Solid synthetic blurred blobs are smooth and
+    # have max_circ > 0.60; the softener path uses this to gate-out blobs.
+    max_circularity: float = 0.0
     reject_reason: str = RejectReason.OK.value
 
 
@@ -234,7 +244,12 @@ def build_chroma_spread_mask(frame_bgr: np.ndarray) -> np.ndarray:
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
     s = hsv[:, :, 1]
     v = hsv[:, :, 2]
-    sat_thr = 120
+    # D4 (audit): sat_thr lowered 120 -> 90 so desaturated Apex skins
+    # (Horizon white, Crypto dark, Wraith greys) still reach the cluster
+    # stage. Highly saturated grass/sand stays out because val_thr keeps
+    # dim terrain rejected; foreground sat>=90 + val>=70 is rare in
+    # Apex world tiles but typical of armour/skin highlights.
+    sat_thr = 90
     val_thr = 70
     sat_ok = cv2.threshold(s, sat_thr, 255, cv2.THRESH_BINARY)[1]
     val_ok = cv2.threshold(v, val_thr, 255, cv2.THRESH_BINARY)[1]
@@ -251,9 +266,12 @@ def build_chroma_spread_mask(frame_bgr: np.ndarray) -> np.ndarray:
 # (Crypto red, Bloodhound rust, Revenant maroon, Lifeline red shield etc.)
 # still pass — the morphology pass below cleans pepper noise and stitches
 # small gaps without stripping the filled interior.
-_APEX_RED_HSV_LO_A = np.array([0, 80, 70], dtype=np.uint8)
+# D2 (audit): saturation floor lowered 80 -> 55 and value floor lowered
+# 70 -> 50 so blended red glow over skin/terrain (S ~50-100, V ~50-90 — the
+# Horizon/Crypto/Wraith case) still passes the gate. Hue bands unchanged.
+_APEX_RED_HSV_LO_A = np.array([0, 55, 50], dtype=np.uint8)
 _APEX_RED_HSV_HI_A = np.array([12, 255, 255], dtype=np.uint8)
-_APEX_RED_HSV_LO_B = np.array([168, 80, 70], dtype=np.uint8)
+_APEX_RED_HSV_LO_B = np.array([168, 55, 50], dtype=np.uint8)
 _APEX_RED_HSV_HI_B = np.array([180, 255, 255], dtype=np.uint8)
 
 
@@ -279,11 +297,31 @@ def build_red_enemy_mask(frame_bgr: np.ndarray) -> np.ndarray:
     a = cv2.inRange(hsv, _APEX_RED_HSV_LO_A, _APEX_RED_HSV_HI_A)
     b = cv2.inRange(hsv, _APEX_RED_HSV_LO_B, _APEX_RED_HSV_HI_B)
     raw = cv2.bitwise_or(a, b)
-    k_open = max(3, int(3 * scale) | 1)
+    # D1 (audit): MORPH_OPEN(3) erased a Horizon-style 2-px-wide red glow
+    # ribbon entirely. When the raw red mask is sparse (thin halo only) we
+    # SKIP open to preserve the ribbon. When the raw mask is high-density
+    # (saturated red character or noisy BG with low-S pickups) we still
+    # need the 3x3 ellipse open to remove pepper noise — otherwise textured
+    # BGs flood the cluster pass with scattered red micro-blobs. The
+    # sparse-glow case is what the audit's D1 was targeting.
+    raw_count = int((raw > 0).sum())
+    frame_px = max(1, h * w)
+    raw_ratio = raw_count / frame_px
+    if raw_ratio > 0.003:
+        # High-density: keep the original 3x3 ellipse open to drop pepper.
+        k_open = max(3, int(3 * scale) | 1)
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_open, k_open))
+        cleaned = cv2.morphologyEx(raw, cv2.MORPH_OPEN, kernel_open, iterations=1)
+    else:
+        # Sparse: keep the ribbon intact. Use a 2x2 cross to drop single
+        # isolated pixels only when we still have a non-trivial mass.
+        if raw_ratio > 0.0005:
+            kernel_open = cv2.getStructuringElement(cv2.MORPH_CROSS, (2, 2))
+            cleaned = cv2.morphologyEx(raw, cv2.MORPH_OPEN, kernel_open, iterations=1)
+        else:
+            cleaned = raw
     k_close = max(5, int(5 * scale) | 1)
-    kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_open, k_open))
     kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_close, k_close))
-    cleaned = cv2.morphologyEx(raw, cv2.MORPH_OPEN, kernel_open, iterations=1)
     filled = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel_close, iterations=1)
     return filled
 
@@ -463,17 +501,18 @@ def build_detection_mask(
         context.update_prev(gray)
 
     if mode == DETECTION_MODE_APEX:
-        # The Apex red-enemy mask is fused into the cluster-discovery mask
-        # only via its PERIMETER (gradient of the filled mask). Fusing the
-        # filled interior would collapse the vertical-profile + fill-ratio
-        # signals in analyze_figure on uniformly red silhouettes (whole
-        # bbox column reads as 1s, transitions=0, body_shape_score plunges
-        # to 0). The FILLED mask is still used downstream by the candidate
-        # scorer (Target.red_coverage) so a clearly red humanoid that the
-        # shape mask only barely picks up still gets its single-part
-        # penalty softened on the way to the confidence gate.
+        # D1 (audit): only fuse the OUTLINE (MORPH_GRADIENT) of the filled
+        # red mask into clustering. Fusing the filled INTERIOR collapses
+        # the inner v_score signal for uniformly-red small characters
+        # (firing-range crouched dummy) which then look identical to
+        # synthetic blurred blobs. The glow-ring case the audit targeted
+        # is handled by the MORPH_OPEN fix inside build_red_enemy_mask:
+        # the 2-px ring now survives, and MORPH_GRADIENT of a thin ring
+        # is still a thin ring — sufficient to seed a cluster. The FILLED
+        # mask is still used downstream by red_coverage scoring.
         filled = build_red_enemy_mask(frame_bgr)
-        k = max(3, int(3 * _scale(frame_bgr.shape[1], frame_bgr.shape[0])) | 1)
+        fh, fw = filled.shape[:2]
+        k = max(3, int(3 * _scale(fw, fh)) | 1)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
         outline = cv2.morphologyEx(filled, cv2.MORPH_GRADIENT, kernel, iterations=1)
         return cv2.bitwise_or(shape_m, outline)
@@ -579,7 +618,12 @@ def _is_scope_reticle(
 
 def _is_diamond_sign(part: _RedPart, scale: float) -> bool:
     """Practice-board diamond (~45 deg). Axis-aligned rects are armor plates, not signs."""
-    if part.area < 500 * scale * scale or part.area > 7000 * scale * scale:
+    # D8 (audit): upper-area cap raised 7000 -> 25000 * scale^2 so large
+    # firing-range diamond boards (180-px-side hazard signs) are still
+    # rejected at this single-part filter. Real human characters never
+    # have part-circularity / aspect / rect-angle profile of a diamond,
+    # so the gate stays specific.
+    if part.area < 500 * scale * scale or part.area > 25000 * scale * scale:
         return False
     if part.aspect_hw >= 1.18:
         return False
@@ -851,6 +895,14 @@ def _body_structure_reject(
             return RejectReason.ROUND_NON_BODY
         if p.circularity >= 0.45 and aspect < 1.15 and fill > 0.82:
             return RejectReason.ROUND_NON_BODY
+        # D3 (audit) cont: tall-oval blobs (Gaussian-blurred mass) form a
+        # single high-circularity part. A real Apex crouched dummy reaches
+        # circ ~0.66 with 3 distinct plates yielding clear transitions; a
+        # blurred-blob hits ~0.72 with no segmentation cue. Threshold sits
+        # just above the highest observed real-body circ (0.66) and just
+        # below the lowest observed blob circ (0.72).
+        if p.circularity >= 0.70:
+            return RejectReason.ROUND_NON_BODY
 
     if aspect < 1.22 and len(parts) <= 2 and max_circ >= 0.42 and bh < frame_h * 0.16:
         return RejectReason.ROUND_NON_BODY
@@ -887,6 +939,32 @@ def _body_structure_reject(
 
     if aspect < 1.30 and len(parts) <= 2 and torso_s < 0.28 and limb_s < 0.40:
         return RejectReason.NO_BODY_STACK
+
+    # D8 (audit): cluster-level rectangular-sign reject. Large multi-part
+    # boards (dark frame + colored centre + decal) form a square axis-aligned
+    # cluster with very low vertical-profile score because the interior rows
+    # look identical (no head/torso/limb transitions). Real bodies always
+    # have v_score >= 0.30 due to head-narrow/torso-wide/limb-narrow stack.
+    near_square = 0.92 <= aspect <= 1.12
+    if (
+        near_square
+        and v_score < 0.25
+        and bh > 60 * scale
+        and bh < frame_h * 0.50
+    ):
+        # Axis-aligned parts only — rotated body parts shouldn't trip this.
+        axis_aligned = True
+        for p in parts:
+            rect = cv2.minAreaRect(p.contour)
+            (_, _), (rw, rh), angle = rect
+            ang = abs(angle)
+            if ang > 45.0:
+                ang = 90.0 - ang
+            if ang > 18.0:
+                axis_aligned = False
+                break
+        if axis_aligned:
+            return RejectReason.ARCHITECTURE_PANEL
 
     return None
 
@@ -987,7 +1065,19 @@ def _mask_chest_anchor(
     ys, xs = np.where(roi > 0)
     if len(xs) < 8:
         return None
-    ax = float(bx + np.mean(xs))
+    # D5 (audit): use a column-density peak instead of mean/median for the
+    # X anchor. The mean is mass-pulled toward an extended gun arm on a
+    # sideways-viewed character; the median is only weakly robust against
+    # a heavy single-side outlier. The densest column in the chest band
+    # is the torso column — that's where the live game expects the dot
+    # to land. We smooth column densities with a 5-px window so a noisy
+    # peak doesn't latch onto a single column.
+    col_density = (roi > 0).sum(axis=0).astype(np.float32)
+    if col_density.size >= 5:
+        kernel = np.ones(5, dtype=np.float32) / 5.0
+        col_density = np.convolve(col_density, kernel, mode="same")
+    densest_col = int(np.argmax(col_density))
+    ax = float(bx + densest_col)
     ay = float(y0 + np.mean(ys))
     return ax, ay
 
@@ -1206,8 +1296,15 @@ def _figure_aim_point(
         if torsos:
             t = max(torsos, key=lambda p: p.area)
             tcy = max(y_lo, min(y_hi, t.cy))
-            ax = 0.88 * ax + 0.12 * t.cx
+            # D5 (audit): increased torso-role X blend 0.12 -> 0.45 and
+            # clamp X to the torso part's x-extent. The previous 0.12 blend
+            # was too weak to overcome a sideways character's gun-arm pull
+            # on the merged-bbox centre. With X clamped to [t.x, t.x+t.w]
+            # the dot stays inside the actual torso column even if the
+            # outer bbox includes an extended arm.
+            ax = 0.55 * ax + 0.45 * t.cx
             ay = 0.82 * ay + 0.18 * tcy
+            ax = max(float(t.x), min(float(t.x + t.w), ax))
         else:
             cx_parts = float(np.mean([p.cx for p in parts]))
             cy_parts = float(np.mean([max(y_lo, min(y_hi, p.cy)) for p in parts]))
@@ -1772,6 +1869,12 @@ def _collect_candidates(
     debug: bool = False,
     detection_mode: str | None = None,
     context: DetectionContext | None = None,
+    # D7 (audit): aspect / solidity profile filters were previously dropped
+    # silently in find_best_target via `_ = (...)`. Plumb them through so
+    # the profile-supplied tuning actually filters candidates.
+    min_aspect: float | None = None,
+    max_aspect: float | None = None,
+    min_solidity: float | None = None,
 ) -> tuple[list[Target], list[str]]:
     global _LAST_DEBUG_LINES
     h, w = frame_bgr.shape[:2]
@@ -1836,6 +1939,28 @@ def _collect_candidates(
         if not fig.accepted:
             continue
 
+        # D7 (audit): apply profile-supplied aspect / solidity filters.
+        if fig.bw > 0 and fig.bh > 0:
+            asp = fig.bh / float(max(1, fig.bw))
+            if min_aspect is not None and min_aspect > 0 and asp < float(min_aspect):
+                if debug:
+                    lines.append(
+                        f"cand[{idx}] drop aspect={asp:.2f} < min_aspect={min_aspect:.2f}"
+                    )
+                continue
+            if max_aspect is not None and max_aspect > 0 and asp > float(max_aspect):
+                if debug:
+                    lines.append(
+                        f"cand[{idx}] drop aspect={asp:.2f} > max_aspect={max_aspect:.2f}"
+                    )
+                continue
+        if min_solidity is not None and min_solidity > 0 and fig.solidity < float(min_solidity):
+            if debug:
+                lines.append(
+                    f"cand[{idx}] drop solidity={fig.solidity:.2f} < min={min_solidity:.2f}"
+                )
+            continue
+
         aim_x, aim_y = clamp_point_to_fov(fig.aim_x, fig.aim_y, cx, cy, float(fov_radius))
         dist = float(np.hypot(aim_x - cx, aim_y - cy))
         if dist > float(fov_radius) * 1.02:
@@ -1879,6 +2004,8 @@ def _collect_candidates(
                 torso_score=fig.torso_score,
                 limb_stack_score=fig.limb_stack_score,
                 red_coverage=red_cov,
+                fill_ratio=float(fig.fill_ratio),
+                max_circularity=float(_max_part_circularity(body_parts)),
                 reject_reason=fig.reject_reason.value,
             )
         )
@@ -1929,7 +2056,12 @@ def score_target(
     # candidates tall enough to be a real Apex character at engagement
     # distance receive the additive boost.
     red_cov = min(1.0, max(0.0, target.red_coverage))
-    red_humanoid_height = target.bbox_h >= 110.0 and target.bbox_h >= target.bbox_w * 1.55
+    # D3 (audit): drop the 110 px hard pixel floor — it cut off any real
+    # enemy beyond medium range on a 720p capture (a fully-visible character
+    # at long range is < 110 px tall). Use 60 px or 10 % of bbox height as
+    # the floor instead. The aspect-ratio requirement stays so red boards
+    # (red panels, square hazard signs) still cannot grab the bonus.
+    red_humanoid_height = target.bbox_h >= 60.0 and target.bbox_h >= target.bbox_w * 1.55
     red_bonus = red_cov * fov_radius * 0.15 if red_humanoid_height else 0.0
     penalty = 0.0
     if center_y is not None:
@@ -1955,13 +2087,36 @@ def score_target(
         and target.bbox_h >= target.bbox_w * 1.55
         and target.body_shape_score >= 0.45
     )
+    # D3 (audit): lower height floor 110 -> max(60, 10 % of bbox_h scaled
+    # to frame) and lower red_cov threshold 0.35 -> 0.12 for the softener
+    # path. The previous 0.35 was unreachable for a thin glow ring whose
+    # theoretical max bbox-fill is ~0.10. Also accept a "red outline"
+    # perimeter-ratio path: the red mask covers most of the bbox perimeter
+    # even when interior red_cov is low (Horizon-style glow).
+    # D3 (audit) cont: the softener also rejects solid round blobs whose
+    # max_circularity is high (>0.55). Real Apex characters have jagged
+    # outlines (head/torso/limb transitions) and never breach ~0.50; a
+    # blurred test blob smooths to ~0.65-0.75 and would otherwise exploit
+    # the lowered red_cov threshold.
     red_humanoid_column = (
-        target.bbox_h >= 110.0
+        target.bbox_h >= 60.0
         and target.bbox_h >= target.bbox_w * 1.55
         and target.body_shape_score >= 0.45
+        and target.max_circularity < 0.55
     )
-    motion_confirms = is_humanoid_column and motion_overlap >= 0.12
-    red_confirms = red_humanoid_column and red_cov >= 0.35
+    motion_confirms = (
+        is_humanoid_column
+        and motion_overlap >= 0.12
+        and target.max_circularity < 0.60
+    )
+    # Approximate outline-coverage: a thin ring of width 2 around a bbox
+    # of dimensions w*h occupies ~2*(w+h) pixels out of w*h area. If actual
+    # red_coverage clears even a fraction of that, it's almost certainly a
+    # real red outline rather than a stray red prop.
+    bw_eff = max(1.0, float(target.bbox_w))
+    bh_eff = max(1.0, float(target.bbox_h))
+    outline_floor = max(0.04, min(0.25, 2.0 * (bw_eff + bh_eff) / (bw_eff * bh_eff)))
+    red_confirms = red_humanoid_column and (red_cov >= 0.12 or red_cov >= outline_floor * 0.6)
     if target.part_count < 2:
         if motion_confirms or red_confirms:
             penalty += fov_radius * 0.35
@@ -1974,8 +2129,15 @@ def score_target(
     # a tall humanoid bbox, we trust the geometric / chromatic evidence
     # over a small dip in the analyze_figure body score (which is fragile
     # against motion-fused masks that saturate the bbox fill).
+    # D6 (audit): replace flat +0.9*fov_radius cliff at body_shape<0.48 with
+    # a linear ramp scaled by how far below 0.48 we are. A score of 0.47
+    # used to drop a full 0.9*fov penalty (~200 px @ FOV 220) — enough to
+    # tip a marginal real character below the confidence floor. Now 0.47
+    # only loses 0.01 * 2.0 * fov ≈ 4 px; 0.30 loses 0.18 * 2.0 * fov ≈ 80;
+    # 0.00 still loses ~190 (close to the old cap). Motion/red softener
+    # path still skips the penalty entirely as before.
     if target.body_shape_score < 0.48 and not (motion_confirms or red_confirms):
-        penalty += fov_radius * 0.9
+        penalty += max(0.0, 0.48 - target.body_shape_score) * fov_radius * 2.0
     return body_term + dist_term + area_term + closeness_term + motion_bonus + red_bonus - penalty
 
 
@@ -2015,7 +2177,6 @@ def find_best_target(
     context: DetectionContext | None = None,
     currently_locked: bool = False,
 ) -> DetectionResult:
-    _ = (min_aspect, max_aspect, min_solidity)
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
@@ -2042,6 +2203,9 @@ def find_best_target(
         debug=debug,
         detection_mode=resolved_mode,
         context=context,
+        min_aspect=min_aspect,
+        max_aspect=max_aspect,
+        min_solidity=min_solidity,
     )
     if min_height_px is not None and min_height_px > 0:
         before = len(candidates)
