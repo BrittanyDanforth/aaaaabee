@@ -251,6 +251,7 @@ class OverlayWindow:
         fov_center_y: float | None = None,
     ) -> None:
         self._fov_radius = fov_radius
+        self._drawn_fov_radius = fov_radius
         self._screen_width = screen_width
         self._screen_height = screen_height
         self._origin_x = origin_x
@@ -276,10 +277,33 @@ class OverlayWindow:
         sh = self._screen_height
         fov_radius = self._fov_radius
 
+        # DPI awareness must be set BEFORE this thread creates its Tk
+        # interpreter, otherwise Tk samples the wrong system DPI and the
+        # canvas reports logical pixels while mss feeds physical pixels.
+        # Re-asserting here is idempotent at the OS level but keeps the
+        # overlay thread honest if it was spawned before main-thread setup.
+        try:
+            from platform_info import enable_dpi_awareness
+
+            enable_dpi_awareness()
+        except Exception:
+            logger.debug("Could not assert DPI awareness on overlay thread", exc_info=True)
+
         self._root = tk.Tk()
         self._root.title("OverlayAssist")
-        self._root.geometry(f"{sw}x{sh}+{self._origin_x}+{self._origin_y}")
+        # Pin Tk's internal scale factor to 1.0 so canvas pixel coords match
+        # mss physical pixels. Without this, Tcl uses fpixels/screen DPI to
+        # scale fonts/some shapes and the FOV ring drifts off the crosshair.
+        try:
+            self._root.tk.call("tk", "scaling", 1.0)
+        except tk.TclError:
+            logger.debug("Could not pin Tk scaling to 1.0", exc_info=True)
+        # overrideredirect MUST be set before geometry on Windows — otherwise
+        # the geometry +x+y positions the outer (decorated) frame and the
+        # subsequent decoration removal shifts the client area UP by the
+        # title-bar height, leaving the FOV ring ~30px above the crosshair.
         self._root.overrideredirect(True)
+        self._root.geometry(f"{sw}x{sh}+{self._origin_x}+{self._origin_y}")
         self._root.attributes("-topmost", True)
 
         try:
@@ -318,6 +342,7 @@ class OverlayWindow:
             outline="#00ff88",
             width=2,
         )
+        self._drawn_fov_radius = fov_radius
 
         self._cross_h = self._canvas.create_line(
             self._cx - 10,
@@ -375,10 +400,23 @@ class OverlayWindow:
         with self._lock:
             ads = self._active
             target = self._target
+            fov_radius = self._fov_radius
 
         try:
             color = "#00ff88" if ads else "#446644"
             self._canvas.itemconfig(self._fov_id, outline=color)
+            # set_fov_radius() only stores the new value; the canvas oval
+            # must be re-coordinated here or the ring stays frozen at its
+            # build-time radius (visible ring vs. clamp radius would diverge).
+            if fov_radius != self._drawn_fov_radius:
+                self._canvas.coords(
+                    self._fov_id,
+                    self._cx - fov_radius,
+                    self._cy - fov_radius,
+                    self._cx + fov_radius,
+                    self._cy + fov_radius,
+                )
+                self._drawn_fov_radius = fov_radius
 
             if target is not None:
                 tx, ty = int(round(target[0])), int(round(target[1]))
