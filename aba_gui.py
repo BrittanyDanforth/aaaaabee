@@ -91,6 +91,14 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "deadzone_pixels": 1,
         "detection_motion_assist": True,
         "detection_motion_threshold": 8,
+        # Strong is the only built-in preset that arms the recoil/jitter
+        # helpers, and it does so at deliberately small values (per
+        # spec: amplitude=1.5 px horizontal jitter, 25 px/s pull-down).
+        "recoil_compensation_enabled": True,
+        "recoil_pull_down_pixels_per_second": 25.0,
+        "jitter_enabled": True,
+        "jitter_amplitude_pixels": 1.5,
+        "jitter_frequency_hz": 7.0,
     },
     "Debug": {
         "pull_strength": 0.88,
@@ -692,6 +700,36 @@ class AbaApplication:
             parent, "Stale grace frames", "mouse_gate_stale_grace_frames",
             minimum=0, maximum=30, resolution=1, is_int=True,
             tooltip="frames mouse can still move after losing detection",
+        )
+
+        self._section(parent, "Recoil & jitter (engagement-gated)")
+        tk.Label(
+            parent,
+            text=(
+                "Both behaviours fire ONLY while LMB is held AND a target is locked. "
+                "Recoil pull-down compensates for muzzle climb; jitter breaks recoil "
+                "patterns. Leave OFF for pure tracking — turn on for the Strong preset."
+            ),
+            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(0, 6))
+        self._toggle(parent, "Recoil compensation (downward pull while firing)",
+                     "recoil_compensation_enabled")
+        self._slider(
+            parent, "Recoil pull-down (px/s)", "recoil_pull_down_pixels_per_second",
+            minimum=0.0, maximum=180.0, resolution=1.0, is_int=False,
+            tooltip="downward velocity added while LMB held (0 = off)",
+        )
+        self._toggle(parent, "Horizontal jitter (LMB held)", "jitter_enabled")
+        self._slider(
+            parent, "Jitter amplitude (px)", "jitter_amplitude_pixels",
+            minimum=0.0, maximum=6.0, resolution=0.1,
+            tooltip="peak left/right pixels while firing",
+        )
+        self._slider(
+            parent, "Jitter frequency (Hz)", "jitter_frequency_hz",
+            minimum=0.5, maximum=20.0, resolution=0.5,
+            tooltip="how fast the side-to-side jitter cycles",
         )
 
     # === DEBUG TAB ===
