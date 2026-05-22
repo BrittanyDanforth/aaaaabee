@@ -415,7 +415,7 @@ class AssistRuntime:
                 frame_bgr, hsv, int(fov), min_area, cx, cy,
                 torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
                 body_shape_min_score=float(cfg.get("body_shape_min_score", 0.40)),
-                detection_mode=str(cfg.get("detection_mode", "shape")),
+                detection_mode=str(cfg.get("detection_mode", "apex")),
             )
             import cv2
 
@@ -634,6 +634,9 @@ class AssistRuntime:
             sticky = self._locked_target if self._target_lost_frames < int(
                 cfg["target_lost_frames_before_unlock"]
             ) else None
+            currently_locked = (
+                self._locked_target is not None and self._target_lost_frames == 0
+            )
         result = find_best_target(
             frame_bgr,
             hsv_ranges,
@@ -657,8 +660,9 @@ class AssistRuntime:
             aim_y_min_fraction=float(cfg.get("aim_body_y_min_fraction", 0.28)),
             aim_y_max_fraction=float(cfg.get("aim_body_y_max_fraction", 0.52)),
             debug=bool(cfg.get("verbose_logging", False)),
-            detection_mode=str(cfg.get("detection_mode", "shape")),
+            detection_mode=str(cfg.get("detection_mode", "apex")),
             context=self._detect_ctx,
+            currently_locked=currently_locked,
         )
         with self._lock:
             if result.target is not None:
@@ -1127,13 +1131,24 @@ class AssistRuntime:
                             odx = ox - fov_cx_mon
                             ody = oy - fov_cy_mon
                             odist = math.hypot(odx, ody)
-                            fov_limit = max(1.0, float(display_fov)) * 0.96
+                            # Use detection FOV for the overlay clamp too so a
+                            # target accepted by detection never produces an
+                            # overlay dot that pops off the visible ring when
+                            # ADS-toggling. 0.96 margin matches the tracker's
+                            # internal FOV clamp so all three stages agree.
+                            fov_limit = max(1.0, float(detect_fov)) * 0.96
                             if math.isfinite(odist) and odist > fov_limit and odist > 0.0:
                                 s = fov_limit / odist
                                 ox = fov_cx_mon + odx * s
                                 oy = fov_cy_mon + ody * s
                             if math.isfinite(ox) and math.isfinite(oy):
-                                overlay_pt = (ox, oy)
+                                # Mild EMA on the overlay-clamped point so the
+                                # dot does not flicker in/out when the centroid
+                                # oscillates across the FOV ring boundary.
+                                sx, sy = self._aim_tracker.smooth_overlay_point(ox, oy)
+                                overlay_pt = (sx, sy)
+                        else:
+                            self._aim_tracker.reset_overlay_smoothing()
                         self._overlay.set_state(ads_for_assist, overlay_pt)
 
                     frame_i += 1
