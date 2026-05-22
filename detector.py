@@ -368,10 +368,10 @@ def _extract_parts(mask: np.ndarray, frame_w: int, frame_h: int) -> list[_RedPar
         ):
             continue
         if (
-            circ >= 0.62
-            and 0.70 <= (w / float(h)) <= 1.42
-            and area >= 400 * scale * scale
-            and (y + h) < frame_h * 0.50
+            circ >= 0.72
+            and 0.75 <= (w / float(h)) <= 1.35
+            and area >= 600 * scale * scale
+            and (y + h) < frame_h * 0.45
         ):
             continue
         parts.append(part)
@@ -1005,8 +1005,13 @@ def analyze_figure(
 
     body_shape = min(1.0, body_shape)
     aspect = bh / max(bw, 1)
-    base_min = _MIN_BODY_SHAPE_PARTIAL if len(parts) <= 2 else _MIN_BODY_SHAPE_ACCEPT
-    min_accept = float(body_shape_min_score) if body_shape_min_score is not None else base_min
+    if body_shape_min_score is not None:
+        full_min = float(body_shape_min_score)
+        partial_min = min(full_min, _MIN_BODY_SHAPE_PARTIAL)
+    else:
+        full_min = _MIN_BODY_SHAPE_ACCEPT
+        partial_min = _MIN_BODY_SHAPE_PARTIAL
+    min_accept = partial_min if len(parts) <= 2 else full_min
     has_head_part = any(p.role == PartRole.HEAD for p in parts)
     structure_ok = (
         (has_head_part and torso_s >= 0.28 and (limb_s >= 0.32 or len(parts) >= 3))

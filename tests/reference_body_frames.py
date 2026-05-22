@@ -89,3 +89,27 @@ def gen_dynamic_pose_dummy() -> np.ndarray:
 def gen_body_plus_balloon_compete() -> np.ndarray:
     frame, _ = gen_ads_dummy_with_sky_balloon()
     return frame
+
+
+def gen_body_with_arms_gun() -> np.ndarray:
+    """Body with arms extended and gun — wider bbox, anchor must stay on torso."""
+    frame = np.full((FRAME_H, FRAME_W, 3), BG_SAND, dtype=np.uint8)
+    _draw_training_dummy(frame, CX, CY + 130)
+    # Right arm + gun extending right (red arm plates)
+    arm_y = CY + 130 - 90  # chest height
+    cv2.rectangle(frame, (CX + 30, arm_y), (CX + 55, arm_y + 16), RED, -1)  # upper arm
+    cv2.rectangle(frame, (CX + 58, arm_y + 2), (CX + 80, arm_y + 12), RED, -1)  # forearm
+    cv2.rectangle(frame, (CX + 82, arm_y + 3), (CX + 110, arm_y + 10), GREY, -1)  # gun (grey)
+    # Left arm slightly visible
+    cv2.rectangle(frame, (CX - 30, arm_y + 4), (CX - 18, arm_y + 18), RED, -1)  # left arm stub
+    return frame
+
+
+def gen_side_angle_one_arm() -> np.ndarray:
+    """Side angle body — one arm/gun visible, asymmetric silhouette."""
+    frame = np.full((FRAME_H, FRAME_W, 3), BG_SAND, dtype=np.uint8)
+    _draw_training_dummy(frame, CX + 15, CY + 130, side_shift=10)
+    arm_y = CY + 130 - 85
+    cv2.rectangle(frame, (CX + 45, arm_y), (CX + 75, arm_y + 14), RED, -1)  # arm
+    cv2.rectangle(frame, (CX + 78, arm_y + 2), (CX + 115, arm_y + 10), (50, 50, 55), -1)  # gun
+    return frame

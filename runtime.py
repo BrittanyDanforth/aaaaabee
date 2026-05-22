@@ -404,6 +404,8 @@ class AssistRuntime:
             candidates, mask, _parts = detector.enumerate_candidates(
                 frame_bgr, hsv, int(fov), min_area, cx, cy,
                 torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
+                body_shape_min_score=float(cfg.get("body_shape_min_score", 0.40)),
+                detection_mode=str(cfg.get("detection_mode", "shape")),
             )
             import cv2
 
@@ -624,7 +626,7 @@ class AssistRuntime:
             min_aspect=float(cfg["humanoid_min_aspect"]),
             max_aspect=float(cfg["humanoid_max_aspect"]),
             min_solidity=float(cfg.get("humanoid_min_solidity", 0.25)),
-            torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.36)),
+            torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
             body_shape_min_score=float(cfg.get("body_shape_min_score", 0.40)),
             head_score_weight=float(cfg.get("head_score_weight", 0.26)),
             torso_score_weight=float(cfg.get("torso_score_weight", 0.26)),
@@ -867,8 +869,8 @@ class AssistRuntime:
                     center_y,
                 )
 
-            hsv_ranges = cfg["hsv_ranges"]
-            show_debug = bool(cfg["show_debug_window"])
+            hsv_ranges = cfg.get("hsv_ranges", [])
+            show_debug = bool(cfg.get("show_debug_window", False))
             frame_i = 0
             with self._lock:
                 self._mouse_enabled = True
@@ -881,6 +883,8 @@ class AssistRuntime:
                         break
 
                     cfg = self.config
+                    hsv_ranges = cfg.get("hsv_ranges", [])
+                    show_debug = bool(cfg.get("show_debug_window", False))
                     paused = self._update_target_pause(cfg)
                     if paused:
                         with self._lock:
