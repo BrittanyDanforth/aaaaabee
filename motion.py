@@ -119,6 +119,7 @@ class TargetTracker:
         self._fov_radius: float | None = None
         self._last_pred_offset: tuple[float, float] = (0.0, 0.0)
         self._last_pre_predict: tuple[float, float] | None = None
+        self._overlay_smooth: tuple[float, float] | None = None
 
     def configure_prediction(
         self,
@@ -170,6 +171,34 @@ class TargetTracker:
         _tau_still = max(0.01, float(still))
         _tau_moving = max(0.005, min(_tau_still, float(moving)))
 
+    def smooth_overlay_point(
+        self,
+        x: float,
+        y: float,
+        *,
+        alpha: float = 0.45,
+    ) -> tuple[float, float]:
+        """Mild EMA smoothing applied to the post-FOV-clamp overlay point.
+
+        The overlay dot is clamped to the visible FOV ring (96 % radius). When
+        the detected aim point oscillates around the ring boundary the dot can
+        pop in and out — applying a light EMA here keeps the dot's visible
+        position stable without affecting the underlying tracked motion.
+        """
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return x, y
+        if self._overlay_smooth is None:
+            self._overlay_smooth = (x, y)
+            return x, y
+        a = max(0.05, min(1.0, float(alpha)))
+        sx = self._overlay_smooth[0] + a * (x - self._overlay_smooth[0])
+        sy = self._overlay_smooth[1] + a * (y - self._overlay_smooth[1])
+        self._overlay_smooth = (sx, sy)
+        return sx, sy
+
+    def reset_overlay_smoothing(self) -> None:
+        self._overlay_smooth = None
+
     def reset(self) -> None:
         self._last = None
         self._last_time = None
@@ -186,6 +215,7 @@ class TargetTracker:
         self._fov_radius = None
         self._last_pred_offset = (0.0, 0.0)
         self._last_pre_predict = None
+        self._overlay_smooth = None
 
     @staticmethod
     def _clamp_to_body_bbox(
@@ -220,9 +250,10 @@ class TargetTracker:
         """
         Limit per-frame detector jumps so overlay dot does not teleport across the
         screen, but allow generous travel proportional to bbox height so the
-        smoother keeps up with strafing/sliding enemies.
+        smoother keeps up with strafing/sliding enemies. The floor is kept low
+        (6 px) so slow strafes pass through without being clipped.
         """
-        max_step = max(8.0, min(34.0, bbox_h * 0.24)) * max(0.35, min(2.2, dt * 60.0))
+        max_step = max(6.0, min(34.0, bbox_h * 0.24)) * max(0.35, min(2.2, dt * 60.0))
         dx = x - last_x
         dy = y - last_y
         dist = math.hypot(dx, dy)
@@ -345,8 +376,19 @@ class TargetTracker:
         tau = self._effective_tau(dt, speed)
         alpha = alpha_from_tau(dt, tau)
 
-        self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
-        self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
+        # Stationary-target jitter deadband: when the smoothed velocity is low
+        # (<50 px/s) AND the new measurement is within 2 px of the current
+        # smoothed position, keep the smoother frozen instead of nudging it
+        # toward every quantised centroid bounce. This is what kills the
+        # "swimming dot" visible on stationary enemies — without it the
+        # detector's pixel-grid bias on chest centroid feeds 1–3 px corrections
+        # into the smoother every frame, and the user perceives that as glitch.
+        meas_drift = math.hypot(x - self._smooth_x, y - self._smooth_y)
+        if speed < 50.0 and meas_drift < 2.0:
+            pass  # keep smoothed position as-is
+        else:
+            self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
+            self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
 
         pre_x, pre_y = self._smooth_x, self._smooth_y
         self._last_pre_predict = (pre_x, pre_y)
