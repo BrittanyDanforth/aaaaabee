@@ -89,5 +89,20 @@ class PullNaNSafetyTests(unittest.TestCase):
         self.assertTrue(math.isfinite(pr.magnitude))
 
 
+class PullEdgeFloorTests(unittest.TestCase):
+    def test_small_bbox_far_target_still_pulls(self) -> None:
+        # Tiny detection bbox (15 px) at the edge of a 140 px FOV. Old clamp
+        # capped err at 48 which made the pull weak. After the fix, fov-scaled
+        # floor (84 px) keeps the desired pull strong on edge engagements.
+        ctrl = PullController(_tuning(fov_radius=140.0, max_speed=30.0))
+        tgt = Target(330.0, 200.0, 60.0, 130.0, 0.9, bbox_x=323, bbox_y=170, bbox_w=15, bbox_h=60)
+        pr = ctrl.compute_delta(tgt, 200.0, 200.0, time_sec=0.0)
+        self.assertGreater(pr.magnitude, 12.0, "edge engagement on small bbox must pull hard")
+        # Pre-fix the floor was hard 48 px regardless of FOV, so desired_x maxed
+        # around 21 px (48 * strength). Post-fix the floor is fov_radius * 0.6 = 84,
+        # which puts desired_x in the mid-30s range.
+        self.assertGreater(abs(pr.desired_x), 30.0, "desired_x must reflect edge distance, not the tiny-bbox floor")
+
+
 if __name__ == "__main__":
     unittest.main()

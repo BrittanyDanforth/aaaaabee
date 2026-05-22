@@ -245,9 +245,17 @@ class PullController:
         err_x = aim_x - center_x
         err_y = aim_y - center_y
         # Only clamp absurd errors (detector teleport); normal FOV offset must pull through.
+        # Floor was a hard 48 px regardless of FOV size, which clipped legitimate
+        # engagements when a small/distant target sat near the rim of a wide
+        # detection FOV (e.g. bbox_w=15 at err_x=130 with fov_radius=140 was
+        # being clamped to 48 — pull strength fell from "edge target" to "near
+        # centre" levels). Scale the floor with fov_radius so edge engagement
+        # is proportional regardless of bbox size; teleport-defense above the
+        # detection circle is still handled by the dist > fov_radius * 1.02 cutoff.
         if target.bbox_w > 0 and target.bbox_h > 0:
-            max_ex = max(48.0, target.bbox_w * 2.5)
-            max_ey = max(40.0, target.bbox_h * 2.2)
+            fov_floor = self._tuning.fov_radius * 0.6
+            max_ex = max(fov_floor, target.bbox_w * 2.5)
+            max_ey = max(fov_floor * 0.85, target.bbox_h * 2.2)
             if abs(err_x) > max_ex:
                 err_x = max(-max_ex, min(max_ex, err_x))
             if abs(err_y) > max_ey:
