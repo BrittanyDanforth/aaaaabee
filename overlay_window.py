@@ -334,6 +334,11 @@ class OverlayWindow:
         self._cx = int(round(fcx if fcx is not None else sw / 2))
         self._cy = int(round(fcy if fcy is not None else sh / 2))
 
+        # The FOV ring is tagged so we can defensively prove only ONE such
+        # oval ever exists on the canvas. Live-game reports of a "ghost"
+        # outer ring trace back to ambiguity about whether set_fov_radius()
+        # could leak a second oval; tagging + a guarded delete in _redraw
+        # makes the invariant impossible to violate.
         self._fov_id = self._canvas.create_oval(
             self._cx - fov_radius,
             self._cy - fov_radius,
@@ -341,6 +346,7 @@ class OverlayWindow:
             self._cy + fov_radius,
             outline="#00ff88",
             width=2,
+            tags=("fov_ring",),
         )
         self._drawn_fov_radius = fov_radius
 
@@ -362,7 +368,13 @@ class OverlayWindow:
             width=1,
         )
 
-        self._target_id = self._canvas.create_oval(0, 0, 0, 0, outline="", fill="")
+        # state="hidden" guarantees the target dot is invisible at startup
+        # and whenever no target is locked — empty outline/fill is not enough
+        # on every Tk build; some compositors still render a stray 1-px
+        # speck at (0,0,0,0).
+        self._target_id = self._canvas.create_oval(
+            0, 0, 0, 0, outline="", fill="", state="hidden", tags=("target_dot",)
+        )
 
         self._status_id = self._canvas.create_text(
             12,
@@ -403,6 +415,19 @@ class OverlayWindow:
             fov_radius = self._fov_radius
 
         try:
+            # Defensive single-ring invariant: if for any reason a second
+            # canvas item carries the "fov_ring" tag, destroy it. Bug report
+            # from live Apex play described a smaller inner + larger outer
+            # green ring after the previous overlay rework; tagging + this
+            # purge makes ghost rings impossible regardless of how the
+            # canvas was mutated.
+            stray = [
+                item for item in self._canvas.find_withtag("fov_ring")
+                if item != self._fov_id
+            ]
+            for item in stray:
+                self._canvas.delete(item)
+
             color = "#00ff88" if ads else "#446644"
             self._canvas.itemconfig(self._fov_id, outline=color)
             # set_fov_radius() only stores the new value; the canvas oval
@@ -422,10 +447,21 @@ class OverlayWindow:
                 tx, ty = int(round(target[0])), int(round(target[1]))
                 r = 6
                 self._canvas.coords(self._target_id, tx - r, ty - r, tx + r, ty + r)
-                self._canvas.itemconfig(self._target_id, outline="#ff4444", fill="#ff4444")
+                self._canvas.itemconfig(
+                    self._target_id,
+                    outline="#ff4444",
+                    fill="#ff4444",
+                    state="normal",
+                )
             else:
+                # Hide instead of "shrink to 0" — guarantees no centre-pinned
+                # speck appears when there is no live target. Empty outline/
+                # fill alone has been observed to leave a 1-px artifact on
+                # some compositors.
+                self._canvas.itemconfig(
+                    self._target_id, outline="", fill="", state="hidden"
+                )
                 self._canvas.coords(self._target_id, 0, 0, 0, 0)
-                self._canvas.itemconfig(self._target_id, outline="", fill="")
         except (tk.TclError, RuntimeError):
             pass
 
