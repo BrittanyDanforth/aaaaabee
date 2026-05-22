@@ -1090,21 +1090,21 @@ class AssistRuntime:
                             )
 
                     if self._overlay is not None and self._should_run():
-                        if motion is not None:
+                        overlay_pt = None
+                        if motion is not None and math.isfinite(motion.x) and math.isfinite(motion.y):
                             ox, oy = to_monitor_coords(motion.x, motion.y, cap_region)
                             fov_cx_mon = float(center_x)
                             fov_cy_mon = float(center_y)
                             odx = ox - fov_cx_mon
                             ody = oy - fov_cy_mon
                             odist = math.hypot(odx, ody)
-                            fov_limit = float(display_fov) * 0.96
-                            if odist > fov_limit and odist > 0.0:
+                            fov_limit = max(1.0, float(display_fov)) * 0.96
+                            if math.isfinite(odist) and odist > fov_limit and odist > 0.0:
                                 s = fov_limit / odist
                                 ox = fov_cx_mon + odx * s
                                 oy = fov_cy_mon + ody * s
-                            overlay_pt = (ox, oy)
-                        else:
-                            overlay_pt = None
+                            if math.isfinite(ox) and math.isfinite(oy):
+                                overlay_pt = (ox, oy)
                         self._overlay.set_state(ads_for_assist, overlay_pt)
 
                     frame_i += 1

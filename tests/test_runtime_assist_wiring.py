@@ -30,3 +30,18 @@ class RuntimeSourceWiringTests(unittest.TestCase):
             if isinstance(n, ast.FunctionDef) and isinstance(getattr(n, "name", None), str)
         ]
         self.assertIn("_smooth_aim", methods)
+
+    def test_overlay_dot_guards_against_nan_motion(self) -> None:
+        """Overlay handoff must skip non-finite motion coords or the Tk
+        renderer crashes inside int(round(NaN)) (uncaught ValueError)."""
+        text = RUNTIME_PATH.read_text(encoding="utf-8")
+        # The overlay write must check finiteness of motion.x / motion.y
+        # before passing the coordinates to to_monitor_coords + Tk overlay.
+        self.assertIn(
+            "math.isfinite(motion.x) and math.isfinite(motion.y)",
+            text,
+            "overlay dot must guard against non-finite motion coords",
+        )
+        # Defence against display_fov collapsing to 0 (would divide-by-zero
+        # inside the FOV clamp).
+        self.assertIn("max(1.0, float(display_fov)) * 0.96", text)
