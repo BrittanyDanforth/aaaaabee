@@ -1,0 +1,14 @@
+{
+  "scene": "scene_06_diamond_sign",
+  "description": "two diamond signs (small + LARGE 360px); both should reject",
+  "active": false,
+  "candidates": 0,
+  "best_score": 0.0,
+  "fov_radius": 220,
+  "fov_center": [
+    640,
+    360
+  ],
+  "red_mask_pixels": 0,
+  "red_mask_pct": 0.0
+}

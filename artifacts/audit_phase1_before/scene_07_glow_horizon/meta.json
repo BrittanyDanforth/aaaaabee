@@ -1,0 +1,14 @@
+{
+  "scene": "scene_07_glow_horizon",
+  "description": "horizon-style char with thin red glow ring HSV(0,145,130)",
+  "active": false,
+  "candidates": 1,
+  "best_score": 0.2758252109046647,
+  "fov_radius": 220,
+  "fov_center": [
+    640,
+    360
+  ],
+  "red_mask_pixels": 419,
+  "red_mask_pct": 0.0004546440972222222
+}

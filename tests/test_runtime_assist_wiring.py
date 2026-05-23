@@ -30,3 +30,31 @@ class RuntimeSourceWiringTests(unittest.TestCase):
             if isinstance(n, ast.FunctionDef) and isinstance(getattr(n, "name", None), str)
         ]
         self.assertIn("_smooth_aim", methods)
+
+    def test_overlay_dot_guards_against_nan_motion(self) -> None:
+        """Overlay handoff must skip non-finite motion coords or the Tk
+        renderer crashes inside int(round(NaN)) (uncaught ValueError)."""
+        text = RUNTIME_PATH.read_text(encoding="utf-8")
+        # The overlay write must check finiteness of overlay_motion coords
+        # before passing them to to_monitor_coords + Tk overlay.
+        self.assertIn(
+            "math.isfinite(overlay_motion.x)",
+            text,
+            "overlay dot must guard against non-finite motion coords",
+        )
+        self.assertIn(
+            "math.isfinite(overlay_motion.y)",
+            text,
+        )
+        # O2 (audit): clamp the overlay dot to the SMALLER of the
+        # display ring and the detection ring so the dot always stays
+        # inside the GREEN ring the user sees on screen. The previous
+        # clamp used detect_fov alone which is wider than the display
+        # ring when detection_fov_margin_pixels is non-zero — that was
+        # the "dot outside the ring" symptom in the user screenshots.
+        self.assertIn(
+            "min(float(detect_fov), float(display_fov))",
+            text,
+            "overlay clamp must use the smaller of detect_fov and display_fov",
+        )
+        self.assertIn(") * 0.96", text)

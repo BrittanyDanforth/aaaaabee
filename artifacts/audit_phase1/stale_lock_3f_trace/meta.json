@@ -1,0 +1,76 @@
+{
+  "name": "stale_lock_3f_trace",
+  "frames": [
+    {
+      "frame": 0,
+      "type": "live",
+      "in_x": 600.0,
+      "out_x": 600.0,
+      "out_y": 360.0
+    },
+    {
+      "frame": 1,
+      "type": "live",
+      "in_x": 620.0,
+      "out_x": 612.0767113943587,
+      "out_y": 360.0
+    },
+    {
+      "frame": 2,
+      "type": "live",
+      "in_x": 640.0,
+      "out_x": 628.9377862779444,
+      "out_y": 360.0
+    },
+    {
+      "frame": 3,
+      "type": "live",
+      "in_x": 660.0,
+      "out_x": 647.6942557975021,
+      "out_y": 360.0
+    },
+    {
+      "frame": 4,
+      "type": "live",
+      "in_x": 680.0,
+      "out_x": 667.2016132531793,
+      "out_y": 360.0
+    },
+    {
+      "frame": 5,
+      "type": "stale_hold",
+      "in_x": null,
+      "out_x": 667.2016132531793,
+      "out_y": 360.0
+    },
+    {
+      "frame": 6,
+      "type": "stale_hold",
+      "in_x": null,
+      "out_x": 667.2016132531793,
+      "out_y": 360.0
+    },
+    {
+      "frame": 7,
+      "type": "stale_hold",
+      "in_x": null,
+      "out_x": 667.2016132531793,
+      "out_y": 360.0
+    },
+    {
+      "frame": 8,
+      "type": "stale_hold",
+      "in_x": null,
+      "out_x": 667.2016132531793,
+      "out_y": 360.0
+    },
+    {
+      "frame": 9,
+      "type": "stale_hold",
+      "in_x": null,
+      "out_x": 667.2016132531793,
+      "out_y": 360.0
+    }
+  ],
+  "expected": "out_x stops changing after frame 4 (no further observe_target calls)"
+}

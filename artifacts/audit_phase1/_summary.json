@@ -1,0 +1,543 @@
+{
+  "scenes": [
+    {
+      "scene": "scene_01_firing_range",
+      "description": "red apex char centre + two target boards",
+      "active": true,
+      "candidates": 1,
+      "best_score": 0.36400975174737976,
+      "fov_radius": 220,
+      "fov_center": [
+        640,
+        360
+      ],
+      "red_mask_pixels": 11627,
+      "red_mask_pct": 0.012616102430555555,
+      "target": {
+        "centroid_x": 660.3,
+        "centroid_y": 355.5565909090909,
+        "bbox": [
+          591,
+          285,
+          99,
+          184
+        ],
+        "confidence": 0.36400975174737976,
+        "body_shape_score": 0.5066211756993007,
+        "red_coverage": 0.5275032938076416,
+        "fill_ratio": 0.42934781312942505,
+        "max_circularity": 0.4893773840401818,
+        "part_count": 1,
+        "area": 10939.5,
+        "distance_to_center": 20.7806131851101
+      },
+      "tracker_output": {
+        "x": 660.3,
+        "y": 355.5565909090909
+      }
+    },
+    {
+      "scene": "scene_02_near_far",
+      "description": "near (right) + far (left) red apex chars",
+      "active": true,
+      "candidates": 1,
+      "best_score": 0.374615285497484,
+      "fov_radius": 220,
+      "fov_center": [
+        640,
+        360
+      ],
+      "red_mask_pixels": 16640,
+      "red_mask_pct": 0.018055555555555554,
+      "target": {
+        "centroid_x": 791.0,
+        "centroid_y": 357.1215374643506,
+        "bbox": [
+          761,
+          271,
+          100,
+          219
+        ],
+        "confidence": 0.374615285497484,
+        "body_shape_score": 0.6108895769230769,
+        "red_coverage": 0.5876255707762557,
+        "fill_ratio": 0.990867555141449,
+        "max_circularity": 0.47158429527049095,
+        "part_count": 1,
+        "area": 13376.0,
+        "distance_to_center": 151.02743309269724
+      },
+      "tracker_output": {
+        "x": 791.0,
+        "y": 357.1215374643506
+      }
+    },
+    {
+      "scene": "scene_03_lineup",
+      "description": "7-character lineup of red apex chars at varied scale",
+      "active": true,
+      "candidates": 3,
+      "best_score": 0.3841351595037483,
+      "fov_radius": 220,
+      "fov_center": [
+        640,
+        360
+      ],
+      "red_mask_pixels": 38652,
+      "red_mask_pct": 0.041940104166666665,
+      "target": {
+        "centroid_x": 624.8,
+        "centroid_y": 356.5986813186813,
+        "bbox": [
+          602,
+          304,
+          76,
+          137
+        ],
+        "confidence": 0.3841351595037483,
+        "body_shape_score": 0.5074858805668017,
+        "red_coverage": 0.5099884748367268,
+        "fill_ratio": 0.44525548815727234,
+        "max_circularity": 0.5292585108800862,
+        "part_count": 1,
+        "area": 6263.0,
+        "distance_to_center": 15.575909885842588
+      },
+      "tracker_output": {
+        "x": 624.8,
+        "y": 356.5986813186813
+      }
+    },
+    {
+      "scene": "scene_04_sideways_gun",
+      "description": "sideways red character with extended gun arm",
+      "active": true,
+      "candidates": 1,
+      "best_score": 0.4174003725437333,
+      "fov_radius": 220,
+      "fov_center": [
+        640,
+        360
+      ],
+      "red_mask_pixels": 6932,
+      "red_mask_pct": 0.0075217013888888885,
+      "target": {
+        "centroid_x": 626.7,
+        "centroid_y": 358.2170967741935,
+        "bbox": [
+          597,
+          287,
+          99,
+          182
+        ],
+        "confidence": 0.4174003725437333,
+        "body_shape_score": 0.5641848120629371,
+        "red_coverage": 0.3847263847263847,
+        "fill_ratio": 0.9945054650306702,
+        "max_circularity": 0.3447625444687883,
+        "part_count": 1,
+        "area": 8330.5,
+        "distance_to_center": 13.418969554797787
+      },
+      "tracker_output": {
+        "x": 626.7,
+        "y": 358.2170967741935
+      }
+    },
+    {
+      "scene": "scene_05_sky_balloon",
+      "description": "lone red balloon high in sky (should NOT detect)",
+      "active": false,
+      "candidates": 0,
+      "best_score": 0.0,
+      "fov_radius": 220,
+      "fov_center": [
+        640,
+        360
+      ],
+      "red_mask_pixels": 2810,
+      "red_mask_pct": 0.003049045138888889
+    },
+    {
+      "scene": "scene_06_diamond_sign",
+      "description": "two diamond signs (small + LARGE 360px); both should reject",
+      "active": false,
+      "candidates": 0,
+      "best_score": 0.0,
+      "fov_radius": 220,
+      "fov_center": [
+        640,
+        360
+      ],
+      "red_mask_pixels": 0,
+      "red_mask_pct": 0.0
+    },
+    {
+      "scene": "scene_07_glow_horizon",
+      "description": "horizon-style char with thin red glow ring HSV(0,145,130)",
+      "active": true,
+      "candidates": 1,
+      "best_score": 0.43754393301491823,
+      "fov_radius": 220,
+      "fov_center": [
+        640,
+        360
+      ],
+      "red_mask_pixels": 1689,
+      "red_mask_pct": 0.0018326822916666667,
+      "target": {
+        "centroid_x": 619.9,
+        "centroid_y": 356.35474387527836,
+        "bbox": [
+          589,
+          283,
+          103,
+          188
+        ],
+        "confidence": 0.43754393301491823,
+        "body_shape_score": 0.6147403869492158,
+        "red_coverage": 0.08722371410865523,
+        "fill_ratio": 0.4893617033958435,
+        "max_circularity": 0.5298325845547891,
+        "part_count": 1,
+        "area": 12140.0,
+        "distance_to_center": 20.42787047674871
+      },
+      "tracker_output": {
+        "x": 619.9,
+        "y": 356.35474387527836
+      }
+    }
+  ],
+  "jitter": {
+    "name": "stationary_jitter_30f",
+    "frames": [
+      {
+        "frame": 0,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 1,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.24784711854284,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 2,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 3,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2442435094002,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 4,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 5,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 6,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2442435094002,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 7,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 8,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 9,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.24942652329753,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 10,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 11,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 12,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 13,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 14,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 15,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 16,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 17,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 18,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 19,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2423687350836,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 20,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2442435094002,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 21,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 22,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 23,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.24784711854284,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 24,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 25,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 26,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2442435094002,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 27,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2442435094002,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 28,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.24942652329753,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      },
+      {
+        "frame": 29,
+        "active": true,
+        "cent_x": 620.7,
+        "cent_y": 357.2461194029851,
+        "motion_x": 620.7,
+        "motion_y": 357.2461194029851
+      }
+    ],
+    "centroid_spread": {
+      "x": 0.0,
+      "y": 0.007057788213955973
+    },
+    "tracker_spread": {
+      "x": 0.0,
+      "y": 0.0
+    },
+    "active_frames": 30,
+    "expected": "tracker_spread should be << centroid_spread (deadband holds)"
+  },
+  "stale_lock": {
+    "name": "stale_lock_3f_trace",
+    "frames": [
+      {
+        "frame": 0,
+        "type": "live",
+        "in_x": 600.0,
+        "out_x": 600.0,
+        "out_y": 360.0
+      },
+      {
+        "frame": 1,
+        "type": "live",
+        "in_x": 620.0,
+        "out_x": 612.0767113943587,
+        "out_y": 360.0
+      },
+      {
+        "frame": 2,
+        "type": "live",
+        "in_x": 640.0,
+        "out_x": 628.9377862779444,
+        "out_y": 360.0
+      },
+      {
+        "frame": 3,
+        "type": "live",
+        "in_x": 660.0,
+        "out_x": 647.6942557975021,
+        "out_y": 360.0
+      },
+      {
+        "frame": 4,
+        "type": "live",
+        "in_x": 680.0,
+        "out_x": 667.2016132531793,
+        "out_y": 360.0
+      },
+      {
+        "frame": 5,
+        "type": "stale_hold",
+        "in_x": null,
+        "out_x": 667.2016132531793,
+        "out_y": 360.0
+      },
+      {
+        "frame": 6,
+        "type": "stale_hold",
+        "in_x": null,
+        "out_x": 667.2016132531793,
+        "out_y": 360.0
+      },
+      {
+        "frame": 7,
+        "type": "stale_hold",
+        "in_x": null,
+        "out_x": 667.2016132531793,
+        "out_y": 360.0
+      },
+      {
+        "frame": 8,
+        "type": "stale_hold",
+        "in_x": null,
+        "out_x": 667.2016132531793,
+        "out_y": 360.0
+      },
+      {
+        "frame": 9,
+        "type": "stale_hold",
+        "in_x": null,
+        "out_x": 667.2016132531793,
+        "out_y": 360.0
+      }
+    ],
+    "expected": "out_x stops changing after frame 4 (no further observe_target calls)"
+  }
+}

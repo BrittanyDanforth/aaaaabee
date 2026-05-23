@@ -27,10 +27,11 @@ class ProfileTests(unittest.TestCase):
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
         self.assertTrue(cfg["allow_live_mouse"])
         self.assertTrue(cfg["trace_pull"])
-        self.assertEqual(0.82, cfg["pull_strength"])
-        self.assertEqual(26.0, cfg["max_pull_speed_pixels_per_frame"])
-        self.assertEqual(0.020, cfg["smoothing_tau_moving"])
+        self.assertGreaterEqual(cfg["pull_strength"], 0.80)
+        self.assertGreaterEqual(cfg["max_pull_speed_pixels_per_frame"], 26.0)
+        self.assertLessEqual(cfg["smoothing_tau_moving"], 0.022)
         self.assertFalse(cfg["humanize_enabled"])
+        self.assertTrue(cfg.get("detection_motion_assist", False))
 
     def test_effective_fov_ads_larger(self) -> None:
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_SAFE})

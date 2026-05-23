@@ -11,7 +11,6 @@ APEX_PROCESS_NAME = "r5apex.exe,r5apex_dx12.exe"
 # Shared Apex tuning (shape detection default; optional HSV legacy).
 _APEX_TUNING: dict[str, Any] = {
     "target_process_name": APEX_PROCESS_NAME,
-    "target_window_title": "",
     "target_process_required": False,
     "pause_on_target_closed": True,
     "offline_dev_mode": True,
@@ -39,32 +38,47 @@ _APEX_TUNING: dict[str, Any] = {
     "humanize_enabled": True,
     "humanize_amplitude_pixels": 0.20,
     "humanize_jerk_limit": 10.0,
+    # Engagement-gated recoil compensator + jitter — defaults OFF on every
+    # profile so existing tracking behaviour is preserved.  The Strong preset
+    # in aba_gui.py is the only built-in shortcut that turns these on.
+    "recoil_compensation_enabled": False,
+    "recoil_pull_down_pixels_per_second": 0.0,
+    "jitter_enabled": False,
+    "jitter_amplitude_pixels": 0.0,
+    "jitter_frequency_hz": 6.0,
     "target_stickiness_pixels": 60,
     "target_lost_frames_before_unlock": 18,
+    "new_lock_confirm_frames": 2,
     "distance_score_weight": 2.6,
     "area_score_weight": 0.015,
     "min_target_area_pixels": 20,
-    "humanoid_min_height_pixels": 16,
+    "viewmodel_exclude_bottom_frac": 0.28,
+    # PHASE-7 AUDIT FIX (HIGH5): bumped from 16 → 40 — the previous 16-px
+    # floor let sky/HUD 16-px fragments enter the candidate pool. The
+    # Tracking preset overlays 60 (more aggressive) but profile defaults
+    # need a sane mid-ground for users who never click the preset.
+    "humanoid_min_height_pixels": 48,
     "humanoid_min_aspect": 0.5,
     "humanoid_max_aspect": 5.5,
-    "humanoid_min_solidity": 0.15,
+    # PHASE-7 AUDIT FIX (HIGH6): lowered from 0.15 → 0.10. img2 in the
+    # static audit set has body=1.00 at solidity=0.14; 0.15 dropped a
+    # real body. The downstream ``_body_structure_reject`` and
+    # ``body_shape_min_score`` together already gate humanoid shape; we
+    # do not need this threshold to also be a brittle hard cutoff.
+    "humanoid_min_solidity": 0.10,
     "torso_aim_fraction": 0.40,
     "aim_body_y_min_fraction": 0.28,
     "aim_body_y_max_fraction": 0.52,
     "prediction_vertical_cap_pixels": 4.0,
-    "smoothing_tau_still": 0.062,
-    "smoothing_tau_moving": 0.028,
+    "smoothing_tau_still": 0.042,
+    "smoothing_tau_moving": 0.018,
     "body_shape_min_score": 0.40,
+    "detection_mode": "apex",
+    "detection_motion_assist": True,
+    "detection_motion_threshold": 10,
     "head_score_weight": 0.26,
     "torso_score_weight": 0.26,
     "limb_stack_score_weight": 0.22,
-    "debug_show_body_bbox": False,
-    "debug_show_anchor": False,
-    "debug_show_rejected": False,
-    "debug_show_top_candidates": False,
-    "debug_show_reject_reasons": False,
-    "debug_show_mask_overlay": False,
-    "debug_show_timing": True,
     "debug_frames_dir": "artifacts/debug_frames",
     "mouse_backend": "auto",
     "stats_log_interval_frames": 45,
@@ -120,7 +134,9 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "profile": PROFILE_APEX_STYLE_LIVE_TRACE,
         "allow_live_mouse": True,
         "enable_overlay": True,
-        "capture_fps": 30,
+        "capture_fps": 60,
+        "overlay_fps": 90,
+        "overlay_dot_smooth_alpha": 0.68,
         "ads_input_mode": "both",
         "dry_run_force_detect": False,
         "trace_pull": True,
@@ -134,16 +150,18 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "prediction_max_pixels": 12,
         "prediction_vertical_cap_pixels": 4.0,
         "target_stickiness_pixels": 92,
-        "fov_edge_min_pull_scale": 0.90,
-        "max_pull_speed_pixels_per_frame": 26.0,
-        "pull_strength": 0.82,
+        "fov_edge_min_pull_scale": 0.92,
+        "max_pull_speed_pixels_per_frame": 30.0,
+        "pull_strength": 0.88,
         "deadzone_pixels": 2,
         "torso_aim_fraction": 0.40,
         "aim_body_y_min_fraction": 0.28,
         "aim_body_y_max_fraction": 0.50,
-        "smoothing_tau_still": 0.048,
-        "smoothing_tau_moving": 0.020,
-        "velocity_smoothing": 0.48,
+        "smoothing_tau_still": 0.034,
+        "smoothing_tau_moving": 0.014,
+        "velocity_smoothing": 0.42,
+        "detection_motion_assist": True,
+        "detection_motion_threshold": 9,
         "body_shape_min_score": 0.40,
         "mouse_gate_stale_grace_frames": 14,
     },
@@ -187,11 +205,21 @@ def normalize_profile_name(name: str) -> str:
     return p
 
 
+def effective_overlay_fps(config: dict[str, Any]) -> int:
+    """Tk overlay redraw rate (FOV ring + target dot). Defaults to 90 Hz."""
+    fps = int(config.get("overlay_fps", 90))
+    capture = effective_capture_fps(config)
+    # Never redraw slower than capture — dot coords only change each capture frame.
+    return max(30, min(144, max(fps, capture)))
+
+
 def effective_capture_fps(config: dict[str, Any]) -> int:
     """Configured FPS after profile + dry-run safety cap."""
     fps = int(config.get("capture_fps", 15))
     profile = resolve_profile_name(config)
-    if profile in (PROFILE_APEX_STYLE_DRY_RUN, PROFILE_APEX_STYLE_LIVE_SAFE, PROFILE_APEX_STYLE_LIVE_TRACE):
+    if profile == PROFILE_APEX_STYLE_LIVE_TRACE:
+        return min(fps, 120)
+    if profile in (PROFILE_APEX_STYLE_DRY_RUN, PROFILE_APEX_STYLE_LIVE_SAFE):
         return min(fps, 30)
     if not config.get("allow_live_mouse", False):
         if profile == PROFILE_APEX_STYLE_PERF_TEST:

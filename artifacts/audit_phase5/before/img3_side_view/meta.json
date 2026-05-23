@@ -1,0 +1,131 @@
+{
+  "input": "/workspace/artifacts/real_apex_test/_inputs/img3_side_view.webp",
+  "frame_size": [
+    428,
+    468
+  ],
+  "fov_center": [
+    214.0,
+    234.0
+  ],
+  "fov_radius": 179,
+  "min_area_floor": 40.0,
+  "ads_hint": true,
+  "mask_pixels": {
+    "red_enemy": 16105,
+    "shape": 91121,
+    "chroma": 31337,
+    "motion": 50039,
+    "fused": 16105
+  },
+  "parts": 16,
+  "cluster_count": 3,
+  "active": true,
+  "best_score": 0.6200628222384313,
+  "selected": {
+    "bbox": [
+      278,
+      215,
+      48,
+      106
+    ],
+    "centroid": [
+      295.795,
+      246.623125
+    ],
+    "body_shape_score": 0.75795966930266,
+    "head_score": 1.0,
+    "torso_score": 0.0,
+    "limb_stack_score": 1.0,
+    "part_count": 4,
+    "red_coverage": 0.09768081761006289,
+    "fill_ratio": 0.1320754736661911,
+    "max_circularity": 0.6157572537341306,
+    "confidence": 0.6200628222384313,
+    "distance_to_center": 82.76330895853323,
+    "reject_reason": "ok"
+  },
+  "candidates": [
+    {
+      "idx": 0,
+      "accepted": true,
+      "reject_reason": "ok",
+      "bbox": [
+        130,
+        165,
+        95,
+        107
+      ],
+      "body_shape_score": 0.6614750030409926,
+      "head_score": 0.0,
+      "torso_score": 0.5979807809268946,
+      "limb_stack_score": 1.0,
+      "vertical_profile_score": 1.0,
+      "fill_ratio": 0.32203391194343567,
+      "max_circularity": 0.605569928403576,
+      "aspect": 1.1263157894736842,
+      "part_count": 10,
+      "total_area": 4110.5,
+      "distance_to_center": 16.108680889508005,
+      "aim": [
+        205.0,
+        220.64
+      ],
+      "debug_detail": "parts=10 head=0.00 torso=0.60 limb=1.00 vert=1.00 geom=0.30 align=0.15 circ=0.61 fill=0.32"
+    },
+    {
+      "idx": 1,
+      "accepted": true,
+      "reject_reason": "ok",
+      "bbox": [
+        278,
+        215,
+        48,
+        106
+      ],
+      "body_shape_score": 0.75795966930266,
+      "head_score": 1.0,
+      "torso_score": 0.0,
+      "limb_stack_score": 1.0,
+      "vertical_profile_score": 0.72,
+      "fill_ratio": 0.1320754736661911,
+      "max_circularity": 0.6157572537341306,
+      "aspect": 2.2083333333333335,
+      "part_count": 4,
+      "total_area": 370.0,
+      "distance_to_center": 82.76330895853323,
+      "aim": [
+        295.795,
+        246.623125
+      ],
+      "debug_detail": "parts=4 head=1.00 torso=0.00 limb=1.00 vert=0.72 geom=0.56 align=0.15 circ=0.62 fill=0.13"
+    },
+    {
+      "idx": 2,
+      "accepted": true,
+      "reject_reason": "ok",
+      "bbox": [
+        360,
+        195,
+        17,
+        33
+      ],
+      "body_shape_score": 0.8815546348567985,
+      "head_score": 0.45,
+      "torso_score": 0.8323394495412844,
+      "limb_stack_score": 0.62,
+      "vertical_profile_score": 1.0,
+      "fill_ratio": 0.27272728085517883,
+      "max_circularity": 0.6933224603269024,
+      "aspect": 1.9411764705882353,
+      "part_count": 2,
+      "total_area": 109.0,
+      "distance_to_center": 154.30267915434715,
+      "aim": [
+        365.45500000000004,
+        204.49237777777773
+      ],
+      "debug_detail": "parts=2 head=0.45 torso=0.83 limb=0.62 vert=1.00 geom=0.68 align=0.80 circ=0.69 fill=0.27"
+    }
+  ]
+}

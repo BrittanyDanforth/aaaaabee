@@ -10,6 +10,7 @@ from typing import Any
 from detector import Target
 from motion import (
     HumanizedMotion,
+    RecoilCompensator,
     TargetTracker,
     alpha_from_tau,
     apply_smoothing_curve,
@@ -19,9 +20,11 @@ from motion import (
 _MIN_DT = 0.001
 _MAX_DT = 0.12
 _REF_FPS = 60.0
-# Aim already smoothed in runtime — pull should correct quickly, not stack another heavy EMA.
-_TAU_VEL_PRE_SMOOTHED = 0.016
-_TAU_VEL_STANDALONE = 0.038
+# Aim already smoothed in runtime — pull should correct quickly, not stack another
+# heavy EMA. Pre-smoothed tau dropped further (16ms -> 11ms) so the cursor closes
+# the gap to the smoothed body anchor with minimal additional lag.
+_TAU_VEL_PRE_SMOOTHED = 0.011
+_TAU_VEL_STANDALONE = 0.032
 
 
 @dataclass
@@ -44,6 +47,12 @@ class PullTuning:
     aim_pre_smoothed: bool = True
     # Seconds to reach ~63% of desired pull velocity (lower = snappier mouse).
     velocity_tau_seconds: float = 0.0
+    # Recoil compensator (engagement-gated, applied only when is_firing=True).
+    recoil_compensation_enabled: bool = False
+    recoil_pull_down_pixels_per_second: float = 0.0
+    jitter_enabled: bool = False
+    jitter_amplitude_pixels: float = 0.0
+    jitter_frequency_hz: float = 6.0
 
 
 @dataclass
@@ -95,6 +104,17 @@ class PullController:
             tuning.humanize_amplitude,
             tuning.humanize_jerk_limit,
         )
+        self._recoil = self._build_recoil(tuning)
+
+    @staticmethod
+    def _build_recoil(tuning: PullTuning) -> RecoilCompensator:
+        return RecoilCompensator(
+            recoil_enabled=tuning.recoil_compensation_enabled,
+            pull_down_px_per_s=tuning.recoil_pull_down_pixels_per_second,
+            jitter_enabled=tuning.jitter_enabled,
+            jitter_amplitude_px=tuning.jitter_amplitude_pixels,
+            jitter_frequency_hz=tuning.jitter_frequency_hz,
+        )
 
     def update_tuning(self, **kwargs: Any) -> None:
         """Hot-update tuning fields without resetting pull state."""
@@ -106,6 +126,15 @@ class PullController:
                 self._tuning.humanize_amplitude,
                 self._tuning.humanize_jerk_limit,
             )
+        recoil_keys = {
+            "recoil_compensation_enabled",
+            "recoil_pull_down_pixels_per_second",
+            "jitter_enabled",
+            "jitter_amplitude_pixels",
+            "jitter_frequency_hz",
+        }
+        if recoil_keys.intersection(kwargs):
+            self._recoil = self._build_recoil(self._tuning)
 
     def reset(self) -> None:
         self._vel_x = 0.0
@@ -116,6 +145,7 @@ class PullController:
         self._last_time = None
         self._tracker.reset()
         self._humanize.reset()
+        self._recoil.reset()
 
     def _magnetism_scale(self, dist: float) -> float:
         radius = self._tuning.magnetism_radius
@@ -134,8 +164,13 @@ class PullController:
         return max(_MIN_DT, min(dt, _MAX_DT))
 
     def _max_step_for_dt(self, dt: float) -> float:
-        """Per-frame cap scaled so 30 FPS can move ~2x px/frame vs 60 FPS reference."""
-        cap = 3.6 if self._tuning.aim_pre_smoothed else 2.5
+        """
+        Per-frame cap scaled so 30 FPS can move ~2x px/frame vs 60 FPS reference.
+        Pre-smoothed cap raised so the cursor isn't bottlenecked when closing on
+        a moving target at low capture FPS (30/45) where each frame must cover
+        more distance.
+        """
+        cap = 4.5 if self._tuning.aim_pre_smoothed else 3.0
         scale = max(0.5, min(cap, dt * _REF_FPS))
         return self._tuning.max_speed * scale
 
@@ -145,8 +180,11 @@ class PullController:
         return _TAU_VEL_PRE_SMOOTHED if self._tuning.aim_pre_smoothed else _TAU_VEL_STANDALONE
 
     def _effective_strength_multiplier(self) -> float:
+        # Pre-smoothed aim has already stripped the noise; let the pull err
+        # slightly toward "firmer" so it actually closes the residual gap to the
+        # body anchor instead of crawling.
         if self._tuning.aim_pre_smoothed:
-            return 1.05
+            return 1.15
         return 1.0
 
     def _aim_point(self, target: Target, now: float, *, stale_detection: bool) -> tuple[float, float]:
@@ -200,10 +238,20 @@ class PullController:
         *,
         time_sec: float | None = None,
         stale_detection: bool = False,
+        is_firing: bool = False,
     ) -> PullResult:
         if not (math.isfinite(target.centroid_x) and math.isfinite(target.centroid_y)):
             return PullResult(0, 0, 0.0, 0.0, 0.0)
+        # Guard caller-supplied center against NaN/Inf — would otherwise poison
+        # err_x/err_y -> dist -> velocity state for the rest of the session.
+        if not (math.isfinite(center_x) and math.isfinite(center_y)):
+            return PullResult(0, 0, 0.0, 0.0, 0.0)
         now = time.perf_counter() if time_sec is None else time_sec
+        # Never persist a non-finite timestamp; would make every subsequent dt
+        # collapse to the 1/_REF_FPS fallback and prevent the smoother from ever
+        # advancing again until reset().
+        if not math.isfinite(now):
+            now = time.perf_counter()
         dt = self._frame_dt(now)
         self._last_time = now
 
@@ -226,19 +274,37 @@ class PullController:
         err_x = aim_x - center_x
         err_y = aim_y - center_y
         # Only clamp absurd errors (detector teleport); normal FOV offset must pull through.
+        # Floor was a hard 48 px regardless of FOV size, which clipped legitimate
+        # engagements when a small/distant target sat near the rim of a wide
+        # detection FOV (e.g. bbox_w=15 at err_x=130 with fov_radius=140 was
+        # being clamped to 48 — pull strength fell from "edge target" to "near
+        # centre" levels). Scale the floor with fov_radius so edge engagement
+        # is proportional regardless of bbox size; teleport-defense above the
+        # detection circle is still handled by the dist > fov_radius * 1.02 cutoff.
         if target.bbox_w > 0 and target.bbox_h > 0:
-            max_ex = max(48.0, target.bbox_w * 2.5)
-            max_ey = max(40.0, target.bbox_h * 2.2)
+            fov_floor = self._tuning.fov_radius * 0.6
+            max_ex = max(fov_floor, target.bbox_w * 2.5)
+            max_ey = max(fov_floor * 0.85, target.bbox_h * 2.2)
             if abs(err_x) > max_ex:
                 err_x = max(-max_ex, min(max_ex, err_x))
             if abs(err_y) > max_ey:
                 err_y = max(-max_ey, min(max_ey, err_y))
         dist = math.hypot(err_x, err_y)
+        if not math.isfinite(dist):
+            # NaN aim_x/aim_y already early-returned, but defend against the
+            # extremely rare case where err_* arithmetic overflows to inf.
+            self._vel_x = 0.0
+            self._vel_y = 0.0
+            self._residual_x = 0.0
+            self._residual_y = 0.0
+            self._recoil.reset()
+            return PullResult(0, 0, 0.0, 0.0, 0.0)
         if dist > self._tuning.fov_radius * 1.02:
             self._vel_x *= 0.0
             self._vel_y *= 0.0
             self._residual_x = 0.0
             self._residual_y = 0.0
+            self._recoil.reset()
             return PullResult(0, 0, 0.0, 0.0, dist)
 
         if dist <= self._tuning.deadzone:
@@ -249,8 +315,37 @@ class PullController:
             decay = alpha_from_tau(dt, self._velocity_tau() * max(0.5, decay))
             self._vel_x *= 1.0 - decay
             self._vel_y *= 1.0 - decay
+            # Recoil compensation is engagement-gated, not aim-gated: when the
+            # user is firing at a centred (in-deadzone) target the gun is still
+            # recoiling, so the pull-down / horizontal-jitter biases must still
+            # emit. They are applied as a separate additive integer delta,
+            # bypassing the velocity smoother and the residual accumulator
+            # (otherwise the bias would bleed into _vel_y and the cursor would
+            # keep drifting downward for several frames after release).
+            if is_firing and self._recoil.active:
+                bias_x, bias_y = self._recoil.compute_bias(is_firing=True, dt=dt)
+                self._residual_x += bias_x
+                self._residual_y += bias_y
+                move_x = int(self._residual_x)
+                move_y = int(self._residual_y)
+                self._residual_x -= move_x
+                self._residual_y -= move_y
+                if move_x == 0 and abs(self._residual_x) >= 0.55:
+                    move_x = 1 if self._residual_x > 0 else -1
+                    self._residual_x -= move_x
+                if move_y == 0 and abs(self._residual_y) >= 0.55:
+                    move_y = 1 if self._residual_y > 0 else -1
+                    self._residual_y -= move_y
+                return PullResult(
+                    move_x,
+                    move_y,
+                    math.hypot(move_x, move_y),
+                    0.0,
+                    dist,
+                )
             self._residual_x = 0.0
             self._residual_y = 0.0
+            self._recoil.compute_bias(is_firing=False, dt=dt)
             return PullResult(0, 0, 0.0, 0.0, dist)
 
         magnet = self._magnetism_scale(dist)
@@ -272,13 +367,15 @@ class PullController:
         norm_dist = min(1.0, dist / max(self._tuning.fov_radius, 1.0))
         smooth_weight = self._tuning.velocity_smoothing * (0.35 + 0.65 * norm_dist)
         if self._tuning.aim_pre_smoothed:
-            smooth_weight *= 0.55
+            smooth_weight *= 0.50
         tau_eff = tau * (0.5 + 0.5 * smooth_weight)
         alpha = alpha_from_tau(dt, tau_eff)
         alpha = apply_smoothing_curve(alpha, self._tuning.smoothing_curve)
         alpha = max(alpha, alpha_from_tau(dt, tau))
-        if self._tuning.aim_pre_smoothed and dist > 18.0:
-            alpha = max(alpha, alpha_from_tau(dt, 0.008) * min(1.0, dist / 50.0))
+        # Closing-distance engagement: when the cursor is meaningfully off-anchor,
+        # tighten the velocity filter so the gap closes within a couple frames.
+        if self._tuning.aim_pre_smoothed and dist > 14.0:
+            alpha = max(alpha, alpha_from_tau(dt, 0.006) * min(1.0, dist / 40.0))
 
         if not self._tuning.aim_pre_smoothed:
             vel_mag = math.hypot(self._vel_x, self._vel_y)
@@ -299,6 +396,17 @@ class PullController:
         out_x, out_y = self._vel_x, self._vel_y
         if self._tuning.humanize_enabled:
             out_x, out_y = self._humanize.apply(out_x, out_y)
+
+        # Recoil + jitter bias is added AFTER the velocity smoother (so it
+        # doesn't bleed into _vel_x/_vel_y and cause oscillation post-fire)
+        # but BEFORE integer truncation (so the fractional pixel residual
+        # accumulator drains the bias correctly across frames).
+        if is_firing and self._recoil.active:
+            bias_x, bias_y = self._recoil.compute_bias(is_firing=True, dt=dt)
+            out_x += bias_x
+            out_y += bias_y
+        elif not is_firing:
+            self._recoil.compute_bias(is_firing=False, dt=dt)
 
         move_x, move_y = self._emit_integer_delta(out_x, out_y)
         mag = math.hypot(move_x, move_y)

@@ -82,6 +82,17 @@ class RuntimeController:
                     float(merged.get("smoothing_tau_still", 0.062)),
                     float(merged.get("smoothing_tau_moving", 0.028)),
                 )
+            # R1 (audit): propagate detection-motion settings to the live
+            # detection context. Without this, toggling motion_assist or
+            # motion_threshold in the GUI required a full Stop -> Start to
+            # take effect; users could not iterate on these settings live.
+            if hasattr(live, "_detect_ctx") and live._detect_ctx is not None:
+                live._detect_ctx.motion_assist = bool(
+                    merged.get("detection_motion_assist", True)
+                )
+                live._detect_ctx.motion_threshold = int(
+                    merged.get("detection_motion_threshold", 10)
+                )
             if hasattr(live, "_pull") and live._pull is not None:
                 live._pull.update_tuning(
                     pull_strength=float(merged.get("pull_strength", 0.82)),
@@ -89,7 +100,44 @@ class RuntimeController:
                     max_speed=float(merged.get("max_pull_speed_pixels_per_frame", 22)),
                     magnetism_radius=float(merged.get("magnetism_radius_pixels", 80)),
                     velocity_smoothing=float(merged.get("velocity_smoothing", 0.5)),
+                    humanize_amplitude=float(merged.get("humanize_amplitude_pixels", 0.0)),
+                    humanize_jerk_limit=float(merged.get("humanize_jerk_limit", 2.5)),
+                    humanize_enabled=bool(merged.get("humanize_enabled", False)),
+                    recoil_compensation_enabled=bool(
+                        merged.get("recoil_compensation_enabled", False)
+                    ),
+                    recoil_pull_down_pixels_per_second=float(
+                        merged.get("recoil_pull_down_pixels_per_second", 0.0)
+                    ),
+                    jitter_enabled=bool(merged.get("jitter_enabled", False)),
+                    jitter_amplitude_pixels=float(merged.get("jitter_amplitude_pixels", 0.0)),
+                    jitter_frequency_hz=float(merged.get("jitter_frequency_hz", 6.0)),
+                    # PHASE-7 AUDIT FIX (MED9): three additional tuning
+                    # fields that were previously only applied on a full
+                    # Start/Stop cycle. magnetism_min_pull_scale and
+                    # fov_edge_min_pull_scale set the floor for how
+                    # gently the pull behaves near the screen edge /
+                    # outside magnetism radius; smoothing_curve picks
+                    # the easing function. Without hot-reload, GUI
+                    # changes to these were silent until the user
+                    # remembered to Stop->Start.
+                    magnetism_min_scale=float(
+                        merged.get("magnetism_min_pull_scale", 0.35)
+                    ),
+                    fov_edge_min_scale=float(
+                        merged.get("fov_edge_min_pull_scale", 0.85)
+                    ),
+                    smoothing_curve=str(merged.get("smoothing_curve", "linear")),
                 )
+        # PHASE-7 AUDIT FIX (MED11): hot-apply verbose_logging changes
+        # so the user can flip the toggle without restarting the
+        # runtime. Without this, ``cfg["verbose_logging"] = True``
+        # was stored but the root logger level never changed and the
+        # detector debug lines stayed silenced.
+        if "verbose_logging" in patch:
+            level = logging.DEBUG if bool(merged.get("verbose_logging", False)) else logging.INFO
+            logging.getLogger().setLevel(level)
+            logging.getLogger("aba").setLevel(level)
         return merged
 
     def set_benchmark_summary(self, text: str) -> None:

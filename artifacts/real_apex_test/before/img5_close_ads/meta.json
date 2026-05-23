@@ -1,0 +1,109 @@
+{
+  "input": "/workspace/artifacts/real_apex_test/_inputs/img5_close_ads.webp",
+  "frame_size": [
+    468,
+    427
+  ],
+  "fov_center": [
+    234.0,
+    213.5
+  ],
+  "fov_radius": 179,
+  "min_area_floor": 40.0,
+  "ads_hint": true,
+  "mask_pixels": {
+    "red_enemy": 20943,
+    "shape": 85773,
+    "chroma": 12600,
+    "motion": 44203,
+    "fused": 88839
+  },
+  "parts": 3,
+  "cluster_count": 3,
+  "active": false,
+  "best_score": 0.0,
+  "selected": null,
+  "candidates": [
+    {
+      "idx": 0,
+      "accepted": false,
+      "reject_reason": "too_small",
+      "bbox": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "body_shape_score": 0.0,
+      "head_score": 0.0,
+      "torso_score": 0.0,
+      "limb_stack_score": 0.0,
+      "vertical_profile_score": 0.0,
+      "fill_ratio": 0.0,
+      "max_circularity": 0.0,
+      "aspect": 0.0,
+      "part_count": 1,
+      "total_area": 23.0,
+      "distance_to_center": 0.0,
+      "aim": [
+        234.0,
+        213.5
+      ],
+      "debug_detail": "area=23 < min=40.0"
+    },
+    {
+      "idx": 1,
+      "accepted": false,
+      "reject_reason": "horizontal_stripe",
+      "bbox": [
+        343,
+        208,
+        28,
+        7
+      ],
+      "body_shape_score": 0.0,
+      "head_score": 0.0,
+      "torso_score": 0.0,
+      "limb_stack_score": 0.0,
+      "vertical_profile_score": 0.0,
+      "fill_ratio": 0.0,
+      "max_circularity": 0.33789659312912856,
+      "aspect": 0.25,
+      "part_count": 1,
+      "total_area": 103.5,
+      "distance_to_center": 123.036093891183,
+      "aim": [
+        357.0,
+        210.52
+      ],
+      "debug_detail": "horizontal_stripe"
+    },
+    {
+      "idx": 2,
+      "accepted": false,
+      "reject_reason": "floating_cluster",
+      "bbox": [
+        386,
+        132,
+        18,
+        27
+      ],
+      "body_shape_score": 0.0,
+      "head_score": 0.0,
+      "torso_score": 0.0,
+      "limb_stack_score": 0.0,
+      "vertical_profile_score": 1.0,
+      "fill_ratio": 0.25925925374031067,
+      "max_circularity": 0.0637079537259317,
+      "aspect": 1.5,
+      "part_count": 1,
+      "total_area": 46.0,
+      "distance_to_center": 176.27639773945916,
+      "aim": [
+        395.0,
+        141.72
+      ],
+      "debug_detail": "floating_cluster"
+    }
+  ]
+}

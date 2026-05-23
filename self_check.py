@@ -367,7 +367,10 @@ def run_self_check_detailed(config: dict[str, Any]) -> SelfCheckResult:
             config,
             log_line=_log_line,
             fov_radius=int(config.get("fov_radius_pixels", 180)),
-            min_area=float(config.get("min_target_area", 40)),
+            # R3 (audit): config key is "min_target_area_pixels" — the old
+            # bare "min_target_area" never matched, so self-check always
+            # defaulted to 40 regardless of profile.
+            min_area=float(config.get("min_target_area_pixels", 40)),
         )
         lines.extend(ok_lines)
         for sanity_line in run_blob_mask_sanity(find_best_target, config, log_line=_log_line):

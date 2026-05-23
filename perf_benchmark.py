@@ -53,7 +53,7 @@ def run_perf_benchmark(cfg: dict[str, Any], *, duration_sec: float = 2.5) -> Ben
 
     fps = effective_capture_fps(cfg)
     interval = 1.0 / max(1, fps)
-    detect_fov = effective_detection_fov_radius(cfg, ads_active=True)
+    detect_fov = effective_detection_fov_radius(cfg, ads_active=False)
     hsv = cfg["hsv_ranges"]
     min_area = float(cfg.get("min_target_area_pixels", 40))
 
@@ -72,7 +72,7 @@ def run_perf_benchmark(cfg: dict[str, Any], *, duration_sec: float = 2.5) -> Ben
             mon = monitors[mon_idx]
             center_x = mon["width"] / 2.0 + float(cfg.get("crosshair_offset_x", 0))
             center_y = mon["height"] / 2.0 + float(cfg.get("crosshair_offset_y", 0))
-            capture_fov = effective_capture_fov_radius(cfg, ads_active=True)
+            capture_fov = effective_capture_fov_radius(cfg, ads_active=False)
             cap = build_capture_region(
                 mon,
                 center_x,

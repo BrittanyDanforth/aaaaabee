@@ -1,0 +1,36 @@
+{
+  "scene": "scene_07_glow_horizon",
+  "description": "horizon-style char with thin red glow ring HSV(0,145,130)",
+  "active": true,
+  "candidates": 1,
+  "best_score": 0.43754393301491823,
+  "fov_radius": 220,
+  "fov_center": [
+    640,
+    360
+  ],
+  "red_mask_pixels": 1689,
+  "red_mask_pct": 0.0018326822916666667,
+  "target": {
+    "centroid_x": 619.9,
+    "centroid_y": 356.35474387527836,
+    "bbox": [
+      589,
+      283,
+      103,
+      188
+    ],
+    "confidence": 0.43754393301491823,
+    "body_shape_score": 0.6147403869492158,
+    "red_coverage": 0.08722371410865523,
+    "fill_ratio": 0.4893617033958435,
+    "max_circularity": 0.5298325845547891,
+    "part_count": 1,
+    "area": 12140.0,
+    "distance_to_center": 20.42787047674871
+  },
+  "tracker_output": {
+    "x": 619.9,
+    "y": 356.35474387527836
+  }
+}
