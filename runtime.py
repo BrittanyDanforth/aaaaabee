@@ -1117,6 +1117,7 @@ class AssistRuntime:
                                 target,
                                 detection_fresh=detection_fresh,
                                 center_y=frame_cy,
+                                lock_state=self._target_lock,
                             )
                         )
                     )
@@ -1258,6 +1259,7 @@ class AssistRuntime:
                             target,
                             detection_fresh=detection_fresh,
                             center_y=frame_cy,
+                            lock_state=self._target_lock,
                         )
                         overlay_motion = (
                             motion
@@ -1298,7 +1300,7 @@ class AssistRuntime:
                                 # dot does not flicker in/out when the centroid
                                 # oscillates across the FOV ring boundary.
                                 dot_alpha = float(
-                                    cfg.get("overlay_dot_smooth_alpha", 0.78)
+                                    cfg.get("overlay_dot_smooth_alpha", 0.62)
                                 )
                                 sx, sy = self._aim_tracker.smooth_overlay_point(
                                     ox, oy, alpha=dot_alpha

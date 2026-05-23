@@ -36,8 +36,9 @@ SWITCH_MIN_IOU = 0.28
 CLUTTER_REJECT_MAX_IOU = 0.18
 NEW_LOCK_CONFIRM_FRAMES = 2
 NEW_LOCK_MIN_BODY = 0.58
-NEW_LOCK_MIN_RED = 0.08
+NEW_LOCK_MIN_RED = 0.04
 NEW_LOCK_MIN_PARTS = 2
+OVERLAY_CONFIRM_FRAMES = 2
 
 
 def viewmodel_exclude_bottom(cfg: dict[str, Any]) -> float:
@@ -86,6 +87,19 @@ def _passes_new_lock_gates(target: Target, *, center_y: float) -> bool:
     return True
 
 
+def _passes_instant_refine_gates(target: Target) -> bool:
+    """Stricter than stale refine — blocks img7 gun-column instant swaps."""
+    if target.red_coverage < NEW_LOCK_MIN_RED:
+        return False
+    if target_is_background_clutter(target):
+        return False
+    if not target.has_classified_torso and target.torso_score < 0.28:
+        return False
+    if int(target.part_count) < 2:
+        return False
+    return True
+
+
 def _locked_is_environment_fp(target: Target, *, center_y: float) -> bool:
     """True when an existing lock is clearly a crate/HUD blob (not mild occlusion)."""
     if target_is_background_clutter(target):
@@ -109,8 +123,23 @@ def overlay_may_show_target(
     *,
     detection_fresh: bool,
     center_y: float,
+    lock_state: TargetLockState | None = None,
 ) -> bool:
-    """Single gate for whether the red overlay dot may render."""
+    """Single gate for whether the red overlay dot may render.
+
+  When ``lock_state`` is provided (production runtime), the dot only
+  appears after ``OVERLAY_CONFIRM_FRAMES`` consecutive frames pass the
+  humanoid gates — kills the 1-frame ADS flash onto crates/gun column.
+    """
+    if lock_state is not None:
+        if not detection_fresh or target is None:
+            lock_state.overlay_confirm_frames = 0
+            return False
+        if not _passes_new_lock_gates(target, center_y=center_y):
+            lock_state.overlay_confirm_frames = 0
+            return False
+        lock_state.overlay_confirm_frames += 1
+        return lock_state.overlay_confirm_frames >= OVERLAY_CONFIRM_FRAMES
     if not detection_fresh or target is None:
         return False
     return _passes_new_lock_gates(target, center_y=center_y)
@@ -124,6 +153,7 @@ class TargetLockState:
     switch_frames: int = 0
     new_lock_candidate: Target | None = None
     new_lock_frames: int = 0
+    overlay_confirm_frames: int = 0
 
     def reset(self) -> None:
         self.locked_target = None
@@ -132,6 +162,7 @@ class TargetLockState:
         self.switch_frames = 0
         self.new_lock_candidate = None
         self.new_lock_frames = 0
+        self.overlay_confirm_frames = 0
 
 
 def detection_sticky_context(
@@ -208,6 +239,7 @@ def apply_target_lock(
                 and not clutter_fp
                 and adopt_iou >= INSTANT_ADOPT_MIN_IOU
                 and not sky_band
+                and _passes_instant_refine_gates(new_t)
             )
             soft_refine_ok = (
                 adopt_iou >= SOFT_REFINE_MIN_IOU
