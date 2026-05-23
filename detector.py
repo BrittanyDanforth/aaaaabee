@@ -487,8 +487,23 @@ def build_detection_mask(
     # plain edge+contrast mask misses (yellow on grass, olive on grass).
     # Gate stays tight to avoid merging plates of high-contrast targets.
     if mode != DETECTION_MODE_HSV:
-        if bg_mean > 35.0 and shape_px < 15000:
-            shape_m = cv2.bitwise_or(shape_m, build_chroma_spread_mask(frame_bgr))
+        # PHASE-5 AUDIT FIX (D-MED chroma gate): the previous fixed
+        # ``shape_px < 15000`` cap closed the chroma branch on any
+        # high-resolution / multi-character real scene. Replace it
+        # with a scale-aware gate: admit chroma when shape_m has
+        # not yet saturated relative to the frame's pixel budget
+        # (< ~20 % of frame area) AND the chroma mask itself is not
+        # already saturating (≤ 25 % of frame area). This keeps the
+        # synthetic ADS frames safe (their chroma mask is 70 % of
+        # frame and gets correctly rejected) while admitting chroma
+        # on lineup frames the old 15000 cap blocked.
+        frame_px = gray.shape[0] * gray.shape[1]
+        shape_cap = max(15000, int(frame_px * 0.20))
+        if bg_mean > 35.0 and shape_px < shape_cap:
+            chroma_m_dyn = build_chroma_spread_mask(frame_bgr)
+            chroma_px_dyn = int((chroma_m_dyn > 0).sum())
+            if chroma_px_dyn <= int(frame_px * 0.25):
+                shape_m = cv2.bitwise_or(shape_m, chroma_m_dyn)
 
     # Temporal motion channel — strongest signal for moving enemies regardless of color.
     if mode != DETECTION_MODE_HSV and context is not None and context.motion_assist:
@@ -1086,7 +1101,14 @@ def _is_floating_cluster(
     """Reject sky pips / UI blobs above the play space (not grounded humanoids)."""
     foot_y = by + bh
     mid_y = by + bh * 0.5
-    if foot_y < frame_h * 0.40 and bh < frame_h * 0.28:
+    # PHASE-5 AUDIT FIX (D-MED floating_cluster): close-ADS shots can
+    # legitimately have the enemy filling the upper half of the screen
+    # with their feet at foot_y ~ 0.30 * frame_h. The previous rule
+    # ``foot_y < 0.40 * frame_h AND bh < 0.28 * frame_h`` was rejecting
+    # those bodies. Loosen the foot-floor to 0.30 — anything with feet
+    # ABOVE the top-third of the frame is genuine "sky blob"; bodies
+    # at close range still have feet at 0.30-0.50.
+    if foot_y < frame_h * 0.30 and bh < frame_h * 0.28:
         return True
     if mid_y < center_y - frame_h * 0.18 and len(parts) <= 3 and bh < 95 * scale:
         return True
@@ -1600,7 +1622,18 @@ def _hard_reject(
         return RejectReason.ARCHITECTURE_PANEL
     if bw > frame_w * 0.32 and aspect < 1.05:
         return RejectReason.ARCHITECTURE_PANEL
-    if aspect < 0.95:
+    # PHASE-5 AUDIT FIX (D-MED horizontal_stripe): a back-view crouch
+    # close-range body sits at aspect ~0.91 in img1 and only barely
+    # survives. Bypass the borderline aspect < 0.95 gate when the
+    # cluster has many parts AND a clear vertical extent — both
+    # signals that this is a humanoid silhouette, not a HUD bar /
+    # horizontal stripe.
+    scale_hs = _scale(frame_w, frame_h)
+    crouch_humanoid = (
+        len(parts) >= 8
+        and bh >= 30 * scale_hs
+    )
+    if aspect < 0.95 and not crouch_humanoid:
         return RejectReason.HORIZONTAL_STRIPE
     if bw >= bh * 1.08 and fill < 0.35 and len(parts) >= 2:
         return RejectReason.HORIZONTAL_STRIPE
@@ -1932,11 +1965,20 @@ def analyze_figure(
             thr = max(2.5, peak_d * 0.18)
             dense_row_frac = float((row_d >= thr).sum()) / float(bh)
     bbox_aspect = bh / max(bw, 1)
+    # PHASE-5 AUDIT FIX (D-MED tighten): the previous gate required
+    # >= 5 parts which skipped img2's body+HUD merger at parts=4 and
+    # left a 190 px bbox with only ~13 % red coverage. Lower the part
+    # floor to >= 3, and also bypass the part-count gate when the
+    # cluster shows clear sparsity (dense_row_frac < 0.30) — that
+    # alone is a strong tighten signal regardless of part count.
     cluster_is_merged_for_tighten = (
-        len(parts) >= 5
-        and (
-            dense_row_frac < 0.45  # sparse rows → body + floating HUD text
-            or bbox_aspect < 1.65  # wide-ish → body + horizontal HUD merge
+        dense_row_frac < 0.30
+        or (
+            len(parts) >= 3
+            and (
+                dense_row_frac < 0.45  # sparse rows → body + floating HUD text
+                or bbox_aspect < 1.65  # wide-ish → body + horizontal HUD merge
+            )
         )
     )
     if cluster_is_merged_for_tighten:
