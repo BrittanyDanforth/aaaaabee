@@ -1,0 +1,32 @@
+{
+  "sample_idx": 13,
+  "frame_path": "/workspace/artifacts/real_apex_test/_gif_frames/frame_065.png",
+  "frame_h": 450,
+  "frame_w": 800,
+  "fov_radius": 204,
+  "active": false,
+  "is_stale": true,
+  "raw_detection_target": null,
+  "effective_target": {
+    "bbox_x": 202,
+    "bbox_y": 132,
+    "bbox_w": 265,
+    "bbox_h": 295,
+    "centroid_x": 395.0,
+    "centroid_y": 231.0,
+    "body_shape_score": 0.9941536009927047,
+    "confidence": 0.8863107036187905,
+    "red_coverage": 0.10514870482890949
+  },
+  "selected_y": 132.0,
+  "selected_h": 295.0,
+  "selected_y_top_frac": 0.29333333333333333,
+  "body_shape": 0.9941536009927047,
+  "motion_x": 394.9910915633906,
+  "motion_y": 230.99618209859597,
+  "target_lost_frames": 4,
+  "instant_adopted": false,
+  "switch_adopted": false,
+  "candidate_count": 9,
+  "accepted_count": 0
+}
