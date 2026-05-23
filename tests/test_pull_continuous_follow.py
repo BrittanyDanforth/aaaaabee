@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import unittest
 
 from detector import Target
@@ -65,7 +64,7 @@ class PullContinuousFollowTests(unittest.TestCase):
             )
         )
 
-    def test_deadband_pull_responsive_for_micro_track(self) -> None:
+    def test_deadband_still_moves_pull_anchor(self) -> None:
         tr = TargetTracker()
         tr.configure_smoothing_tau(0.05, 0.02)
         t = 0.0
@@ -78,12 +77,12 @@ class PullContinuousFollowTests(unittest.TestCase):
             642.0, 421.0, t, bbox_x=612, bbox_y=351, bbox_w=60, bbox_h=140,
             aim_is_body_anchor=True,
         )
-        pull_drift = math.hypot(m1.x - m0.x, m1.y - m0.y)
-        ox0, oy0 = m0.overlay_xy()
-        ox1, oy1 = m1.overlay_xy()
-        overlay_drift = math.hypot(ox1 - ox0, oy1 - oy0)
-        self.assertGreater(pull_drift, 0.05, "pull anchor moves on micro-track")
-        self.assertLess(overlay_drift, 0.5, "overlay anchor stays stable in deadband")
+        pull_drift = ((m1.x - m0.x) ** 2 + (m1.y - m0.y) ** 2) ** 0.5
+        ov0 = m0.overlay_xy()
+        ov1 = m1.overlay_xy()
+        overlay_drift = ((ov1[0] - ov0[0]) ** 2 + (ov1[1] - ov0[1]) ** 2) ** 0.5
+        self.assertGreater(pull_drift, 0.05, "pull anchor must move during micro-track in deadband")
+        self.assertLess(overlay_drift, 0.5, "overlay anchor should stay stable in deadband")
 
     def test_steady_track_produces_pull_over_frames(self) -> None:
         ctrl = PullController(_tuning())

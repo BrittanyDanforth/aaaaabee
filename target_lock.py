@@ -344,21 +344,6 @@ def apply_target_lock(
                 and drift < 28
                 and drift < fov_lim
             )
-            # Strafe: allow more than soft_refine 28 px, but cap drift and keep IoU
-            # >= 0.26. No IoU 0.20 path — that adopted sky/HUD fragments (upward dot).
-            strafe_drift_lim = max(36.0, min(fov_lim, locked.bbox_w * 2.0))
-            safe_track_ok = (
-                adopt_iou >= SOFT_REFINE_MIN_IOU
-                and bs_ratio_ok
-                and new_t.body_shape_score >= 0.55
-                and not upward_fragment
-                and not weak_red_adopt
-                and not clutter_fp
-                and not sky_band
-                and not aim_jump_up
-                and drift < strafe_drift_lim
-                and drift < fov_lim
-            )
             high_overlap_refine = (
                 adopt_iou >= HIGH_OVERLAP_REFINE_IOU
                 and instant_adopt_ok
@@ -380,11 +365,9 @@ def apply_target_lock(
                 state.switch_frames = 0
                 # Same guards as instant/soft refine — weak IoU-only adopt caused
                 # upward head/HUD fragments to steal the lock on moving enemies.
-                if soft_refine_ok or safe_track_ok:
+                if soft_refine_ok:
                     state.locked_target = new_t
                     return result, False
-                # Non-overlapping FP only — never freeze geometry while detector
-                # still sees the same body (sticky pool IoU >= 0.20).
                 return (
                     DetectionResult(
                         locked,

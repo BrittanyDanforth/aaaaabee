@@ -395,13 +395,11 @@ class PullController:
 
         deadzone_scale = 1.0
         if in_deadzone and self._tuning.aim_pre_smoothed:
-            # On-center: no aim pull (recoil-only path still works). From ~1 px
-            # upward inside the deadzone ring, keep strong micro-assist (≥55%).
-            if dist < 0.85:
+            if dist <= 0.5:
                 deadzone_scale = 0.0
             else:
-                ramp = (dist - 0.85) / max(dead - 0.85, 0.5)
-                deadzone_scale = max(0.55, min(1.0, ramp))
+                ramp = (dist - 0.5) / max(dead - 0.5, 1.0)
+                deadzone_scale = max(0.20, min(1.0, ramp))
             if deadzone_scale <= 0.0 and is_firing and self._recoil.active:
                 return self._pull_result_from_bias_only(
                     is_firing=True, dt=dt, err_x=err_x, dist=dist

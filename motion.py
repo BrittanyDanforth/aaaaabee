@@ -53,34 +53,6 @@ def apply_smoothing_curve(t: float, curve: str) -> float:
     return t
 
 
-def clamp_aim_to_display_fov(
-    x: float,
-    y: float,
-    center_x: float,
-    center_y: float,
-    detect_fov: float,
-    display_fov: float,
-    *,
-    scale: float = 0.96,
-) -> tuple[float, float]:
-    """Frame-space clamp shared by overlay dot and pull (inside visible FOV ring)."""
-    if not (
-        math.isfinite(x)
-        and math.isfinite(y)
-        and math.isfinite(center_x)
-        and math.isfinite(center_y)
-    ):
-        return x, y
-    fov_limit = max(1.0, min(float(detect_fov), float(display_fov))) * scale
-    dx = x - center_x
-    dy = y - center_y
-    dist = math.hypot(dx, dy)
-    if dist <= fov_limit or dist <= 0.0:
-        return x, y
-    s = fov_limit / dist
-    return center_x + dx * s, center_y + dy * s
-
-
 def fov_distance_scale(dist: float, fov_radius: float, edge_min_scale: float) -> float:
     if not math.isfinite(dist) or not math.isfinite(fov_radius) or fov_radius <= 0.0:
         return 1.0
@@ -91,7 +63,7 @@ def fov_distance_scale(dist: float, fov_radius: float, edge_min_scale: float) ->
 
 @dataclass
 class TargetMotion:
-    """Pull uses ``x``/``y``; overlay dot uses ``overlay_xy()`` (smoother visual)."""
+    """Pull assist uses ``x``/``y``; overlay dot uses ``overlay_xy()`` when set."""
 
     x: float
     y: float
@@ -474,13 +446,7 @@ class TargetTracker:
                 # deadband flag avoids pinning the smoother on a fresh
                 # observation chain where smoothed velocity is briefly
                 # zero by construction.
-                meas_step = math.hypot(
-                    x - self._last_meas_x, y - self._last_meas_y
-                )
-                lateral_rate = meas_step / max(_MIN_DT, dt_cap)
-                # Strafing targets need the generous step cap even when the
-                # smoother is in the stationary deadband (velocity briefly low).
-                if self._in_deadband and lateral_rate < 22.0 and meas_step < 3.5:
+                if self._in_deadband:
                     x, y = self._cap_measurement_step_locked_slow(
                         x, y, self._last_meas_x, self._last_meas_y, dt_cap
                     )
@@ -621,17 +587,12 @@ class TargetTracker:
         # stays frozen, real movement triggers a clean exit.
         meas_drift = math.hypot(x - self._smooth_x, y - self._smooth_y)
         inst_speed = 0.0
-        inst_vx = 0.0
         if self._last_meas_x is not None and self._last_meas_y is not None:
-            inst_vx = (x - self._last_meas_x) / max(_MIN_DT, dt)
+            ix = (x - self._last_meas_x) / max(_MIN_DT, dt)
             iy = (y - self._last_meas_y) / max(_MIN_DT, dt)
-            inst_speed = math.hypot(inst_vx, iy)
+            inst_speed = math.hypot(ix, iy)
         if self._in_deadband:
-            exits_now = (
-                (meas_drift > 5.0 and inst_speed > 30.0)
-                or (meas_drift > 2.5 and inst_speed > 50.0)
-                or (abs(inst_vx) > 38.0 and meas_drift > 2.8)
-            )
+            exits_now = meas_drift > 5.0 and inst_speed > 30.0
             if exits_now:
                 self._deadband_exit_frames += 1
                 if self._deadband_exit_frames >= 2:
@@ -664,7 +625,7 @@ class TargetTracker:
                 ny = self._smooth_y
             self._smooth_x, self._smooth_y = nx, ny
             if meas_drift > 0.4:
-                track_alpha = max(alpha * 0.62, alpha_from_tau(dt, 0.022))
+                track_alpha = max(alpha * 0.55, alpha_from_tau(dt, 0.028))
                 self._pull_x = self._pull_x + track_alpha * (x - self._pull_x)
                 self._pull_y = self._pull_y + track_alpha * (y - self._pull_y)
 
