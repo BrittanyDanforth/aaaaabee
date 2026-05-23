@@ -198,7 +198,11 @@ def overlay_may_show_target(
             lock_state._overlay_last_cy = None
             return False
         last_cy = getattr(lock_state, "_overlay_last_cy", None)
-        if last_cy is not None and target.centroid_y < float(last_cy) - 22.0:
+        if (
+            last_cy is not None
+            and target.centroid_y < float(last_cy) - 22.0
+            and bbox_mid_in_sky_band(target.bbox_y, target.bbox_h, center_y)
+        ):
             lock_state.overlay_confirm_frames = 0
         lock_state._overlay_last_cy = float(target.centroid_y)
         lock_state.overlay_confirm_frames += 1

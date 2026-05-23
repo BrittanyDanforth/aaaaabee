@@ -686,6 +686,7 @@ class AssistRuntime:
             self._ads_hold_frames = 0
             self._detect_ctx._validated_bbox = None
             self._detect_ctx._validated_credit = 0
+            self._aim_tracker.reset_overlay_smoothing()
             with self._lock:
                 self._target_lock.overlay_confirm_frames = 0
         if self._prev_ads_for_assist and not ads_for_assist:
@@ -1046,6 +1047,9 @@ class AssistRuntime:
                             self._pull.reset()
                         self._aim_tracker.reset()
                         self._detect_ctx.reset()
+                        if self._overlay is not None:
+                            self._aim_tracker.reset_overlay_smoothing()
+                            self._overlay.set_state(False, None)
                         sleep_time = frame_interval - (time.perf_counter() - t0)
                         self._sleep_interruptible(sleep_time)
                         continue
@@ -1286,14 +1290,16 @@ class AssistRuntime:
                             if show_overlay_dot
                             else None
                         )
+                        if overlay_motion is not None:
+                            ov_x, ov_y = overlay_motion.overlay_xy()
+                        else:
+                            ov_x, ov_y = float("nan"), float("nan")
                         if (
                             overlay_motion is not None
-                            and math.isfinite(overlay_motion.x)
-                            and math.isfinite(overlay_motion.y)
+                            and math.isfinite(ov_x)
+                            and math.isfinite(ov_y)
                         ):
-                            ox, oy = to_monitor_coords(
-                                overlay_motion.x, overlay_motion.y, cap_region
-                            )
+                            ox, oy = to_monitor_coords(ov_x, ov_y, cap_region)
                             fov_cx_mon = float(center_x)
                             fov_cy_mon = float(center_y)
                             odx = ox - fov_cx_mon
@@ -1337,7 +1343,8 @@ class AssistRuntime:
                                     sx = fov_cx_mon + sodx * scale_r
                                     sy = fov_cy_mon + sody * scale_r
                                 overlay_pt = (sx, sy)
-                        else:
+                        elif target is None or not detection_fresh:
+                            # Keep EMA warm during 2-frame confirm; clear only on real loss.
                             self._aim_tracker.reset_overlay_smoothing()
                         self._overlay.set_state(ads_for_assist, overlay_pt)
 

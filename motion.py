@@ -63,10 +63,19 @@ def fov_distance_scale(dist: float, fov_radius: float, edge_min_scale: float) ->
 
 @dataclass
 class TargetMotion:
+    """Pull assist uses ``x``/``y``; overlay dot uses ``overlay_xy()`` when set."""
+
     x: float
     y: float
     vx: float = 0.0
     vy: float = 0.0
+    overlay_x: float | None = None
+    overlay_y: float | None = None
+
+    def overlay_xy(self) -> tuple[float, float]:
+        if self.overlay_x is not None and self.overlay_y is not None:
+            return self.overlay_x, self.overlay_y
+        return self.x, self.y
 
     def predict(
         self,
@@ -105,6 +114,8 @@ class TargetTracker:
         self._last_time: float | None = None
         self._smooth_x: float | None = None
         self._smooth_y: float | None = None
+        self._pull_x: float | None = None
+        self._pull_y: float | None = None
         self._last_meas_x: float | None = None
         self._last_meas_y: float | None = None
         self._vx: float = 0.0
@@ -225,6 +236,8 @@ class TargetTracker:
         self._last_time = None
         self._smooth_x = None
         self._smooth_y = None
+        self._pull_x = None
+        self._pull_y = None
         self._last_meas_x = None
         self._last_meas_y = None
         self._vx = 0.0
@@ -261,7 +274,7 @@ class TargetTracker:
         """
         self._last = None
         self._last_time = None
-        # Keep: _smooth_x/y, _last_meas_x/y
+        # Keep: _smooth_x/y, _pull_x/y, _last_meas_x/y
         self._vx = 0.0
         self._vy = 0.0
         self._body_bbox = None
@@ -453,6 +466,59 @@ class TargetTracker:
     def last_pre_predict_point(self) -> tuple[float, float] | None:
         return self._last_pre_predict
 
+    def _clamp_aim_output(self, x: float, y: float) -> tuple[float, float]:
+        if self._body_bbox is not None:
+            bx, by, bw, bh = self._body_bbox
+            x, y = self._clamp_to_body_bbox(x, y, bx, by, bw, bh)
+        if self._fov_radius is not None and self._fov_cx is not None and self._fov_cy is not None:
+            x, y = self._clamp_to_fov(x, y)
+            if self._body_bbox is not None:
+                bx, by, bw, bh = self._body_bbox
+                x, y = self._clamp_to_body_bbox(x, y, bx, by, bw, bh)
+        return x, y
+
+    def _finalize_pull_point(
+        self,
+        pre_x: float,
+        pre_y: float,
+        dt: float,
+        in_deadband: bool,
+    ) -> tuple[float, float]:
+        use_inline_lead = (
+            self._prediction_enabled
+            and not (self._aim_is_body_anchor and self._body_bbox is not None)
+            and not in_deadband
+        )
+        if use_inline_lead:
+            lead_dt = min(dt, _MAX_PRED_LEAD_S)
+            pred_x = pre_x + self._vx * lead_dt
+            pred_y = pre_y + self._vy * lead_dt
+            if pred_y < pre_y:
+                pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
+            if self._body_bbox is not None:
+                bx, by, bw, bh = self._body_bbox
+                mx = bw * _BODY_X_MARGIN_FRAC
+                pred_x = max(bx + mx, min(bx + bw - mx, pred_x))
+            pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
+            out_x = pre_x + pa * (pred_x - pre_x)
+            out_y = pre_y + pa * (pred_y - pre_y)
+        else:
+            out_x = pre_x
+            out_y = pre_y
+
+        motion = TargetMotion(out_x, out_y, self._vx, self._vy)
+        use_second_predict = (
+            self._prediction_enabled
+            and self._prediction_lead_s > 0.0
+            and self._prediction_max_px > 0.0
+            and not (self._aim_is_body_anchor and self._body_bbox is not None)
+            and not in_deadband
+        )
+        if use_second_predict:
+            px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
+            out_x, out_y = px, py
+        return self._clamp_aim_output(out_x, out_y)
+
     def observe(self, x: float, y: float, time_sec: float) -> TargetMotion:
         if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(time_sec)):
             if self._last is not None:
@@ -467,10 +533,13 @@ class TargetTracker:
         if self._smooth_x is None or self._smooth_y is None:
             self._smooth_x = x
             self._smooth_y = y
+            self._pull_x = x
+            self._pull_y = y
             self._last_meas_x = x
             self._last_meas_y = y
             self._last_time = time_sec
-            self._last = TargetMotion(x, y, 0.0, 0.0)
+            ox, oy = self._clamp_aim_output(x, y)
+            self._last = TargetMotion(x, y, 0.0, 0.0, overlay_x=ox, overlay_y=oy)
             return self._last
 
         if self._last_time is None:
@@ -536,77 +605,38 @@ class TargetTracker:
                 self._in_deadband = True
                 self._deadband_exit_frames = 0
         in_deadband = self._in_deadband
+        if self._pull_x is None or self._pull_y is None:
+            self._pull_x = self._smooth_x
+            self._pull_y = self._smooth_y
         if not in_deadband:
             self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
             self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
-        elif self._aim_is_body_anchor and self._body_bbox is not None:
-            # Pull must follow steady tracking: deadband freezes overlay jitter
-            # but the assist anchor still creeps toward the live measurement.
-            if meas_drift > 0.4:
-                track_alpha = max(alpha * 0.55, alpha_from_tau(dt, 0.028))
-                self._smooth_x = self._smooth_x + track_alpha * (x - self._smooth_x)
-                self._smooth_y = self._smooth_y + track_alpha * (y - self._smooth_y)
+            self._pull_x = self._pull_x + alpha * (x - self._pull_x)
+            self._pull_y = self._pull_y + alpha * (y - self._pull_y)
+        elif meas_drift > 0.4:
+            # Overlay anchor stays frozen in deadband; pull anchor creeps for assist.
+            track_alpha = max(alpha * 0.55, alpha_from_tau(dt, 0.028))
+            self._pull_x = self._pull_x + track_alpha * (x - self._pull_x)
+            self._pull_y = self._pull_y + track_alpha * (y - self._pull_y)
 
-        pre_x, pre_y = self._smooth_x, self._smooth_y
-        self._last_pre_predict = (pre_x, pre_y)
+        pre_pull_x, pre_pull_y = self._pull_x, self._pull_y
+        self._last_pre_predict = (pre_pull_x, pre_pull_y)
 
-        use_inline_lead = (
-            self._prediction_enabled
-            and not (self._aim_is_body_anchor and self._body_bbox is not None)
-            and not in_deadband
-        )
-        if use_inline_lead:
-            lead_dt = min(dt, _MAX_PRED_LEAD_S)
-            pred_x = pre_x + self._vx * lead_dt
-            pred_y = pre_y + self._vy * lead_dt
-            if pred_y < pre_y:
-                pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
-            if self._body_bbox is not None:
-                bx, by, bw, bh = self._body_bbox
-                mx = bw * _BODY_X_MARGIN_FRAC
-                pred_x = max(bx + mx, min(bx + bw - mx, pred_x))
-            pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
-            out_x = pre_x + pa * (pred_x - pre_x)
-            out_y = pre_y + pa * (pred_y - pre_y)
-        else:
-            out_x = pre_x
-            out_y = pre_y
+        pull_x, pull_y = self._finalize_pull_point(pre_pull_x, pre_pull_y, dt, in_deadband)
+        overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
 
         self._last_meas_x = x
         self._last_meas_y = y
         self._last_time = time_sec
-        motion = TargetMotion(out_x, out_y, self._vx, self._vy)
-
-        use_second_predict = (
-            self._prediction_enabled
-            and self._prediction_lead_s > 0.0
-            and self._prediction_max_px > 0.0
-            and not (self._aim_is_body_anchor and self._body_bbox is not None)
-            and not in_deadband
+        self._last_pred_offset = (pull_x - pre_pull_x, pull_y - pre_pull_y)
+        self._last = TargetMotion(
+            pull_x,
+            pull_y,
+            self._vx,
+            self._vy,
+            overlay_x=overlay_x,
+            overlay_y=overlay_y,
         )
-        if use_second_predict:
-            px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
-            motion = TargetMotion(px, py, self._vx, self._vy)
-
-        if self._body_bbox is not None:
-            bx, by, bw, bh = self._body_bbox
-            clamped_x, clamped_y = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
-            motion = TargetMotion(clamped_x, clamped_y, motion.vx, motion.vy)
-
-        if self._fov_radius is not None and self._fov_cx is not None and self._fov_cy is not None:
-            fx, fy = self._clamp_to_fov(motion.x, motion.y)
-            motion = TargetMotion(fx, fy, motion.vx, motion.vy)
-            # M4 (audit): re-apply body-bbox clamp AFTER the FOV clamp so
-            # a radial FOV pull cannot push Y above the chest band. Order
-            # used to be body -> FOV; FOV could drag Y up onto the head
-            # plate or even out of the bbox at extreme edge positions.
-            if self._body_bbox is not None:
-                bx, by, bw, bh = self._body_bbox
-                cbx, cby = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
-                motion = TargetMotion(cbx, cby, motion.vx, motion.vy)
-
-        self._last_pred_offset = (motion.x - pre_x, motion.y - pre_y)
-        self._last = motion
         return self._last
 
 
