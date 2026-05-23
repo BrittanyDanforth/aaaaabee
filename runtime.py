@@ -693,20 +693,39 @@ class AssistRuntime:
                         new_t.centroid_y - self._locked_target.centroid_y,
                     )
                     fov_lim = float(cfg.get("_runtime_detect_fov", 200) or 200) * 0.55
-                    # PHASE-6 AUDIT FIX (D-CRIT4 instant-adopt guard):
+                    # PHASE-6 AUDIT FIX (D-CRIT4 instant-adopt guard) +
+                    # PHASE-7 AUDIT FIX (CRIT1 hardening):
                     # the drift<25 branch used to overwrite the lock
                     # whenever a candidate appeared within 25 px of the
-                    # last lock — no body-score check. A slightly
-                    # drifting weak FP (cloud edge, HUD pixel near a
-                    # real body) could instant-adopt against a strong
-                    # locked target. Require the new candidate to have
-                    # at least 85% of the locked target's body-shape
-                    # score before allowing the overwrite, otherwise
-                    # KEEP the existing lock and continue.
-                    instant_adopt_ok = (
+                    # last lock. The Phase-6 fix added a multiplicative
+                    # ratio check (>=0.85 of the locked body score),
+                    # but that floor compounds across successive
+                    # replacements (0.99→0.84→0.71→0.60→0.51→0.43 after
+                    # five rounds) so the lock could slowly migrate to
+                    # a fragmented head-only candidate. Phase-7 adds
+                    # TWO hard floors:
+                    #
+                    #  (a) ABSOLUTE body_shape_score floor >= 0.55 —
+                    #      kills the ratchet's tail.
+                    #  (b) UPWARD-BIAS guard — refuse to instant-adopt
+                    #      when the candidate's bbox top is at least
+                    #      15% of the locked bbox's height higher than
+                    #      the locked top AND the candidate is shorter.
+                    #      This is the signature of a head-only fragment
+                    #      replacing a torso bbox (which would then
+                    #      drag the chest-band clamp upward into sky).
+                    bs_ratio_ok = (
                         new_t.body_shape_score
                         >= self._locked_target.body_shape_score * 0.85
                     )
+                    bs_abs_ok = new_t.body_shape_score >= 0.55
+                    upward_fragment = (
+                        new_t.bbox_y
+                        < self._locked_target.bbox_y
+                        - self._locked_target.bbox_h * 0.15
+                        and new_t.bbox_h < self._locked_target.bbox_h
+                    )
+                    instant_adopt_ok = bs_ratio_ok and bs_abs_ok and not upward_fragment
                     if drift < 25 and drift < fov_lim and instant_adopt_ok:
                         self._locked_target = new_t
                         self._target_lost_frames = 0
