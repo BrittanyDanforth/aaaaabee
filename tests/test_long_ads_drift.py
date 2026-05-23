@@ -65,7 +65,36 @@ class LongAdsDriftTests(unittest.TestCase):
         self.assertIs(effective.target, locked)
         self.assertEqual(state.locked_target, locked)
 
-    def test_safe_track_allows_strafe_past_soft_drift_cap(self) -> None:
+    def test_low_red_overlap_does_not_steal_lock(self) -> None:
+        state = TargetLockState()
+        cfg = _cfg()
+        cfg["_runtime_detect_fov"] = 200
+        locked = _body(centroid_x=640.0, centroid_y=420.0, red_coverage=0.12)
+        state.locked_target = locked
+        state.target_lost_frames = 0
+        clutter = _body(
+            centroid_x=655.0,
+            centroid_y=415.0,
+            bbox_x=630,
+            bbox_y=345,
+            bbox_w=55,
+            bbox_h=130,
+            red_coverage=0.02,
+            body_shape_score=0.80,
+        )
+        effective, _ = apply_target_lock(
+            state,
+            DetectionResult(clutter, 1, clutter.confidence),
+            center_y=540.0,
+            cfg=cfg,
+            fov_cx=640.0,
+            fov_cy=540.0,
+            frame_size=(1280, 1080),
+        )
+        self.assertIs(effective.target, locked)
+        self.assertEqual(state.locked_target.centroid_x, locked.centroid_x)
+
+    def test_identity_track_allows_same_enemy_strafe(self) -> None:
         state = TargetLockState()
         cfg = _cfg()
         cfg["_runtime_detect_fov"] = 200

@@ -14,10 +14,10 @@ class PullOverlayGateTests(unittest.TestCase):
         self.assertIn("show_for_pull = overlay_may_show_target", text)
         self.assertIn("and show_for_pull", text)
 
-    def test_runtime_ads_validation_cleared_periodically(self) -> None:
+    def test_runtime_ads_validation_decays_not_nukes(self) -> None:
         text = RUNTIME.read_text(encoding="utf-8")
-        self.assertIn("_ads_hold_frames % 60 == 0", text)
-        self.assertIn("reset_overlay_smoothing", text)
+        self.assertIn("note_motion_validated", text)
+        self.assertNotIn("_ads_hold_frames % 60 == 0", text)
 
 
 if __name__ == "__main__":

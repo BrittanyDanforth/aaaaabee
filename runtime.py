@@ -694,12 +694,22 @@ class AssistRuntime:
             self._ads_hold_frames = 0
         elif ads_for_assist:
             self._ads_hold_frames += 1
-            # Long ADS: clear motion-validation memory ~every 1s so ranking cannot
-            # drift onto sky/HUD after minutes of held RMB (img7-class FPs).
-            if self._ads_hold_frames == 1 or self._ads_hold_frames % 60 == 0:
-                self._detect_ctx._validated_bbox = None
-                self._detect_ctx._validated_credit = 0
-                self._aim_tracker.reset_overlay_smoothing()
+            # Long ADS: decay motion memory slowly — full clears every 60 frames
+            # caused find_best_target to re-pick random clutter for ~1 frame.
+            if self._ads_hold_frames in (90, 180, 270, 360):
+                self._detect_ctx._validated_credit = max(
+                    0, int(self._detect_ctx._validated_credit) - 4
+                )
+            locked = self._locked_target
+            if (
+                self._ads_hold_frames in (90, 180, 270)
+                and locked is not None
+                and float(locked.red_coverage) >= 0.04
+                and float(locked.body_shape_score) >= 0.55
+            ):
+                self._detect_ctx.note_motion_validated(
+                    locked.bbox_x, locked.bbox_y, locked.bbox_w, locked.bbox_h
+                )
         self._prev_ads_for_assist = ads_for_assist
 
     def _start_overlay(

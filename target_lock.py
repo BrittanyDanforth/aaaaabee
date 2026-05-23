@@ -323,6 +323,10 @@ def apply_target_lock(
             clutter_fp = (
                 target_is_background_clutter(new_t) or new_is_env or upward_sky_steal
             )
+            red_track_ok = new_t.red_coverage >= max(
+                NEW_LOCK_MIN_RED,
+                float(locked.red_coverage) * 0.55 if locked is not None else NEW_LOCK_MIN_RED,
+            )
             instant_adopt_ok = (
                 bs_ratio_ok
                 and bs_abs_ok
@@ -332,11 +336,13 @@ def apply_target_lock(
                 and adopt_iou >= INSTANT_ADOPT_MIN_IOU
                 and not sky_band
                 and _passes_instant_refine_gates(new_t)
+                and red_track_ok
             )
             soft_refine_ok = (
                 adopt_iou >= SOFT_REFINE_MIN_IOU
                 and bs_ratio_ok
                 and new_t.body_shape_score >= 0.55
+                and red_track_ok
                 and not upward_fragment
                 and not weak_red_adopt
                 and not clutter_fp
@@ -344,17 +350,19 @@ def apply_target_lock(
                 and drift < 28
                 and drift < fov_lim
             )
-            strafe_drift_lim = max(36.0, min(fov_lim, float(locked.bbox_w) * 2.0))
-            safe_track_ok = (
-                adopt_iou >= SOFT_REFINE_MIN_IOU
+            # Same-enemy geometry refresh for strafe — NOT loose IoU+drift adopt
+            # (that let random overlapping clutter steal the lock after ~1s ADS).
+            identity_track_ok = (
+                _same_lock_identity(locked, new_t)
+                and adopt_iou >= SOFT_REFINE_MIN_IOU
+                and _passes_instant_refine_gates(new_t)
                 and bs_ratio_ok
                 and new_t.body_shape_score >= 0.55
+                and red_track_ok
                 and not upward_fragment
                 and not weak_red_adopt
                 and not clutter_fp
                 and not sky_band
-                and drift < strafe_drift_lim
-                and drift < fov_lim
             )
             high_overlap_refine = (
                 adopt_iou >= HIGH_OVERLAP_REFINE_IOU
@@ -377,7 +385,7 @@ def apply_target_lock(
                 state.switch_frames = 0
                 # Same guards as instant/soft refine — weak IoU-only adopt caused
                 # upward head/HUD fragments to steal the lock on moving enemies.
-                if soft_refine_ok or safe_track_ok:
+                if soft_refine_ok or identity_track_ok:
                     state.locked_target = new_t
                     return result, False
                 return (
