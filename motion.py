@@ -222,6 +222,36 @@ class TargetTracker:
         self._last_pred_offset = (0.0, 0.0)
         self._last_pre_predict = None
         self._overlay_smooth = None
+        # M5 deadband memory must also reset when the lock is fully torn down.
+        self._in_deadband = False
+        self._deadband_exit_frames = 0
+
+    def soft_reset(self) -> None:
+        """
+        PHASE-6 AUDIT FIX (D-HIGH5): partial reset that PRESERVES the
+        last smoothed position and last measurement so the next aim
+        sample is step-capped relative to where the dot already is.
+
+        ``reset()`` clears ``_smooth_x/y`` and ``_last_meas_x/y`` to
+        None, which means the next observation has no anchor — the
+        step-cap branch in ``update()`` is bypassed and the dot
+        teleports to the new measurement in a single frame.  When the
+        runtime drops a target after the grace window, calling
+        ``soft_reset()`` instead keeps the dot at the last known
+        position; the velocity and motion-validated memory are
+        cleared so the smoother does not fight a stale prediction,
+        but the geometric anchor survives.
+        """
+        self._last = None
+        self._last_time = None
+        # Keep: _smooth_x/y, _last_meas_x/y
+        self._vx = 0.0
+        self._vy = 0.0
+        self._body_bbox = None
+        self._last_pred_offset = (0.0, 0.0)
+        self._last_pre_predict = None
+        self._in_deadband = False
+        self._deadband_exit_frames = 0
 
     @staticmethod
     def _clamp_to_body_bbox(

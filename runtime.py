@@ -743,7 +743,16 @@ class AssistRuntime:
                 self._locked_target = None
                 if self._pull is not None:
                     self._pull.reset()
-                self._aim_tracker.reset()
+                # PHASE-6 AUDIT FIX (D-HIGH5): switch to soft_reset so
+                # the dot stays at the last known position instead of
+                # teleporting. The old reset() cleared _last_meas_x/y
+                # which meant the next observation had no step cap —
+                # any new target was reached in one frame, producing
+                # the visible "dot jumps across the screen" snap.
+                # soft_reset() keeps _smooth_x/y and _last_meas_x/y
+                # but clears velocity & deadband memory so the next
+                # observation is bounded by the per-frame step cap.
+                self._aim_tracker.soft_reset()
             elif self._locked_target is not None:
                 return DetectionResult(
                     self._locked_target,
