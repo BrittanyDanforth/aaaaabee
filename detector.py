@@ -1066,12 +1066,20 @@ def _body_structure_reject(
     has_head = any(p.role == PartRole.HEAD for p in parts) or head_s >= 0.38
     has_torso = any(p.role == PartRole.TORSO for p in parts) or torso_s >= 0.30
     has_limbs = limb_s >= 0.40 or len(parts) >= 3
-    # Single tall narrow blob (Apex character whose silhouette fills uniformly).
+    # PHASE-6 AUDIT FIX (D-CRIT3): single tall narrow uniform-color
+    # silhouettes are easily faked by buildings/antennas/cloud columns/
+    # the player's own scope+gun assembly. Reject the single-part path
+    # entirely here — analyze_figure's silhouette acceptance now also
+    # requires torso_s >= 0.40 OR red_coverage > 0.15 OR motion_overlap
+    # > 0.20, so this _body_structure_reject silhouette branch is the
+    # last line of defence and must never accept a single-part column
+    # without independent confirmation.
     silhouette_ok = (
         len(parts) == 1
         and aspect >= 1.55
         and bw < frame_w * 0.12
         and bh >= 70 * scale
+        and torso_s >= 0.40
     )
 
     if not has_torso and torso_s < 0.24:
@@ -1081,8 +1089,33 @@ def _body_structure_reject(
     stack_ok = (
         (has_head and has_torso)
         or (has_torso and has_limbs)
-        or (len(parts) >= 3 and limb_s >= 0.42 and v_score >= 0.28 and aspect >= 1.35)
-        or (aspect >= 1.55 and bh >= 65 * scale and v_score >= 0.30 and align_s >= 0.45)
+        or (
+            # PHASE-6 AUDIT FIX (D-CRIT3): geometry-only multi-part path
+            # used to accept a tall column of red parts (player's own
+            # scope + gun assembly, vertical antennas) with NO torso
+            # confirmation. Require torso_s >= 0.25 as a floor so a
+            # cluster with literally no torso column (img7 scope+gun
+            # had torso=0.18) cannot pass on geometry alone.
+            len(parts) >= 3
+            and limb_s >= 0.42
+            and v_score >= 0.28
+            and aspect >= 1.35
+            and torso_s >= 0.25
+        )
+        or (
+            # PHASE-6 AUDIT FIX (D-CRIT3): the tall-thin geometry path
+            # used to admit a 60x140 cloud/building column. Tighten:
+            # require parts >= 2 (internal structure), bh > frame_h*0.20
+            # (real bodies at long range are at least ~1/5 of frame),
+            # AND torso_s >= 0.30 (independent torso confirmation).
+            aspect >= 1.55
+            and bh >= 65 * scale
+            and bh > frame_h * 0.20
+            and len(parts) >= 2
+            and v_score >= 0.30
+            and align_s >= 0.45
+            and torso_s >= 0.30
+        )
         or silhouette_ok
     )
     if not stack_ok:
@@ -1140,8 +1173,17 @@ def _is_floating_cluster(
     # those bodies. Loosen the foot-floor to 0.30 — anything with feet
     # ABOVE the top-third of the frame is genuine "sky blob"; bodies
     # at close range still have feet at 0.30-0.50.
-    if foot_y < frame_h * 0.30 and bh < frame_h * 0.28:
-        return True
+    #
+    # PHASE-6 AUDIT FIX (D-MED8): keep the foot threshold at 0.30 (so
+    # close-ADS bodies still accept) BUT additionally require bh >=
+    # frame_h * 0.18 AND parts >= 3 for the close-ADS path. Single-part
+    # cloud/sky tiles with feet in the upper 1/3 are still rejected —
+    # only multi-part clusters tall enough to be a real body get through.
+    if foot_y < frame_h * 0.30:
+        if bh < frame_h * 0.18 or len(parts) < 3:
+            return True
+        if bh < frame_h * 0.28 and len(parts) < 3:
+            return True
     if mid_y < center_y - frame_h * 0.18 and len(parts) <= 3 and bh < 95 * scale:
         return True
     if by < frame_h * 0.12 and bh < frame_h * 0.22:
@@ -1676,10 +1718,22 @@ def _hard_reject(
     # Tall narrow filled silhouettes (e.g. Apex character whose armor is one color
     # against a similar-toned terrain — motion-diff fills the body interior) are
     # legitimate humanoid signals; only reject if proportions match a wall/panel.
+    #
+    # PHASE-6 AUDIT FIX (D-CRIT3): the previous gate (aspect >= 1.55,
+    # bw < 12% frame_w, bh > 11% frame_h) accepted any tall column —
+    # buildings, antennas, cloud columns, the player's own scope+gun
+    # vertical assembly. Tighten bh from 0.11 → 0.20 so sky/cloud tiles
+    # of moderate width are no longer admitted. The len(parts) >= 2 AND
+    # torso_s / red_coverage / motion_overlap confirmations live in
+    # _body_structure_reject and analyze_figure (where those scores are
+    # in scope). Here we keep the gate permissive enough that synthetic
+    # single-part body tests (and real one-blob short-range silhouettes)
+    # still survive the SOLID_WALL bypass, and rely on downstream
+    # stages to enforce the structure / torso / colour confirmation.
     humanoid_silhouette = (
         aspect >= 1.55
         and bw < frame_w * 0.12
-        and bh > frame_h * 0.11
+        and bh > frame_h * 0.20
     )
     if fill > 0.94 and len(parts) <= 1 and not humanoid_silhouette:
         return RejectReason.SOLID_WALL
@@ -1933,8 +1987,28 @@ def analyze_figure(
     structure_ok = (
         (has_head_part and torso_s >= 0.28 and (limb_s >= 0.32 or len(parts) >= 3))
         or (torso_s >= 0.30 and limb_s >= 0.40 and len(parts) >= 2)
-        or (len(parts) >= 3 and limb_s >= 0.42 and v_score >= 0.30 and aspect >= 1.35)
-        or (aspect >= 1.55 and bh >= 65 * scale and align_s >= 0.45 and v_score >= 0.28)
+        # PHASE-6 AUDIT FIX (D-CRIT3): both geometry-only acceptance
+        # paths now require a torso-score floor. Without these the
+        # player's own scope+gun assembly column (img7 cand[2]: parts=6
+        # aspect=3.71 bh=178 torso=0.18) passed structure_ok purely on
+        # geometric stacking — a tall column of small bright parts.
+        # A torso_s floor of 0.25/0.30 means the cluster must actually
+        # have a wide central mass band, which sky/cloud/scope columns
+        # do not.
+        or (
+            len(parts) >= 3
+            and limb_s >= 0.42
+            and v_score >= 0.30
+            and aspect >= 1.35
+            and torso_s >= 0.25
+        )
+        or (
+            aspect >= 1.55
+            and bh >= 65 * scale
+            and align_s >= 0.45
+            and v_score >= 0.28
+            and torso_s >= 0.30
+        )
     )
     if len(parts) == 1:
         if (
@@ -1946,13 +2020,19 @@ def analyze_figure(
         ):
             structure_ok = True
         elif (
+            # PHASE-6 AUDIT FIX (D-CRIT3): tall narrow uniform-color
+            # silhouette acceptance now requires bh > frame_h * 0.20 AND
+            # torso_s >= 0.40. Without these tightenings a single tall
+            # column (building, antenna, scope/gun assembly column, cloud)
+            # was admitted whenever it filled ~70 px and had torso ~0.25.
+            # The new thresholds permit only bodies that show real torso
+            # mass AND are at least ~1/5 of the frame in height.
             aspect >= 1.55
             and bw < frame_w * 0.12
             and bh >= 70 * scale
-            and torso_s >= 0.25
+            and bh > frame_h * 0.20
+            and torso_s >= 0.40
         ):
-            # Tall narrow uniform-color humanoid silhouette: shape matches a body
-            # column even though the mask is fully filled. Accept on geometry.
             structure_ok = True
         elif v_score < 0.35 or fill > 0.88:
             structure_ok = False
