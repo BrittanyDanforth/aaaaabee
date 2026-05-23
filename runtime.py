@@ -110,6 +110,9 @@ class AssistRuntime:
         self._last_debug: dict[str, float | int | str | bool] = {}
         self._last_pull_dx = 0
         self._last_pull_dy = 0
+        self._last_pull_target: Target | None = None
+        self._pending_pull_target: Target | None = None
+        self._pending_pull_frames = 0
         self._last_gate_allowed = True
         self._pending_debug_save = False
         self._last_frame_bgr = None
@@ -155,7 +158,12 @@ class AssistRuntime:
         """
         if target is None:
             if self._last_motion is not None:
-                return self._last_motion
+                last = self._last_motion
+                # Preserve one final anchor frame at lock-expiry to keep
+                # next acquisition step-capped, then clear so stale data
+                # cannot drive overlay/pull on subsequent no-target frames.
+                self._last_motion = None
+                return last
             self._aim_tracker.reset()
             return None
 
@@ -183,6 +191,55 @@ class AssistRuntime:
         """Pull + overlay use smoothed aim anchor, not hopping red-plate centroids."""
         return replace(raw, centroid_x=motion.x, centroid_y=motion.y)
 
+    def _allow_pull_target(self, target: Target | None, stale_det: bool) -> bool:
+        """Runtime pull safety gate against stale/jumping targets.
+
+        Prevents pull from engaging on low-quality reacquisitions and sudden
+        large lock jumps that manifest as sky/side snaps.
+        """
+        if target is None:
+            self._last_pull_target = None
+            self._pending_pull_target = None
+            self._pending_pull_frames = 0
+            return False
+        if stale_det:
+            # Never drive mouse with stale detection beyond one grace frame.
+            if self._target_lost_frames >= 1:
+                return False
+        if target.body_shape_score < 0.58:
+            return False
+        frame_cy = getattr(self, "_frame_cy", 0.0)
+        if target.bbox_y + target.bbox_h * 0.5 < float(frame_cy) * 0.40:
+            return False
+        prev = self._last_pull_target
+        if prev is not None:
+            import math as _m
+            jump = _m.hypot(target.centroid_x - prev.centroid_x, target.centroid_y - prev.centroid_y)
+            fov = float(self.config.get("_runtime_detect_fov", 200) or 200)
+            huge_jump = jump > max(24.0, fov * 0.28)
+            weak_upgrade = target.body_shape_score < prev.body_shape_score + 0.08
+            if huge_jump and weak_upgrade:
+                return False
+            if huge_jump:
+                pending = self._pending_pull_target
+                if (
+                    pending is not None
+                    and _m.hypot(target.centroid_x - pending.centroid_x, target.centroid_y - pending.centroid_y) < 14.0
+                ):
+                    self._pending_pull_frames += 1
+                else:
+                    self._pending_pull_target = target
+                    self._pending_pull_frames = 1
+                # Require the jumped candidate to stay stable for two
+                # consecutive frames before allowing pull retarget.
+                if self._pending_pull_frames < 2:
+                    return False
+        self._pending_pull_target = None
+        self._pending_pull_frames = 0
+        self._last_pull_target = target
+        return True
+
+
     def stop(self) -> None:
         with self._lock:
             self.running = False
@@ -201,6 +258,9 @@ class AssistRuntime:
             if self._stats is not None:
                 self._stats = RuntimeStats(self._configured_fps)
             self._stale_frames = 0
+            self._last_pull_target = None
+            self._pending_pull_target = None
+            self._pending_pull_frames = 0
 
     def _should_run(self) -> bool:
         with self._lock:
@@ -1144,7 +1204,7 @@ class AssistRuntime:
                         self._last_fov_radius = detect_fov
                         cfg["_runtime_detect_fov"] = detect_fov
                         if self._pull is not None:
-                            self._pull._tuning.fov_radius = float(detect_fov)
+                            self._pull.set_runtime_fov_radius(float(detect_fov))
                         if self._overlay is not None:
                             self._overlay.set_fov_radius(display_fov)
                     frame_cx = self._frame_cx
@@ -1191,6 +1251,11 @@ class AssistRuntime:
                         if target is not None and motion is not None
                         else None
                     )
+                    # Safety: allow at most one stale frame to continue pull.
+                    # Longer stale windows can chase frozen coordinates and
+                    # look like upward dot drift when the detector lost body lock.
+                    if not self._allow_pull_target(pull_target, stale_det):
+                        pull_target = None
 
                     pull_px = 0.0
                     pull_strength = 0.0
