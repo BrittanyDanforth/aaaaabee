@@ -288,12 +288,8 @@ def test_img7_does_not_lock_on_sky(
     the pre-fix detector locks onto the player's own scope+gun column or
     HUD numerals and returns active=True with body_shape_score ~0.89.
 
-    After the fixes we require:
-      * active=False (no body in frame), OR
-      * if active=True: body_shape_score >= 0.50 AND bbox center y is
-        in the MIDDLE 50% of the frame (i.e. NOT in the upper 25%
-        which is sky AND NOT in the bottom 25% where the gun barrel
-        ammo HUD sits) AND anchor inside chest band.
+    After the fixes we require active=False — no enemy in frame. The
+    viewmodel/scope column must not become a lock (img7 regression).
     """
     p = INPUTS_DIR / _SKY_BUG_IMAGE
     if not p.exists():
@@ -329,27 +325,12 @@ def test_img7_does_not_lock_on_sky(
         exclude_bottom=0.30,
     )
 
-    def _assert_img7_target(name: str, r) -> None:
-        if not r.active or r.target is None:
-            return  # active=False is acceptable
-        t = r.target
-        bbox_center_y = t.bbox_y + 0.5 * t.bbox_h
-        upper_lim = 0.25 * h
-        lower_lim = 0.75 * h
-        assert upper_lim <= bbox_center_y <= lower_lim, (
-            f"img7/{name}: bbox center y={bbox_center_y:.1f} outside middle 50% "
-            f"of {h}-px frame [{upper_lim:.0f}, {lower_lim:.0f}] — "
-            f"bbox=({t.bbox_x},{t.bbox_y},{t.bbox_w}x{t.bbox_h}) "
-            f"body={t.body_shape_score:.2f}"
+    for name, r in (("pass1", pass1), ("pass2", pass2)):
+        assert not r.active or r.target is None, (
+            f"img7/{name}: must not lock — no enemy in frame "
+            f"(active={r.active} body={getattr(r.target, 'body_shape_score', 0):.2f} "
+            f"red={getattr(r.target, 'red_coverage', 0):.3f})"
         )
-        assert t.body_shape_score >= 0.50, (
-            f"img7/{name}: body_shape_score {t.body_shape_score:.2f} < 0.50 "
-            f"(runtime new-lock floor)"
-        )
-        _chest_band_assertions(t, f"img7/{name}")
-
-    _assert_img7_target("pass1", pass1)
-    _assert_img7_target("pass2", pass2)
 
 
 def test_pan_detection_fires_on_synthetic_pan() -> None:

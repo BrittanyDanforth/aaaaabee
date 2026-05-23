@@ -710,6 +710,9 @@ class AssistRuntime:
             detection_mode=str(cfg.get("detection_mode", "apex")),
             context=self._detect_ctx,
             currently_locked=currently_locked,
+            exclude_bottom_frac=float(
+                cfg.get("viewmodel_exclude_bottom_frac", 0.28)
+            ),
         )
         with self._lock:
             if result.target is not None:
@@ -837,7 +840,12 @@ class AssistRuntime:
                     new_t.bbox_y + new_t.bbox_h * 0.5
                     < center_y * 0.40
                 )
-                if new_t.body_shape_score < 0.55 or new_sky:
+                low_red_lock = new_t.red_coverage < 0.04
+                if (
+                    new_t.body_shape_score < 0.55
+                    or new_sky
+                    or low_red_lock
+                ):
                     return DetectionResult(None, result.candidates, 0.0)
                 self._locked_target = new_t
                 self._target_lost_frames = 0

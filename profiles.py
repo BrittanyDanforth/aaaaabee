@@ -51,6 +51,7 @@ _APEX_TUNING: dict[str, Any] = {
     "distance_score_weight": 2.6,
     "area_score_weight": 0.015,
     "min_target_area_pixels": 20,
+    "viewmodel_exclude_bottom_frac": 0.28,
     # PHASE-7 AUDIT FIX (HIGH5): bumped from 16 → 40 — the previous 16-px
     # floor let sky/HUD 16-px fragments enter the candidate pool. The
     # Tracking preset overlays 60 (more aggressive) but profile defaults
@@ -134,7 +135,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "enable_overlay": True,
         "capture_fps": 60,
         "overlay_fps": 90,
-        "overlay_dot_smooth_alpha": 0.78,
+        "overlay_dot_smooth_alpha": 0.62,
         "ads_input_mode": "both",
         "dry_run_force_detect": False,
         "trace_pull": True,

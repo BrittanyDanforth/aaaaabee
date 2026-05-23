@@ -15,7 +15,7 @@ logger = logging.getLogger("targeting")
 
 # --- Tunables (1080p baseline, scales with frame size) ---
 _MAX_AREA_RATIO = 0.30
-_VIEWMODEL_EXCLUDE_FRAC = 0.22
+_VIEWMODEL_EXCLUDE_FRAC = 0.28
 _BODY_Y_LO_FRAC = 0.28
 _BODY_Y_HI_FRAC = 0.52
 _MAX_ABOVE_CENTER_FRAC = 0.40
@@ -54,6 +54,7 @@ class RejectReason(str, Enum):
     NO_TORSO = "no_torso"
     NO_BODY_STACK = "no_body_stack"
     SKY_BLOB = "sky_blob"
+    VIEWMODEL_COLUMN = "viewmodel_column"
     LOW_SCORE = "low_body_shape_score"
 
 
@@ -392,7 +393,7 @@ class DetectionContext:
     #   1. drop the motion mask out of the apex-mode fusion, AND
     #   2. clear last_motion_mask so score_target's motion_bonus is zero.
     pan_detected: bool = False
-    pan_coverage_threshold: float = 0.30
+    pan_coverage_threshold: float = 0.18
 
     def reset(self) -> None:
         self.prev_gray = None
@@ -524,7 +525,7 @@ def build_detection_mask(
             # the motion_bonus. The visible symptom of NOT having this
             # guard is the dot snapping to sky/cloud edges during a pan.
             mcov = float((motion > 0).sum()) / float(max(1, motion.size))
-            if mcov > float(context.pan_coverage_threshold):
+            if mcov > float(getattr(context, "pan_coverage_threshold", 0.18)):
                 context.pan_detected = True
                 context.last_motion_mask = None
             else:
@@ -734,6 +735,47 @@ def _is_scope_reticle(
     ):
         return True
     return False
+
+
+def _is_viewmodel_column_fp(
+    parts: list,
+    *,
+    bx: float,
+    by: float,
+    bw: float,
+    bh: float,
+    frame_w: int,
+    frame_h: int,
+    fov_cx: float | None,
+    fov_cy: float | None,
+    red_cov: float,
+    align_s: float,
+    part_count: int,
+) -> bool:
+    """Reject the player's scope/gun column (img7-class false lock).
+
+    Signature: crosshair inside a tall centered stack, no classified torso,
+    almost no enemy-red fill, poor vertical column alignment.
+    """
+    if fov_cx is None or fov_cy is None:
+        return False
+    if red_cov >= 0.05:
+        return False
+    if any(p.role == PartRole.TORSO for p in parts):
+        return False
+    if part_count < 4 or bh < frame_h * 0.12:
+        return False
+    aspect = bh / max(float(bw), 1.0)
+    if aspect < 1.35:
+        return False
+    if not (bx <= fov_cx <= bx + bw and by <= fov_cy <= by + bh):
+        return False
+    bcx = bx + bw * 0.5
+    if abs(bcx - fov_cx) > frame_w * 0.14:
+        return False
+    if align_s >= 0.40:
+        return False
+    return True
 
 
 def _is_diamond_sign(part: _RedPart, scale: float) -> bool:
@@ -1787,6 +1829,7 @@ def _figure_aim_point(
         cluster_is_merged = (
             dense_blend_frac < 0.40
             and len(parts) >= 6
+            and any(p.role == PartRole.TORSO for p in parts)
         )
         if cluster_is_merged:
             ax = 0.35 * ax + 0.65 * float(fov_cx)
@@ -1987,6 +2030,10 @@ def analyze_figure(
             structure_ok = False
     foot_y = by + bh
     if foot_y < frame_h * 0.42 and len(parts) < 3:
+        structure_ok = False
+
+    has_classified_torso = any(p.role == PartRole.TORSO for p in parts)
+    if structure_ok and len(parts) >= 3 and not has_classified_torso and align_s < 0.35:
         structure_ok = False
 
     accepted = body_shape >= min_accept and structure_ok
@@ -2610,17 +2657,58 @@ def _collect_candidates(
         # thresholds are empirically calibrated against the 7 real
         # Apex screenshots (img3 red_cov=0.098 — keeps; img7 gun
         # red_cov=0.004 — drops).
-        if fig.accepted and fig.torso_score < 0.20 and red_cov < 0.05:
+        has_torso_part = any(p.role == PartRole.TORSO for p in body_parts)
+        if red_filled is not None:
+            if fig.accepted and red_cov < 0.04:
+                mov_ov = 0.0
+                if context is not None:
+                    mov_ov = context.motion_coverage_ratio(fig.bx, fig.by, fig.bw, fig.bh)
+                if mov_ov < 0.25:
+                    if debug:
+                        lines.append(
+                            f"cand[{idx}] drop low_red_cov={red_cov:.3f} mov={mov_ov:.2f}"
+                        )
+                    continue
+            if fig.accepted and fig.fill_ratio < 0.12 and red_cov < 0.05:
+                if debug:
+                    lines.append(
+                        f"cand[{idx}] drop sparse_red fill={fig.fill_ratio:.2f} "
+                        f"red_cov={red_cov:.3f}"
+                    )
+                continue
+        if fig.accepted and red_filled is not None and red_cov < 0.05 and not has_torso_part:
             mov_ov = 0.0
             if context is not None:
                 mov_ov = context.motion_coverage_ratio(fig.bx, fig.by, fig.bw, fig.bh)
             if mov_ov < 0.20:
                 if debug:
                     lines.append(
-                        f"cand[{idx}] drop no_torso_no_red torso={fig.torso_score:.2f} "
-                        f"red_cov={red_cov:.3f} mov={mov_ov:.2f}"
+                        f"cand[{idx}] drop no_torso_no_red torso_part={has_torso_part} "
+                        f"torso={fig.torso_score:.2f} red_cov={red_cov:.3f} mov={mov_ov:.2f}"
                     )
                 continue
+
+        align_for_vm = _part_alignment_score(body_parts, _scale(w, h))
+        if red_filled is not None and fig.accepted and _is_viewmodel_column_fp(
+            body_parts,
+            bx=float(fig.bx),
+            by=float(fig.by),
+            bw=float(fig.bw),
+            bh=float(fig.bh),
+            frame_w=w,
+            frame_h=h,
+            fov_cx=cx,
+            fov_cy=cy,
+            red_cov=red_cov,
+            align_s=align_for_vm,
+            part_count=fig.part_count,
+        ):
+            if debug:
+                lines.append(
+                    f"cand[{idx}] drop {RejectReason.VIEWMODEL_COLUMN.value} "
+                    f"red_cov={red_cov:.3f} align={align_for_vm:.2f}"
+                )
+            continue
 
         targets.append(
             Target(

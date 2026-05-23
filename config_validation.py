@@ -169,6 +169,9 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     cfg["overlay_dot_smooth_alpha"] = _require_number(
         cfg, "overlay_dot_smooth_alpha", default=0.78, minimum=0.05, maximum=1.0
     )
+    cfg["viewmodel_exclude_bottom_frac"] = _require_number(
+        cfg, "viewmodel_exclude_bottom_frac", default=0.28, minimum=0.05, maximum=0.45
+    )
     cfg["monitor_index"] = int(_require_number(cfg, "monitor_index", default=1.0, minimum=1))
     cfg["crosshair_offset_x"] = _require_number(cfg, "crosshair_offset_x", default=0.0)
     cfg["crosshair_offset_y"] = _require_number(cfg, "crosshair_offset_y", default=0.0)
