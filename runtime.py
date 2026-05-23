@@ -938,7 +938,7 @@ class AssistRuntime:
                 magnetism_radius=float(cfg["magnetism_radius_pixels"]),
                 magnetism_min_scale=float(cfg["magnetism_min_pull_scale"]),
                 fov_radius=float(
-                    effective_detection_fov_radius(cfg, ads_active=True)
+                    effective_detection_fov_radius(cfg, ads_active=False)
                 ),
                 fov_edge_min_scale=float(cfg["fov_edge_min_pull_scale"]),
                 prediction_enabled=bool(cfg["prediction_enabled"]),
@@ -1107,8 +1107,8 @@ class AssistRuntime:
                     ads_for_assist = ads_live if self._live else (self._force_detect or ads_live)
 
                     display_fov = effective_fov_radius(cfg, ads_active=False)
-                    detect_fov = effective_detection_fov_radius(cfg, ads_active=ads_for_assist)
-                    capture_fov = effective_capture_fov_radius(cfg, ads_active=ads_for_assist)
+                    detect_fov = effective_detection_fov_radius(cfg, ads_active=False)
+                    capture_fov = effective_capture_fov_radius(cfg, ads_active=False)
                     if cap_region is None or detect_fov != self._last_fov_radius:
                         cap_region = build_capture_region(
                             mon,
