@@ -5,6 +5,28 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+
+def overlay_glide_step(
+    cur: tuple[float, float],
+    dest: tuple[float, float],
+    *,
+    alpha: float,
+    max_step: float,
+) -> tuple[float, float]:
+    """One step of monitor-space glide (overlay thread, between capture frames)."""
+    dx = dest[0] - cur[0]
+    dy = dest[1] - cur[1]
+    dist = math.hypot(dx, dy)
+    if dist <= 0.0:
+        return dest
+    step = dist
+    if dist > max_step and max_step > 0.0:
+        step = max_step
+    a = max(0.05, min(1.0, float(alpha)))
+    blend = min(step / dist, a)
+    return cur[0] + dx * blend, cur[1] + dy * blend
+
+
 _MAX_VELOCITY = 3200.0
 _MAX_DT = 0.12
 _MIN_DT = 0.001
@@ -212,35 +234,34 @@ class TargetTracker:
         """Continuous overlay drag in frame space — independent of pull deadband."""
         if not (math.isfinite(aim_x) and math.isfinite(aim_y)):
             return aim_x, aim_y
+        aim_x, aim_y = self._clamp_aim_output(aim_x, aim_y)
         if self._overlay_follow_x is None or self._overlay_follow_y is None:
-            ox, oy = self._clamp_aim_output(aim_x, aim_y)
-            self._overlay_follow_x, self._overlay_follow_y = ox, oy
-            return ox, oy
+            self._overlay_follow_x, self._overlay_follow_y = aim_x, aim_y
+            return aim_x, aim_y
         speed = math.hypot(self._vx, self._vy)
         tau_ov = _tau_moving if speed > 70.0 else _tau_still
-        tau_ov = max(0.032, min(float(tau_ov) * 1.35, 0.10))
+        tau_ov = max(0.038, min(float(tau_ov) * 1.5, 0.11))
         oa = alpha_from_tau(dt, tau_ov)
-        oa = max(0.20, min(0.58, oa))
+        oa = max(0.28, min(0.52, oa))
         fx = self._overlay_follow_x + oa * (aim_x - self._overlay_follow_x)
         fy = self._overlay_follow_y + oa * (aim_y - self._overlay_follow_y)
-        if speed > 20.0:
+        if speed > 25.0:
             lead = min(dt, 0.05)
-            fx += self._vx * lead * 0.45
-            fy += self._vy * lead * 0.45
-            if fy < self._overlay_follow_y - 8.0:
-                fy = self._overlay_follow_y - 8.0
+            fx += self._vx * lead * 0.38
+            fy += self._vy * lead * 0.38
+            if fy < self._overlay_follow_y - 10.0:
+                fy = self._overlay_follow_y - 10.0
         bh = 80
         if self._body_bbox is not None:
             bh = self._body_bbox[3]
-        if self._last_meas_x is not None and self._last_meas_y is not None:
-            follow_cap = max(8.0, min(32.0, bh * 0.28)) * max(0.5, min(2.0, dt * 60.0))
-            fdx = fx - self._overlay_follow_x
-            fdy = fy - self._overlay_follow_y
-            fdist = math.hypot(fdx, fdy)
-            if fdist > follow_cap and fdist > 0.0:
-                s = follow_cap / fdist
-                fx = self._overlay_follow_x + fdx * s
-                fy = self._overlay_follow_y + fdy * s
+        fdx = fx - self._overlay_follow_x
+        fdy = fy - self._overlay_follow_y
+        fdist = math.hypot(fdx, fdy)
+        teleport_cap = max(36.0, bh * 0.55)
+        if fdist > teleport_cap and fdist > 0.0:
+            s = teleport_cap / fdist
+            fx = self._overlay_follow_x + fdx * s
+            fy = self._overlay_follow_y + fdy * s
         ox, oy = self._clamp_aim_output(fx, fy)
         self._overlay_follow_x, self._overlay_follow_y = ox, oy
         return ox, oy
@@ -300,6 +321,11 @@ class TargetTracker:
     def sync_overlay_display(self, x: float, y: float) -> None:
         """Align drag state with the post-FOV-clamp point actually drawn."""
         if self._overlay_smooth is not None and math.isfinite(x) and math.isfinite(y):
+            self._overlay_smooth = (float(x), float(y))
+
+    def set_monitor_overlay_point(self, x: float, y: float) -> None:
+        """Last monitor-space dot destination (for hold-last-dot during grace)."""
+        if math.isfinite(x) and math.isfinite(y):
             self._overlay_smooth = (float(x), float(y))
 
     def reset(self) -> None:

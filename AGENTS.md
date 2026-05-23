@@ -53,7 +53,7 @@ The GUI (`aba_gui.py`) uses Basic/Advanced mode split:
 
 **Presets**: Stable, Responsive, Strong, Debug — apply via buttons on the Basic tab.
 
-**Overlay dot FPS**: `overlay_fps` (default 90) controls Tk redraw; `capture_fps` (60 on live trace) controls how often dot coordinates update. `overlay_dot_smooth_alpha` (default 0.62 on live trace) trades smoothness vs lag — raise toward 1.0 for snappier dot motion.
+**Overlay dot FPS**: `overlay_fps` (default 90) controls Tk redraw; `capture_fps` (60 on live trace) controls how often dot coordinates update. Frame-space drag uses `_advance_overlay_follow` (never pull deadband); monitor pass uses `overlay_dot_smooth_alpha` (default 0.52). Pull uses `motion.overlay_xy()` so crosshair tracks the dot.
 
 **False detection guards**: `viewmodel_exclude_bottom_frac` (default 0.28) masks the gun HUD. Low `red_coverage` + sparse fill + viewmodel-column geometry reject scope/gun FPs (img7). Pan motion fusion disables above 18% frame coverage.
 

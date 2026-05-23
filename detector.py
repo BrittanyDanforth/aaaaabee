@@ -3304,8 +3304,14 @@ def find_best_target(
         )
         if pool_max_h > 0:
             h_ratio = float(t.bbox_h) / float(pool_max_h)
-            if h_ratio < 0.80:
-                raw -= float(fov_radius) * 0.65 * (0.80 - h_ratio)
+            if h_ratio < 0.82:
+                raw -= float(fov_radius) * 0.78 * (0.82 - h_ratio)
+            if (
+                h_ratio < 0.72
+                and t.distance_to_center < float(fov_radius) * 0.42
+                and int(t.part_count) <= 2
+            ):
+                raw -= float(fov_radius) * 0.55
         return raw
 
     def finalize(t: Target) -> Target:

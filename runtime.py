@@ -723,6 +723,12 @@ class AssistRuntime:
             fov_center_y=fov_center_y,
             overlay_fps=effective_overlay_fps(cfg),
         )
+        self._overlay.set_dot_glide_alpha(
+            float(cfg.get("overlay_dot_smooth_alpha", 0.52))
+        )
+        self._last_overlay_dot_alpha = float(
+            cfg.get("overlay_dot_smooth_alpha", 0.52)
+        )
 
         def run_overlay() -> None:
             assert self._overlay is not None
@@ -1335,6 +1341,14 @@ class AssistRuntime:
                         if want_fps != getattr(self, "_last_overlay_fps", -1):
                             self._overlay.set_overlay_fps(want_fps)
                             self._last_overlay_fps = want_fps
+                        want_dot_alpha = float(
+                            cfg.get("overlay_dot_smooth_alpha", 0.52)
+                        )
+                        if want_dot_alpha != getattr(
+                            self, "_last_overlay_dot_alpha", -1.0
+                        ):
+                            self._overlay.set_dot_glide_alpha(want_dot_alpha)
+                            self._last_overlay_dot_alpha = want_dot_alpha
 
                     if self._overlay is not None and self._should_run():
                         overlay_pt = None
@@ -1384,32 +1398,14 @@ class AssistRuntime:
                                 ox = fov_cx_mon + odx * s
                                 oy = fov_cy_mon + ody * s
                             if math.isfinite(ox) and math.isfinite(oy):
-                                bbox_h = 80
-                                if target is not None and int(target.bbox_h) > 0:
-                                    bbox_h = int(target.bbox_h)
-                                dot_alpha = float(
-                                    cfg.get("overlay_dot_smooth_alpha", 0.52)
+                                # Frame follow is in motion.overlay_xy(); monitor
+                                # only needs ring clamp. Tk overlay thread glides
+                                # at overlay_fps between capture updates — do NOT
+                                # stack a second EMA here (caused snap/lag feel).
+                                overlay_pt = (ox, oy)
+                                self._aim_tracker.set_monitor_overlay_point(
+                                    ox, oy
                                 )
-                                sx, sy = self._aim_tracker.smooth_overlay_point(
-                                    ox,
-                                    oy,
-                                    alpha=dot_alpha,
-                                    bbox_h=bbox_h,
-                                    dt=dt_frame,
-                                )
-                                # O3 (audit): re-clamp AFTER the EMA so
-                                # boundary-motion drift can't drag the
-                                # dot outside the ring on a smoothed
-                                # frame.
-                                sodx = sx - fov_cx_mon
-                                sody = sy - fov_cy_mon
-                                sodist = math.hypot(sodx, sody)
-                                if math.isfinite(sodist) and sodist > fov_limit and sodist > 0.0:
-                                    scale_r = fov_limit / sodist
-                                    sx = fov_cx_mon + sodx * scale_r
-                                    sy = fov_cy_mon + sody * scale_r
-                                self._aim_tracker.sync_overlay_display(sx, sy)
-                                overlay_pt = (sx, sy)
                                 self._overlay_miss_frames = 0
                         elif target is None or not detection_fresh:
                             self._overlay_miss_frames += 1

@@ -50,6 +50,7 @@ class OverlayFpsSourceTests(unittest.TestCase):
         self.assertIn("effective_overlay_fps", text)
         self.assertIn("set_overlay_fps", text)
         self.assertIn("overlay_dot_smooth_alpha", text)
+        self.assertIn("set_dot_glide_alpha", text)
 
 
 try:

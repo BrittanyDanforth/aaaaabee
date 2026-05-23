@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+import math
 import sys
 import threading
 import tkinter as tk
+
+from motion import overlay_glide_step
 
 logger = logging.getLogger("overlay_assist")
 
@@ -263,6 +266,10 @@ class OverlayWindow:
         self._fov_center_x = fov_center_x
         self._fov_center_y = fov_center_y
         self._target: tuple[float, float] | None = None
+        self._dot_dest: tuple[float, float] | None = None
+        self._dot_disp: tuple[float, float] | None = None
+        self._dot_glide_alpha = 0.34
+        self._dot_max_step_per_tick = 11.0
         self._active = False
         self._closed = False
         self._lock = threading.Lock()
@@ -406,6 +413,13 @@ class OverlayWindow:
             self._overlay_fps = max(30, min(144, int(fps)))
             self._tick_ms = max(4, int(1000 / self._overlay_fps))
 
+    def set_dot_glide_alpha(self, alpha: float) -> None:
+        """Monitor-space glide between capture updates (Red dot smoothness slider)."""
+        a = max(0.12, min(0.72, float(alpha)))
+        with self._lock:
+            self._dot_glide_alpha = a
+            self._dot_max_step_per_tick = max(6.0, min(18.0, 6.0 + a * 20.0))
+
     def set_fov_radius(self, radius: int) -> None:
         with self._lock:
             new_r = max(40, int(radius))
@@ -502,8 +516,15 @@ class OverlayWindow:
             self._active = ads
             if target is None:
                 self._target = None
+                self._dot_dest = None
             else:
-                self._target = (float(target[0]), float(target[1]))
+                dest = (float(target[0]), float(target[1]))
+                self._dot_dest = dest
+                if self._dot_disp is None:
+                    self._dot_disp = dest
+                    self._target = dest
+                else:
+                    self._target = dest
         self._request_redraw()
 
     def _request_redraw(self) -> None:
@@ -521,15 +542,25 @@ class OverlayWindow:
             return
 
         with self._lock:
-            target = self._target
+            dest = self._dot_dest
+            disp = self._dot_disp
 
         try:
             self._sync_fov_ring()
 
-            if target is not None:
-                # Sub-pixel coords — runtime already EMA-smooths; do not int(round)
-                # or stack a second EMA here (that caused laggy/wobbly dot feel).
-                tx, ty = float(target[0]), float(target[1])
+            if dest is not None:
+                if disp is None:
+                    disp = dest
+                else:
+                    disp = overlay_glide_step(
+                        disp,
+                        dest,
+                        alpha=self._dot_glide_alpha,
+                        max_step=self._dot_max_step_per_tick,
+                    )
+                with self._lock:
+                    self._dot_disp = disp
+                tx, ty = float(disp[0]), float(disp[1])
                 r = 6.0
                 self._canvas.coords(
                     self._target_id, tx - r, ty - r, tx + r, ty + r
@@ -541,6 +572,8 @@ class OverlayWindow:
                     state="normal",
                 )
             else:
+                with self._lock:
+                    self._dot_disp = None
                 # Hide instead of "shrink to 0" — guarantees no centre-pinned
                 # speck appears when there is no live target. Empty outline/
                 # fill alone has been observed to leave a 1-px artifact on

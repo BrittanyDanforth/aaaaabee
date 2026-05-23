@@ -14,9 +14,9 @@ class DotSmoothnessWiringTests(unittest.TestCase):
     def test_runtime_reads_overlay_dot_smooth_alpha(self) -> None:
         text = Path("runtime.py").read_text(encoding="utf-8")
         self.assertIn("overlay_dot_smooth_alpha", text)
-        self.assertIn("smooth_overlay_point", text)
-        self.assertIn("sync_overlay_display", text)
-        self.assertIn("bbox_h=bbox_h", text)
+        self.assertIn("set_dot_glide_alpha", text)
+        self.assertIn("set_monitor_overlay_point", text)
+        self.assertIn("overlay_motion.overlay_xy()", text)
         self.assertNotIn("set_dot_render_alpha", text)
         self.assertNotIn("cap_frame_display_step", text)
 
@@ -24,12 +24,13 @@ class DotSmoothnessWiringTests(unittest.TestCase):
         overlay = Path("overlay_window.py").read_text(encoding="utf-8")
         runtime = Path("runtime.py").read_text(encoding="utf-8")
         self.assertNotIn("jitter", overlay.lower())
-        # Overlay block uses smooth_overlay_point + overlay_xy, not pull jitter.
-        idx = runtime.find("smooth_overlay_point")
+        self.assertIn("overlay_glide_step", overlay)
+        idx = runtime.find("overlay_motion.overlay_xy()")
         self.assertGreater(idx, 0)
-        chunk = runtime[idx : idx + 400]
+        chunk = runtime[idx : idx + 700]
         self.assertNotIn("jitter", chunk.lower())
         self.assertNotIn("RecoilCompensator", chunk)
+        self.assertNotIn("smooth_overlay_point", chunk)
 
     def test_gui_has_red_dot_smoothness_slider(self) -> None:
         text = Path("aba_gui.py").read_text(encoding="utf-8")

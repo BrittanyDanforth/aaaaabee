@@ -14,10 +14,8 @@ class OverlayDragIntegrationTests(unittest.TestCase):
         text = Path(__file__).resolve().parents[1].joinpath("runtime.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("smooth_overlay_point(", text)
-        self.assertIn("bbox_h=bbox_h", text)
-        self.assertIn("dt=dt_frame", text)
-        self.assertIn("sync_overlay_display", text)
+        self.assertIn("set_monitor_overlay_point", text)
+        self.assertIn("overlay_motion.overlay_xy()", text)
         motion_src = Path(__file__).resolve().parents[1].joinpath("motion.py").read_text(
             encoding="utf-8"
         )
