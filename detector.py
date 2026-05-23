@@ -3200,7 +3200,9 @@ def find_best_target(
                 ) < 0.08
                 and size_ratio >= 1.8
             )
-            if switch_allowed:
+            # Frame lock (target_lock.apply_target_lock) owns enemy switches
+            # during grace — do not let detection steal the lock in one frame.
+            if switch_allowed and not currently_locked:
                 chosen = finalize(global_best)
             else:
                 chosen = finalize(sticky_best)

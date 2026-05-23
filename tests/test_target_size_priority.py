@@ -143,8 +143,11 @@ class TargetSizePriorityTests(unittest.TestCase):
         self.assertLess(r2.target.centroid_x, CX + 50)
 
     def test_sticky_locked_small_does_switch_to_clearly_larger(self) -> None:
-        """When the size ratio is >= 1.8, the sticky guard allows the switch.
-        The lock should hand off to the much-larger (closer) enemy."""
+        """When the size ratio is >= 1.8, detection may switch if not in frame-lock grace.
+
+        ``currently_locked=False`` here: ``target_lock`` owns enemy handoff during
+        grace (``currently_locked=True`` blocks one-frame detector size-switch).
+        """
         # Initial small lock — placed near the crosshair so the single-part
         # penalty does not reject it on the very first frame.
         frame1 = np.zeros((H, W, 3), dtype=np.uint8)
@@ -160,10 +163,9 @@ class TargetSizePriorityTests(unittest.TestCase):
         frame2 = np.zeros((H, W, 3), dtype=np.uint8)
         _apex_dummy(frame2, CX - 10, CY + 90, scale=0.85)
         _apex_dummy(frame2, CX + 180, CY + 130, scale=1.75)
-        r2 = _detect(frame2, sticky=sticky, currently_locked=True)
-        # The result must still be active. The handover may or may not happen
-        # within a single frame depending on the score margin — but the
-        # sticky-aware confidence floor must prevent a drop-out.
+        r2 = _detect(frame2, sticky=sticky, currently_locked=False)
+        # The result must still be active. The handover may happen in detection
+        # when not in frame-lock grace; runtime lock applies its own hysteresis.
         self.assertTrue(r2.active, "\n".join(r2.debug_lines))
         assert r2.target is not None
         # When the size ratio crosses the 1.8 threshold AND the large body

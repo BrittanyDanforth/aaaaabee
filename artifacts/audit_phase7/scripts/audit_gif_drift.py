@@ -41,7 +41,11 @@ if str(REPO_ROOT) not in sys.path:
 import detector  # noqa: E402
 import motion as motion_mod  # noqa: E402
 import profiles  # noqa: E402
-from target_lock import TargetLockMachine  # noqa: E402
+from target_lock import (  # noqa: E402
+    TargetLockMachine,
+    detection_sticky_context,
+    viewmodel_exclude_bottom,
+)
 
 LockMachine = TargetLockMachine
 
@@ -102,12 +106,10 @@ def _draw_dot(img: np.ndarray, x: float, y: float, color=(0, 255, 255)) -> None:
     cv2.circle(img, (int(round(x)), int(round(y))), 7, (0, 0, 0), 1)
 
 
-def run_audit(out_root: Path, phase7_fix: bool, stride: int = 5) -> None:
+def run_audit(out_root: Path, stride: int = 5) -> None:
     _ensure_dir(out_root)
 
     cfg = _live_cfg()
-    if phase7_fix:
-        cfg["_PHASE7_FIX_ACTIVE"] = True
 
     frames_dir = REPO_ROOT / "artifacts" / "real_apex_test" / "_gif_frames"
     all_frames = sorted([p for p in frames_dir.glob("frame_*.png")])
@@ -134,7 +136,8 @@ def run_audit(out_root: Path, phase7_fix: bool, stride: int = 5) -> None:
         lock.center_y = cy
         fov_r = _detect_fov(cfg, w, h)
         min_area = float(cfg["min_target_area_pixels"])
-        exclude_bottom = 0.05
+        exclude_bottom = viewmodel_exclude_bottom(cfg)
+        cfg["_runtime_detect_fov"] = float(fov_r)
 
         # PASS 1: enumerate candidates for visualisation.
         cands, _mask_used, _parts = detector.enumerate_candidates(
@@ -156,11 +159,7 @@ def run_audit(out_root: Path, phase7_fix: bool, stride: int = 5) -> None:
             aim_y_max_fraction=float(cfg.get("aim_body_y_max_fraction", 0.52)),
         )
 
-        sticky = lock.locked_target if lock.target_lost_frames < int(cfg["target_lost_frames_before_unlock"]) else None
-        currently_locked = (
-            lock.locked_target is not None
-            and lock.target_lost_frames < int(cfg["target_lost_frames_before_unlock"])
-        )
+        sticky, currently_locked, _ = detection_sticky_context(lock.state, cfg)
         result = detector.find_best_target(
             img,
             cfg.get("hsv_ranges"),
@@ -375,11 +374,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="gif_before", help="audit_phase7/<out> subdir")
     ap.add_argument("--stride", type=int, default=5)
-    ap.add_argument("--apply-fix", action="store_true",
-                    help="Replicate Phase-7 instant-adopt guards inside the lock machine.")
     args = ap.parse_args(argv)
     out_root = REPO_ROOT / "artifacts" / "audit_phase7" / args.out
-    run_audit(out_root, phase7_fix=args.apply_fix, stride=args.stride)
+    run_audit(out_root, stride=args.stride)
     return 0
 
 

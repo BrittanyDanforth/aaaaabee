@@ -1,8 +1,22 @@
 """Target lock state machine — single source of truth for runtime + tests.
 
-``AssistRuntime._select_target`` delegates here after ``find_best_target``.
-Audit harnesses and regression tests import the same logic so lock guards
-cannot drift from production.
+There are **two cooperating layers** (not duplicates):
+
+1. **Detection sticky** (``detector.find_best_target``): per-frame candidate
+   ranking with ``sticky_target`` / ``currently_locked``. Biases scoring,
+   confidence floor, sticky pool, sky/clutter rejects. Does **not** own
+   grace counters or switch hysteresis frames.
+
+2. **Frame lock** (this module — ``apply_target_lock``): owns
+   ``target_lost_frames``, instant-adopt, 3-frame switch hysteresis, and
+   new-lock gates. ``AssistRuntime._select_target`` calls
+   ``find_best_target`` then ``apply_target_lock``.
+
+``TargetingRuntime`` (artifact/tests) must use the same frame lock — not a
+third copy. Simple ``_sticky = t`` without ``apply_target_lock`` is legacy.
+
+Use :func:`detection_sticky_context` everywhere you call ``find_best_target``
+so sticky/currently_locked cannot drift between runtime, audits, and tests.
 """
 
 from __future__ import annotations
@@ -20,6 +34,11 @@ SWITCH_MIN_IOU = 0.28
 CLUTTER_REJECT_MAX_IOU = 0.18
 
 
+def viewmodel_exclude_bottom(cfg: dict[str, Any]) -> float:
+    """Bottom-of-frame mask fraction — must match production runtime."""
+    return float(cfg.get("viewmodel_exclude_bottom_frac", 0.28))
+
+
 @dataclass
 class TargetLockState:
     locked_target: Target | None = None
@@ -32,6 +51,21 @@ class TargetLockState:
         self.target_lost_frames = 0
         self.switch_candidate = None
         self.switch_frames = 0
+
+
+def detection_sticky_context(
+    state: TargetLockState,
+    cfg: dict[str, Any],
+) -> tuple[Target | None, bool, int]:
+    """Inputs for ``find_best_target`` derived from frame lock state.
+
+    Returns ``(sticky_target, currently_locked, lost_max)``.
+    """
+    lost_max = int(cfg["target_lost_frames_before_unlock"])
+    in_grace = state.target_lost_frames < lost_max
+    sticky = state.locked_target if in_grace else None
+    currently_locked = state.locked_target is not None and in_grace
+    return sticky, currently_locked, lost_max
 
 
 def apply_target_lock(

@@ -29,7 +29,12 @@ from detector import (
     draw_debug,
     find_best_target,
 )
-from target_lock import TargetLockState, apply_target_lock
+from target_lock import (
+    TargetLockState,
+    apply_target_lock,
+    detection_sticky_context,
+    viewmodel_exclude_bottom,
+)
 from input_state import AdsInputState
 from motion import TargetMotion, TargetTracker
 from mouse_gate import MouseGateContext, MouseGateResult, evaluate_mouse_gate
@@ -706,16 +711,8 @@ class AssistRuntime:
     ):
         cfg = self.config
         with self._lock:
-            lost_max_local = int(cfg["target_lost_frames_before_unlock"])
-            sticky = self._locked_target if self._target_lost_frames < lost_max_local else None
-            # M3 (audit): currently_locked must remain True for the full
-            # grace window so the confidence floor applies and a transient
-            # detector dip doesn't unlock onto junk. Previously the floor
-            # only applied when target_lost_frames == 0, leaving the entire
-            # 1..lost_max-1 grace period exposed to weak re-lock candidates.
-            currently_locked = (
-                self._locked_target is not None
-                and self._target_lost_frames < lost_max_local
+            sticky, currently_locked, _lost_max = detection_sticky_context(
+                self._target_lock, cfg
             )
         result = find_best_target(
             frame_bgr,
@@ -743,9 +740,7 @@ class AssistRuntime:
             detection_mode=str(cfg.get("detection_mode", "apex")),
             context=self._detect_ctx,
             currently_locked=currently_locked,
-            exclude_bottom_frac=float(
-                cfg.get("viewmodel_exclude_bottom_frac", 0.28)
-            ),
+            exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
         )
         with self._lock:
 

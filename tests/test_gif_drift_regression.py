@@ -16,7 +16,11 @@ import cv2
 
 import detector
 import profiles
-from target_lock import TargetLockMachine
+from target_lock import (
+    TargetLockMachine,
+    detection_sticky_context,
+    viewmodel_exclude_bottom,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -63,8 +67,8 @@ class GifDriftRegressionTests(unittest.TestCase):
             cx, cy = w / 2.0, h / 2.0
             lock.center_y = cy
             fov_r = profiles.effective_detection_fov_radius(cfg, ads_active=False)
-            sticky = lock.locked if lock.lost < int(cfg["target_lost_frames_before_unlock"]) else None
-            currently_locked = sticky is not None
+            cfg["_runtime_detect_fov"] = float(fov_r)
+            sticky, currently_locked, _ = detection_sticky_context(lock.state, cfg)
             result = detector.find_best_target(
                 img,
                 cfg.get("hsv_ranges"),
@@ -72,7 +76,7 @@ class GifDriftRegressionTests(unittest.TestCase):
                 float(cfg["min_target_area_pixels"]),
                 cx,
                 cy,
-                exclude_bottom_frac=0.05,
+                exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
                 detection_mode=detector.DETECTION_MODE_APEX,
                 context=ctx,
                 min_height_px=float(cfg["humanoid_min_height_pixels"]),
@@ -92,7 +96,8 @@ class GifDriftRegressionTests(unittest.TestCase):
                 area_weight=float(cfg["area_score_weight"]),
                 currently_locked=currently_locked,
             )
-            effective, is_stale = lock.step_target(result.target)
+            merged, is_stale = lock.step_detection(result)
+            effective = merged.target
             active = effective is not None and not is_stale
             if active and effective is not None:
                 self.assertGreater(
