@@ -1,0 +1,89 @@
+{
+  "input": "/workspace/artifacts/real_apex_test/_inputs/img4_dummy_not_detected.webp",
+  "frame_size": [
+    310,
+    417
+  ],
+  "fov_radius": 204,
+  "min_area": 20.0,
+  "ads_hint": false,
+  "motion_px": 36747,
+  "fused_px": 48705,
+  "motion_coverage_pct": 0.28426549083313996,
+  "pan_detected": false,
+  "candidate_count": 7,
+  "accepted_candidate_count": 3,
+  "pass1": {
+    "active": true,
+    "selected": {
+      "bbox": [
+        222,
+        57,
+        88,
+        198
+      ],
+      "centroid": [
+        269.345,
+        156.0
+      ],
+      "body_shape_score": 1.0,
+      "confidence": 0.8072912366041829,
+      "head_score": 0.8928357284990319,
+      "torso_score": 0.7755319148936171,
+      "red_coverage": 0.05767906336088154,
+      "reject_reason": "ok",
+      "part_count": 13
+    },
+    "debug_lines": [
+      "cand[0] reject=ok body=0.68 head=0.17 torso=0.70 limb=1.00 aspect=0.61 fill=0.16 circ=0.44 bbox=(0,187,23x14) area=1528 dist=153 parts=4 | parts=4 head=0.17 torso=0.70 limb=1.00 vert=0.72 geom=0.23 align=0.30 circ=0.44 fill=0.16",
+      "cand[1] reject=ok body=0.77 head=0.00 torso=0.71 limb=1.00 aspect=3.63 fill=0.26 circ=0.42 bbox=(40,225,19x69) area=168 dist=112 parts=3 | parts=3 head=0.00 torso=0.71 limb=1.00 vert=1.00 geom=0.94 align=0.26 circ=0.42 fill=0.26",
+      "cand[1] drop solidity=0.13 < min=0.15",
+      "cand[2] reject=floating_cluster body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=1.00 fill=0.23 circ=0.63 bbox=(37,26,39x39) area=160 dist=195 parts=4 | floating_cluster",
+      "cand[3] reject=ok body=0.98 head=0.92 torso=0.59 limb=1.00 aspect=2.38 fill=0.53 circ=0.69 bbox=(69,4,135x321) area=5208 dist=56 parts=23 | parts=23 head=0.92 torso=0.59 limb=1.00 vert=1.00 geom=0.35 align=0.10 circ=0.69 fill=0.53",
+      "cand[3] drop solidity=0.12 < min=0.15",
+      "cand[4] reject=floating_cluster body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=1.77 fill=0.52 circ=0.57 bbox=(203,42,26x46) area=260 dist=162 parts=5 | floating_cluster",
+      "cand[5] reject=ok body=1.00 head=0.89 torso=0.78 limb=1.00 aspect=2.25 fill=0.26 circ=0.58 bbox=(222,57,88x198) area=2750 dist=126 parts=13 | parts=13 head=0.89 torso=0.78 limb=1.00 vert=1.00 geom=0.53 align=0.15 circ=0.58 fill=0.26",
+      "accepted=2 from 6 clusters / 52 parts",
+      "min_height filter: 2 -> 1 (min_h=60.0)",
+      "SELECTED body=1.00 head=0.89 dist=126 bbox=88x198"
+    ]
+  },
+  "pass2_with_sticky": {
+    "active": true,
+    "selected": {
+      "bbox": [
+        227,
+        92,
+        64,
+        161
+      ],
+      "centroid": [
+        261.28000000000003,
+        172.5
+      ],
+      "body_shape_score": 0.743722521134754,
+      "confidence": 0.6277587101516187,
+      "head_score": 0.0,
+      "torso_score": 0.7646398503274088,
+      "red_coverage": 0.06191770186335404,
+      "reject_reason": "ok",
+      "part_count": 9
+    },
+    "debug_lines": [
+      "cand[0] reject=ok body=0.63 head=0.00 torso=0.72 limb=1.00 aspect=0.64 fill=0.07 circ=0.50 bbox=(0,187,22x14) area=1231 dist=153 parts=5 | parts=5 head=0.00 torso=0.72 limb=1.00 vert=0.72 geom=0.13 align=0.11 circ=0.50 fill=0.07",
+      "cand[1] reject=floating_cluster body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=1.00 fill=0.23 circ=0.63 bbox=(37,26,39x39) area=160 dist=195 parts=4 | floating_cluster",
+      "cand[2] reject=ok body=1.00 head=0.96 torso=0.72 limb=1.00 aspect=2.03 fill=0.30 circ=0.67 bbox=(70,4,158x321) area=6650 dist=42 parts=69 | parts=69 head=0.96 torso=0.72 limb=1.00 vert=1.00 geom=0.29 align=0.11 circ=0.67 fill=0.30",
+      "cand[2] drop solidity=0.13 < min=0.15",
+      "cand[3] reject=ok body=0.74 head=0.00 torso=0.76 limb=1.00 aspect=2.52 fill=0.22 circ=0.57 bbox=(227,92,64x161) area=1604 dist=112 parts=9 | parts=9 head=0.00 torso=0.76 limb=1.00 vert=1.00 geom=0.62 align=0.06 circ=0.57 fill=0.22",
+      "cand[4] reject=no_body_structure body=0.68 head=0.43 torso=0.89 limb=0.35 aspect=6.61 fill=0.24 circ=0.50 bbox=(292,105,18x119) area=282 dist=151 parts=2 | parts=2 head=0.43 torso=0.89 limb=0.35 vert=1.00 geom=0.49 align=0.21 circ=0.50 fill=0.24",
+      "accepted=2 from 5 clusters / 89 parts",
+      "min_height filter: 2 -> 1 (min_h=60.0)",
+      "SELECTED body=0.74 head=0.00 dist=112 reason=ok"
+    ]
+  },
+  "y_top_frac": 0.22062350119904076,
+  "y_mid_frac": 0.4136690647482014,
+  "y_bot_frac": 0.6067146282973621,
+  "IS_SKY": false,
+  "active_either_pass": true
+}
