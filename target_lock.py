@@ -39,7 +39,6 @@ INSTANT_ADOPT_MIN_IOU = 0.32
 HIGH_OVERLAP_REFINE_IOU = 0.45
 HIGH_OVERLAP_MAX_DRIFT_PX = 36.0
 SOFT_REFINE_MIN_IOU = 0.26
-GEOMETRY_TRACK_MIN_IOU = 0.20
 SWITCH_MIN_IOU = 0.28
 CLUTTER_REJECT_MAX_IOU = 0.18
 NEW_LOCK_CONFIRM_FRAMES = 2
@@ -345,9 +344,9 @@ def apply_target_lock(
                 and drift < 28
                 and drift < fov_lim
             )
-            # Same safety gates as soft_refine but no cumulative centroid drift cap.
-            # Drift is measured from the original lock — strafing enemies exceed
-            # 28 px after ~1 s and the lock froze while detection still tracked.
+            # Strafe: allow more than soft_refine 28 px, but cap drift and keep IoU
+            # >= 0.26. No IoU 0.20 path — that adopted sky/HUD fragments (upward dot).
+            strafe_drift_lim = max(36.0, min(fov_lim, locked.bbox_w * 2.0))
             safe_track_ok = (
                 adopt_iou >= SOFT_REFINE_MIN_IOU
                 and bs_ratio_ok
@@ -356,15 +355,9 @@ def apply_target_lock(
                 and not weak_red_adopt
                 and not clutter_fp
                 and not sky_band
-            )
-            geometry_track_ok = (
-                adopt_iou >= GEOMETRY_TRACK_MIN_IOU
-                and new_t.body_shape_score >= 0.52
-                and bs_ratio_ok
-                and not upward_fragment
-                and not weak_red_adopt
-                and not clutter_fp
-                and not sky_band
+                and not aim_jump_up
+                and drift < strafe_drift_lim
+                and drift < fov_lim
             )
             high_overlap_refine = (
                 adopt_iou >= HIGH_OVERLAP_REFINE_IOU
@@ -387,7 +380,7 @@ def apply_target_lock(
                 state.switch_frames = 0
                 # Same guards as instant/soft refine — weak IoU-only adopt caused
                 # upward head/HUD fragments to steal the lock on moving enemies.
-                if soft_refine_ok or safe_track_ok or geometry_track_ok:
+                if soft_refine_ok or safe_track_ok:
                     state.locked_target = new_t
                     return result, False
                 # Non-overlapping FP only — never freeze geometry while detector

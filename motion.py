@@ -91,7 +91,7 @@ def fov_distance_scale(dist: float, fov_radius: float, edge_min_scale: float) ->
 
 @dataclass
 class TargetMotion:
-    """``x``/``y`` match ``overlay_xy()`` — pull moves crosshair toward the visible dot."""
+    """Pull uses ``x``/``y``; overlay dot uses ``overlay_xy()`` (smoother visual)."""
 
     x: float
     y: float
@@ -663,16 +663,16 @@ class TargetTracker:
             if y < self._smooth_y - 6.0:
                 ny = self._smooth_y
             self._smooth_x, self._smooth_y = nx, ny
-            self._pull_x = self._smooth_x
-            self._pull_y = self._smooth_y
+            if meas_drift > 0.4:
+                track_alpha = max(alpha * 0.62, alpha_from_tau(dt, 0.022))
+                self._pull_x = self._pull_x + track_alpha * (x - self._pull_x)
+                self._pull_y = self._pull_y + track_alpha * (y - self._pull_y)
 
         pre_pull_x, pre_pull_y = self._pull_x, self._pull_y
         self._last_pre_predict = (pre_pull_x, pre_pull_y)
 
         pull_x, pull_y = self._finalize_pull_point(pre_pull_x, pre_pull_y, dt, in_deadband)
         overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
-        # Pull assists toward the visible dot anchor, not a faster internal point.
-        pull_x, pull_y = overlay_x, overlay_y
 
         self._last_meas_x = x
         self._last_meas_y = y

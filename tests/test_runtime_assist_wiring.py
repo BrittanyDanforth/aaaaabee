@@ -40,10 +40,11 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         # The overlay write must check finiteness of overlay_motion coords
         # before passing them to to_monitor_coords + Tk overlay.
         self.assertIn(
-            "_frame_aim_point",
+            "_frame_overlay_point",
             text,
-            "overlay and pull must share one frame aim point",
+            "overlay uses smoothed anchor; pull uses motion.x/y",
         )
+        self.assertIn("motion.x, motion.y", text)
         self.assertIn(
             "math.isfinite(ov_x)",
             text,

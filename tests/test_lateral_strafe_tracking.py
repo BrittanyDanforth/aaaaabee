@@ -42,8 +42,8 @@ def _body(cx: float, cy: float, **kw) -> Target:
 
 
 class LateralStrafeTrackingTests(unittest.TestCase):
-    def test_geometry_track_at_iou_020_updates_lock(self) -> None:
-        """Sticky-pool overlap without soft-refine drift cap still updates geometry."""
+    def test_strafe_drift_cap_updates_lock_past_soft_refine(self) -> None:
+        """Lateral shift >28px but within safe_track cap still updates geometry."""
         state = TargetLockState()
         cfg = _cfg()
         cfg["_runtime_detect_fov"] = 200

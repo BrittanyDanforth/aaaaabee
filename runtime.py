@@ -228,7 +228,22 @@ class AssistRuntime:
         return motion
 
     @staticmethod
-    def _frame_aim_point(
+    def _clamp_frame_aim(
+        ax: float,
+        ay: float,
+        *,
+        frame_cx: float,
+        frame_cy: float,
+        detect_fov: float,
+        display_fov: float,
+    ) -> tuple[float, float]:
+        return clamp_aim_to_display_fov(
+            ax, ay, frame_cx, frame_cy, detect_fov, display_fov,
+        )
+
+    @classmethod
+    def _frame_overlay_point(
+        cls,
         motion: TargetMotion,
         *,
         frame_cx: float,
@@ -236,10 +251,12 @@ class AssistRuntime:
         detect_fov: float,
         display_fov: float,
     ) -> tuple[float, float]:
-        """Frame-space aim point shared by pull (crosshair) and overlay dot (pre-EMA)."""
-        ax, ay = motion.overlay_xy()
-        return clamp_aim_to_display_fov(
-            ax, ay, frame_cx, frame_cy, detect_fov, display_fov,
+        """Smoothed dot position (pre monitor EMA)."""
+        ox, oy = motion.overlay_xy()
+        return cls._clamp_frame_aim(
+            ox, oy,
+            frame_cx=frame_cx, frame_cy=frame_cy,
+            detect_fov=detect_fov, display_fov=display_fov,
         )
 
     @classmethod
@@ -253,13 +270,11 @@ class AssistRuntime:
         detect_fov: float,
         display_fov: float,
     ) -> Target:
-        """Pull moves crosshair toward the dot — not a separate faster anchor."""
-        ax, ay = cls._frame_aim_point(
-            motion,
-            frame_cx=frame_cx,
-            frame_cy=frame_cy,
-            detect_fov=detect_fov,
-            display_fov=display_fov,
+        """Pull uses the responsive motion anchor (micro-corrections inside the ring)."""
+        ax, ay = cls._clamp_frame_aim(
+            motion.x, motion.y,
+            frame_cx=frame_cx, frame_cy=frame_cy,
+            detect_fov=detect_fov, display_fov=display_fov,
         )
         return replace(raw, centroid_x=ax, centroid_y=ay)
 
@@ -1213,7 +1228,7 @@ class AssistRuntime:
                                 moved = (pr.dx, pr.dy)
                         overlay_mon = None
                         if motion is not None and cap_region is not None:
-                            ov_x, ov_y = self._frame_aim_point(
+                            ov_x, ov_y = self._frame_overlay_point(
                                 motion,
                                 frame_cx=frame_cx,
                                 frame_cy=frame_cy,
@@ -1369,7 +1384,7 @@ class AssistRuntime:
                             else None
                         )
                         if overlay_motion is not None:
-                            ov_x, ov_y = self._frame_aim_point(
+                            ov_x, ov_y = self._frame_overlay_point(
                                 overlay_motion,
                                 frame_cx=frame_cx,
                                 frame_cy=frame_cy,
