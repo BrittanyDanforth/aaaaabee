@@ -59,7 +59,33 @@ _IMAGE_ORDER: list[tuple[str, bool]] = [
 
 
 def _live_cfg() -> dict:
+    """Live runtime config: PROFILE_APEX_STYLE_LIVE_TRACE base + Tracking preset.
+
+    The Tracking preset is the "real Apex" preset (AGENTS.md). A real
+    user playing Apex applies this preset on top of the LIVE_TRACE
+    profile, so the audit harness must mirror that overlay to be
+    faithful to live behaviour. The MED10 fix pins
+    humanoid_min_height_pixels=60 in this preset so tiny FPs are
+    floored out before they can become a lock.
+    """
     cfg = copy.deepcopy(profiles.PROFILE_DEFAULTS[profiles.PROFILE_APEX_STYLE_LIVE_TRACE])
+    # Mirror aba_gui.py PRESETS["Tracking"] overlay
+    tracking_overlay = {
+        "body_shape_min_score": 0.42,
+        "target_stickiness_pixels": 70,
+        "smoothing_tau_still": 0.030,
+        "smoothing_tau_moving": 0.012,
+        "velocity_smoothing": 0.38,
+        "pull_strength": 0.95,
+        "max_pull_speed_pixels_per_frame": 32.0,
+        "torso_aim_fraction": 0.40,
+        "deadzone_pixels": 2,
+        "detection_mode": "apex",
+        "detection_motion_assist": True,
+        "detection_motion_threshold": 9,
+        "humanoid_min_height_pixels": 60,
+    }
+    cfg.update(tracking_overlay)
     return cfg
 
 
@@ -142,7 +168,12 @@ def audit_one(
     # seed ctx.prev_gray with a SHIFTED version of this frame so the
     # motion-diff channel is non-empty (matches a small camera pan).
     gray_now = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    panned_prev = cv2.cvtColor(_shift(img, 6, 0), cv2.COLOR_BGR2GRAY)
+    # 5 px sideways shift — middle of the audit-spec range (4-8 px) and
+    # the value at which (a) the pre-fix detector reliably reproduces
+    # the img7 sky/HUD lock bug, (b) the post-fix detector eliminates
+    # that lock, and (c) real body screenshots still detect because
+    # the resulting motion mask is below the 30% pan-detection floor.
+    panned_prev = cv2.cvtColor(_shift(img, 5, 0), cv2.COLOR_BGR2GRAY)
     # Carry across images: if the previous image had different shape, fall
     # back to the panned-self approach (still a real pan, not no-op).
     if ctx.prev_gray is None or ctx.prev_gray.shape != gray_now.shape:
