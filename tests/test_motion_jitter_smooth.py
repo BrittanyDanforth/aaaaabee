@@ -81,5 +81,19 @@ class OverlayEMATests(unittest.TestCase):
         self.assertTrue(math.isnan(out[0]))
 
 
+class OverlayDisplayCapTests(unittest.TestCase):
+    def test_cap_blocks_sky_teleport(self) -> None:
+        tracker = TargetTracker()
+        tracker.cap_frame_display_step(400.0, 500.0, 140, dt=1.0 / 60.0)
+        x, y = tracker.cap_frame_display_step(400.0, 420.0, 140, dt=1.0 / 60.0)
+        self.assertGreater(y, 500.0 - 6.0, "upward step must be capped per body height")
+
+    def test_cap_allows_lateral_strafe(self) -> None:
+        tracker = TargetTracker()
+        tracker.cap_frame_display_step(400.0, 500.0, 120, dt=1.0 / 60.0)
+        x, _ = tracker.cap_frame_display_step(430.0, 502.0, 120, dt=1.0 / 60.0)
+        self.assertGreater(x, 410.0)
+
+
 if __name__ == "__main__":
     unittest.main()

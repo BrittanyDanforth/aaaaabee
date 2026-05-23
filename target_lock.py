@@ -198,10 +198,13 @@ def overlay_may_show_target(
             lock_state._overlay_last_cy = None
             return False
         last_cy = getattr(lock_state, "_overlay_last_cy", None)
-        if (
+        upward_snap = (
             last_cy is not None
-            and target.centroid_y < float(last_cy) - 22.0
-            and bbox_mid_in_sky_band(target.bbox_y, target.bbox_h, center_y)
+            and target.centroid_y < float(last_cy) - 18.0
+        )
+        if upward_snap and (
+            bbox_mid_in_sky_band(target.bbox_y, target.bbox_h, center_y)
+            or target.red_coverage < max(NEW_LOCK_MIN_RED, 0.08)
         ):
             lock_state.overlay_confirm_frames = 0
         lock_state._overlay_last_cy = float(target.centroid_y)
@@ -304,7 +307,9 @@ def apply_target_lock(
                 and new_t.bbox_h < locked.bbox_h * 0.92
             )
             aim_jump_up = new_t.centroid_y < locked.centroid_y - 12.0
-            weak_red_adopt = aim_jump_up and new_t.red_coverage < 0.06
+            weak_red_adopt = aim_jump_up and new_t.red_coverage < max(
+                0.06, float(locked.red_coverage) * 0.65
+            )
             upward_sky_steal = (
                 aim_jump_up
                 and new_t.red_coverage < max(NEW_LOCK_MIN_RED, locked.red_coverage * 0.72)

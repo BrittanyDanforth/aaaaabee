@@ -143,6 +143,7 @@ class TargetTracker:
         self._last_pred_offset: tuple[float, float] = (0.0, 0.0)
         self._last_pre_predict: tuple[float, float] | None = None
         self._overlay_smooth: tuple[float, float] | None = None
+        self._last_overlay_frame_xy: tuple[float, float] | None = None
         # M5 (audit): hysteresis state for the stationary jitter deadband.
         # Enter when meas_drift < 2.5 AND speed < 90; exit only when
         # meas_drift > 5.0 for 2 consecutive frames AND the instantaneous
@@ -230,6 +231,39 @@ class TargetTracker:
 
     def reset_overlay_smoothing(self) -> None:
         self._overlay_smooth = None
+        self._last_overlay_frame_xy = None
+
+    def cap_frame_display_step(
+        self,
+        x: float,
+        y: float,
+        bbox_h: int,
+        *,
+        dt: float = 1.0 / 60.0,
+    ) -> tuple[float, float]:
+        """Limit per-frame overlay travel — self-adapts to body size, blocks sky teleports."""
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return x, y
+        bh = max(20, int(bbox_h))
+        dt_s = max(_MIN_DT, min(dt, _MAX_DT))
+        scale = max(0.45, min(2.0, dt_s * 60.0))
+        max_step = max(4.0, min(20.0, bh * 0.16)) * scale
+        up_cap = max(1.0, min(5.0, bh * 0.032))
+        if self._last_overlay_frame_xy is None:
+            self._last_overlay_frame_xy = (x, y)
+            return x, y
+        lx, ly = self._last_overlay_frame_xy
+        dx = x - lx
+        dy = y - ly
+        dist = math.hypot(dx, dy)
+        if dist > max_step and dist > 0.0:
+            s = max_step / dist
+            x = lx + dx * s
+            y = ly + dy * s
+        if y < ly - up_cap:
+            y = ly - up_cap
+        self._last_overlay_frame_xy = (x, y)
+        return x, y
 
     def reset(self) -> None:
         self._last = None
@@ -252,6 +286,7 @@ class TargetTracker:
         self._last_pred_offset = (0.0, 0.0)
         self._last_pre_predict = None
         self._overlay_smooth = None
+        self._last_overlay_frame_xy = None
         # M5 deadband memory must also reset when the lock is fully torn down.
         self._in_deadband = False
         self._deadband_exit_frames = 0
@@ -409,13 +444,13 @@ class TargetTracker:
             # fragment frames the detector has clearly committed to the
             # smaller bbox, so we accept it as the new baseline.
             cx, cy, cw, ch = bx, by, bw, bh
-            _STABLE_BBOX_HOLD_MAX = 4
             prev = self._last_stable_bbox
             if prev is not None:
                 pbx, pby, pbw, pbh = prev
-                upward_jump = by < pby - pbh * 0.10
+                upward_jump = by < pby - pbh * 0.06
                 shrunk = bh < pbh * 0.62
-                if (upward_jump or shrunk) and self._stable_bbox_hold_frames < _STABLE_BBOX_HOLD_MAX:
+                hold_max = 6 if upward_jump else 4
+                if (upward_jump or shrunk) and self._stable_bbox_hold_frames < hold_max:
                     cx, cy, cw, ch = pbx, pby, pbw, pbh
                     self._stable_bbox_hold_frames += 1
                 else:

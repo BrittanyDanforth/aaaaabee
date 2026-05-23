@@ -153,3 +153,24 @@ class LongAdsDriftTests(unittest.TestCase):
             t2, detection_fresh=True, center_y=540.0, lock_state=state
         )
         self.assertLess(state.overlay_confirm_frames, 2)
+
+    def test_overlay_confirm_resets_on_weak_red_upward_snap(self) -> None:
+        from target_lock import overlay_may_show_target
+
+        state = TargetLockState()
+        t1 = _body(centroid_y=400.0, bbox_y=300, bbox_h=140, red_coverage=0.12)
+        t2 = _body(
+            centroid_y=360.0,
+            bbox_y=280,
+            bbox_h=120,
+            red_coverage=0.03,
+        )
+        for _ in range(2):
+            overlay_may_show_target(
+                t1, detection_fresh=True, center_y=540.0, lock_state=state
+            )
+        self.assertGreaterEqual(state.overlay_confirm_frames, 2)
+        overlay_may_show_target(
+            t2, detection_fresh=True, center_y=540.0, lock_state=state
+        )
+        self.assertLess(state.overlay_confirm_frames, 2)

@@ -130,6 +130,7 @@ class AssistRuntime:
         # LMB-held flag for recoil compensator engagement gating. Updated by
         # the pynput mouse listener under _lock; read by the runtime loop.
         self._is_firing = False
+        self._prev_loop_t: float | None = None
 
     @property
     def _locked_target(self) -> Target | None:
@@ -996,6 +997,11 @@ class AssistRuntime:
             try:
                 while True:
                     t0 = time.perf_counter()
+                    if self._prev_loop_t is not None:
+                        dt_frame = max(1.0 / 144.0, min(t0 - self._prev_loop_t, 0.05))
+                    else:
+                        dt_frame = frame_interval
+                    self._prev_loop_t = t0
                     if not self._should_run():
                         break
 
@@ -1374,6 +1380,15 @@ class AssistRuntime:
                                 ox = fov_cx_mon + odx * s
                                 oy = fov_cy_mon + ody * s
                             if math.isfinite(ox) and math.isfinite(oy):
+                                bbox_h = 80
+                                if target is not None and int(target.bbox_h) > 0:
+                                    bbox_h = int(target.bbox_h)
+                                ox, oy = self._aim_tracker.cap_frame_display_step(
+                                    ox,
+                                    oy,
+                                    bbox_h,
+                                    dt=dt_frame,
+                                )
                                 # Mild EMA on the overlay-clamped point so the
                                 # dot does not flicker in/out when the centroid
                                 # oscillates across the FOV ring boundary.
