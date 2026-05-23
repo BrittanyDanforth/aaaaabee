@@ -563,7 +563,15 @@ class AssistRuntime:
         self._target_lost_frames = 0
         self._switch_candidate = None
         self._switch_frames = 0
-        self._aim_tracker.reset()
+        # PHASE-7 AUDIT FIX (HIGH4): RMB releases used to ``reset()`` the
+        # tracker, wiping ``_smooth_x/y`` and ``_last_meas_x/y``. Every
+        # re-ADS observation would then have no step-cap anchor, so the
+        # first observed target teleported into place. ``soft_reset()``
+        # preserves the geometric anchor; the lock state above is
+        # already cleared so there's no risk of re-using stale lock
+        # data on the next acquisition. Hard ``reset()`` is reserved
+        # for ``stop()`` / ``_teardown`` (full session end).
+        self._aim_tracker.soft_reset()
         self._last_motion = None
         self._detect_ctx.reset()
         # Releasing ADS implicitly ends an engagement — drop the firing edge
