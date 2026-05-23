@@ -53,6 +53,8 @@ The GUI (`aba_gui.py`) uses Basic/Advanced mode split:
 
 **Presets**: Stable, Responsive, Strong, Debug — apply via buttons on the Basic tab.
 
+**Overlay dot FPS**: `overlay_fps` (default 90) controls Tk redraw; `capture_fps` (60 on live trace) controls how often dot coordinates update. `overlay_dot_smooth_alpha` (default 0.78) trades smoothness vs lag — raise toward 1.0 for snappier dot motion.
+
 ### Pull tuning hot-reload
 
 `PullController.update_tuning()` allows changing `pull_strength`, `deadzone`, `max_speed`, `magnetism_radius`, `velocity_smoothing` while runtime is active (no Stop→Start needed). This is wired through `RuntimeController.apply_config_patch()`.

@@ -34,6 +34,7 @@ from profiles import (
     effective_capture_fov_radius,
     effective_detection_fov_radius,
     effective_fov_radius,
+    effective_overlay_fps,
 )
 from pull import PullController, PullTuning
 from stats import RuntimeStats
@@ -642,6 +643,7 @@ class AssistRuntime:
         from overlay_window import OverlayWindow
 
         radius = effective_fov_radius(self.config, ads_active=False)
+        cfg = self.config
         self._overlay = OverlayWindow(
             width,
             height,
@@ -650,6 +652,7 @@ class AssistRuntime:
             origin_y,
             fov_center_x=fov_center_x,
             fov_center_y=fov_center_y,
+            overlay_fps=effective_overlay_fps(cfg),
         )
 
         def run_overlay() -> None:
@@ -916,6 +919,7 @@ class AssistRuntime:
         self._frame_cx = 0.0
         self._frame_cy = 0.0
         self._last_fov_radius = -1
+        self._last_overlay_fps = -1
         if self._dry:
             print(
                 f"[ABA] DRY-RUN @ {fps} FPS (capped): mask/detection sanity — NOT flick/reacquire/combat proof."
@@ -1311,6 +1315,12 @@ class AssistRuntime:
                                 capture_size=(cap_region.width, cap_region.height),
                             )
 
+                    if self._overlay is not None:
+                        want_fps = effective_overlay_fps(cfg)
+                        if want_fps != getattr(self, "_last_overlay_fps", -1):
+                            self._overlay.set_overlay_fps(want_fps)
+                            self._last_overlay_fps = want_fps
+
                     if self._overlay is not None and self._should_run():
                         overlay_pt = None
                         # M1 (audit): hide the overlay dot after >=2 stale
@@ -1362,7 +1372,12 @@ class AssistRuntime:
                                 # Mild EMA on the overlay-clamped point so the
                                 # dot does not flicker in/out when the centroid
                                 # oscillates across the FOV ring boundary.
-                                sx, sy = self._aim_tracker.smooth_overlay_point(ox, oy)
+                                dot_alpha = float(
+                                    cfg.get("overlay_dot_smooth_alpha", 0.78)
+                                )
+                                sx, sy = self._aim_tracker.smooth_overlay_point(
+                                    ox, oy, alpha=dot_alpha
+                                )
                                 # O3 (audit): re-clamp AFTER the EMA so
                                 # boundary-motion drift can't drag the
                                 # dot outside the ring on a smoothed

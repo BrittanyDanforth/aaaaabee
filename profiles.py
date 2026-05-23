@@ -132,7 +132,9 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "profile": PROFILE_APEX_STYLE_LIVE_TRACE,
         "allow_live_mouse": True,
         "enable_overlay": True,
-        "capture_fps": 30,
+        "capture_fps": 60,
+        "overlay_fps": 90,
+        "overlay_dot_smooth_alpha": 0.78,
         "ads_input_mode": "both",
         "dry_run_force_detect": False,
         "trace_pull": True,
@@ -201,11 +203,21 @@ def normalize_profile_name(name: str) -> str:
     return p
 
 
+def effective_overlay_fps(config: dict[str, Any]) -> int:
+    """Tk overlay redraw rate (FOV ring + target dot). Defaults to 90 Hz."""
+    fps = int(config.get("overlay_fps", 90))
+    capture = effective_capture_fps(config)
+    # Never redraw slower than capture — dot coords only change each capture frame.
+    return max(30, min(144, max(fps, capture)))
+
+
 def effective_capture_fps(config: dict[str, Any]) -> int:
     """Configured FPS after profile + dry-run safety cap."""
     fps = int(config.get("capture_fps", 15))
     profile = resolve_profile_name(config)
-    if profile in (PROFILE_APEX_STYLE_DRY_RUN, PROFILE_APEX_STYLE_LIVE_SAFE, PROFILE_APEX_STYLE_LIVE_TRACE):
+    if profile == PROFILE_APEX_STYLE_LIVE_TRACE:
+        return min(fps, 120)
+    if profile in (PROFILE_APEX_STYLE_DRY_RUN, PROFILE_APEX_STYLE_LIVE_SAFE):
         return min(fps, 30)
     if not config.get("allow_live_mouse", False):
         if profile == PROFILE_APEX_STYLE_PERF_TEST:

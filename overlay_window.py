@@ -249,7 +249,10 @@ class OverlayWindow:
         *,
         fov_center_x: float | None = None,
         fov_center_y: float | None = None,
+        overlay_fps: int = 90,
     ) -> None:
+        self._overlay_fps = max(30, min(144, int(overlay_fps)))
+        self._tick_ms = max(4, int(1000 / self._overlay_fps))
         self._fov_radius = fov_radius
         self._drawn_fov_radius = fov_radius
         self._screen_width = screen_width
@@ -396,14 +399,31 @@ class OverlayWindow:
         for delay in (25, 100, 300, 1000):
             self._root.after(delay, _reapply)
 
+    def set_overlay_fps(self, fps: int) -> None:
+        with self._lock:
+            self._overlay_fps = max(30, min(144, int(fps)))
+            self._tick_ms = max(4, int(1000 / self._overlay_fps))
+
     def set_fov_radius(self, radius: int) -> None:
         with self._lock:
             self._fov_radius = max(40, int(radius))
+        self._request_redraw()
 
     def set_state(self, ads: bool, target: tuple[float, float] | None) -> None:
         with self._lock:
             self._active = ads
             self._target = target
+        self._request_redraw()
+
+    def _request_redraw(self) -> None:
+        """Paint dot/ring on the overlay thread as soon as runtime pushes new state."""
+        root = self._root
+        if root is None or self._closed:
+            return
+        try:
+            root.after(0, self._redraw)
+        except tk.TclError:
+            pass
 
     def _redraw(self) -> None:
         if self._canvas is None or self._fov_id is None:
@@ -488,7 +508,7 @@ class OverlayWindow:
                 tick_count += 1
                 if tick_count == 1 or tick_count % 15 == 0:
                     _make_click_through(self._root, self._canvas)
-                self._root.after(33, tick)
+                self._root.after(self._tick_ms, tick)
 
         tick()
 

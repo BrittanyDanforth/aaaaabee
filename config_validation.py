@@ -163,6 +163,12 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     cfg["capture_fps"] = int(
         _require_number(cfg, "capture_fps", default=60.0, minimum=1, maximum=240)
     )
+    cfg["overlay_fps"] = int(
+        _require_number(cfg, "overlay_fps", default=90.0, minimum=30, maximum=144)
+    )
+    cfg["overlay_dot_smooth_alpha"] = _require_number(
+        cfg, "overlay_dot_smooth_alpha", default=0.78, minimum=0.05, maximum=1.0
+    )
     cfg["monitor_index"] = int(_require_number(cfg, "monitor_index", default=1.0, minimum=1))
     cfg["crosshair_offset_x"] = _require_number(cfg, "crosshair_offset_x", default=0.0)
     cfg["crosshair_offset_y"] = _require_number(cfg, "crosshair_offset_y", default=0.0)
