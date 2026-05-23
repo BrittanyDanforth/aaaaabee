@@ -38,7 +38,7 @@ from target_lock import (
     viewmodel_exclude_bottom,
 )
 from input_state import AdsInputState
-from motion import TargetMotion, TargetTracker
+from motion import TargetMotion, TargetTracker, clamp_aim_to_display_fov
 from mouse_gate import MouseGateContext, MouseGateResult, evaluate_mouse_gate
 from mouse_io import MouseBackend, create_mouse_backend
 from platform_info import enable_dpi_awareness
@@ -228,10 +228,40 @@ class AssistRuntime:
         return motion
 
     @staticmethod
-    def _target_for_pull(raw: Target, motion: TargetMotion) -> Target:
-        """Pull toward the visible overlay dot so crosshair tracks what the user sees."""
-        ox, oy = motion.overlay_xy()
-        return replace(raw, centroid_x=ox, centroid_y=oy)
+    def _frame_aim_point(
+        motion: TargetMotion,
+        *,
+        frame_cx: float,
+        frame_cy: float,
+        detect_fov: float,
+        display_fov: float,
+    ) -> tuple[float, float]:
+        """Frame-space aim point shared by pull (crosshair) and overlay dot (pre-EMA)."""
+        ax, ay = motion.overlay_xy()
+        return clamp_aim_to_display_fov(
+            ax, ay, frame_cx, frame_cy, detect_fov, display_fov,
+        )
+
+    @classmethod
+    def _target_for_pull(
+        cls,
+        raw: Target,
+        motion: TargetMotion,
+        *,
+        frame_cx: float,
+        frame_cy: float,
+        detect_fov: float,
+        display_fov: float,
+    ) -> Target:
+        """Pull moves crosshair toward the dot — not a separate faster anchor."""
+        ax, ay = cls._frame_aim_point(
+            motion,
+            frame_cx=frame_cx,
+            frame_cy=frame_cy,
+            detect_fov=detect_fov,
+            display_fov=display_fov,
+        )
+        return replace(raw, centroid_x=ax, centroid_y=ay)
 
     def stop(self) -> None:
         with self._lock:
@@ -361,7 +391,7 @@ class AssistRuntime:
 
         self._trace_frame += 1
         if motion is not None:
-            mx, my = motion.x, motion.y
+            mx, my = motion.overlay_xy()
         elif target is not None:
             mx, my = target.centroid_x, target.centroid_y
         else:
@@ -1127,7 +1157,14 @@ class AssistRuntime:
                         keep_motion_anchor=False,
                     )
                     pull_target = (
-                        self._target_for_pull(target, motion)
+                        self._target_for_pull(
+                            target,
+                            motion,
+                            frame_cx=frame_cx,
+                            frame_cy=frame_cy,
+                            detect_fov=float(detect_fov),
+                            display_fov=float(display_fov),
+                        )
                         if target is not None and motion is not None
                         else None
                     )
@@ -1176,7 +1213,14 @@ class AssistRuntime:
                                 moved = (pr.dx, pr.dy)
                         overlay_mon = None
                         if motion is not None and cap_region is not None:
-                            ox, oy = to_monitor_coords(motion.x, motion.y, cap_region)
+                            ov_x, ov_y = self._frame_aim_point(
+                                motion,
+                                frame_cx=frame_cx,
+                                frame_cy=frame_cy,
+                                detect_fov=float(detect_fov),
+                                display_fov=float(display_fov),
+                            )
+                            ox, oy = to_monitor_coords(ov_x, ov_y, cap_region)
                             overlay_mon = (ox, oy)
                         loop_ms = (time.perf_counter() - t0) * 1000.0
                         ach_fps = 1000.0 / loop_ms if loop_ms > 0.1 else 0.0
@@ -1325,7 +1369,13 @@ class AssistRuntime:
                             else None
                         )
                         if overlay_motion is not None:
-                            ov_x, ov_y = overlay_motion.overlay_xy()
+                            ov_x, ov_y = self._frame_aim_point(
+                                overlay_motion,
+                                frame_cx=frame_cx,
+                                frame_cy=frame_cy,
+                                detect_fov=float(detect_fov),
+                                display_fov=float(display_fov),
+                            )
                         else:
                             ov_x, ov_y = float("nan"), float("nan")
                         if (
@@ -1336,25 +1386,10 @@ class AssistRuntime:
                             ox, oy = to_monitor_coords(ov_x, ov_y, cap_region)
                             fov_cx_mon = float(center_x)
                             fov_cy_mon = float(center_y)
-                            odx = ox - fov_cx_mon
-                            ody = oy - fov_cy_mon
-                            odist = math.hypot(odx, ody)
-                            # O2 (audit): clamp the overlay dot to the
-                            # SMALLER of (display_fov, detect_fov) so the
-                            # dot always stays inside the GREEN ring the
-                            # user sees on screen. The previous clamp used
-                            # detect_fov alone which is wider than the
-                            # display ring when detection_fov_margin_pixels
-                            # is non-zero — that's why the user saw the
-                            # dot pop outside the visible ring.
                             fov_limit = max(
                                 1.0,
                                 min(float(detect_fov), float(display_fov)),
                             ) * 0.96
-                            if math.isfinite(odist) and odist > fov_limit and odist > 0.0:
-                                s = fov_limit / odist
-                                ox = fov_cx_mon + odx * s
-                                oy = fov_cy_mon + ody * s
                             if math.isfinite(ox) and math.isfinite(oy):
                                 # Mild EMA on the overlay-clamped point so the
                                 # dot does not flicker in/out when the centroid

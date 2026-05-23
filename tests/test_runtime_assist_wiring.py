@@ -20,7 +20,9 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         self.assertIn("bbox_h=target.bbox_h", text)
         self.assertIn("_smooth_aim", text)
         self.assertIn("_target_for_pull", text)
-        self.assertIn("to_monitor_coords(motion.x, motion.y", text)
+        self.assertIn("motion.overlay_xy()", text)
+        self.assertIn("clamp_aim_to_display_fov", text)
+        self.assertIn("_target_for_pull", text)
 
     def test_runtime_ast_has_smooth_aim_method(self) -> None:
         tree = ast.parse(RUNTIME_PATH.read_text(encoding="utf-8"))
@@ -38,9 +40,9 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         # The overlay write must check finiteness of overlay_motion coords
         # before passing them to to_monitor_coords + Tk overlay.
         self.assertIn(
-            "overlay_motion.overlay_xy()",
+            "_frame_aim_point",
             text,
-            "overlay dot must use split overlay anchor",
+            "overlay and pull must share one frame aim point",
         )
         self.assertIn(
             "math.isfinite(ov_x)",

@@ -42,6 +42,34 @@ def _body(cx: float, cy: float, **kw) -> Target:
 
 
 class LateralStrafeTrackingTests(unittest.TestCase):
+    def test_geometry_track_at_iou_020_updates_lock(self) -> None:
+        """Sticky-pool overlap without soft-refine drift cap still updates geometry."""
+        state = TargetLockState()
+        cfg = _cfg()
+        cfg["_runtime_detect_fov"] = 200
+        locked = _body(640.0, 420.0)
+        state.locked_target = locked
+        state.target_lost_frames = 0
+        # Same body, shifted 35px — fails soft_refine drift<28 but passes geometry IoU.
+        shifted = _body(
+            675.0,
+            420.0,
+            bbox_x=645,
+            bbox_y=350,
+        )
+        effective, stale = apply_target_lock(
+            state,
+            DetectionResult(shifted, 1, shifted.confidence),
+            center_y=540.0,
+            cfg=cfg,
+            fov_cx=640.0,
+            fov_cy=540.0,
+            frame_size=(1280, 1080),
+        )
+        self.assertFalse(stale)
+        assert effective.target is not None
+        self.assertAlmostEqual(effective.target.centroid_x, 675.0, delta=0.5)
+
     def test_lock_centroid_updates_through_50px_strafe(self) -> None:
         """Cumulative drift > 28 px must not freeze the locked target."""
         state = TargetLockState()
