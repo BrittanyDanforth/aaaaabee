@@ -209,8 +209,11 @@ class TargetTracker:
             self._overlay_smooth = (x, y)
             return x, y
         a = max(0.05, min(1.0, float(alpha)))
+        ay = a
+        if y < self._overlay_smooth[1]:
+            ay = min(a, 0.48)
         sx = self._overlay_smooth[0] + a * (x - self._overlay_smooth[0])
-        sy = self._overlay_smooth[1] + a * (y - self._overlay_smooth[1])
+        sy = self._overlay_smooth[1] + ay * (y - self._overlay_smooth[1])
         self._overlay_smooth = (sx, sy)
         return sx, sy
 
@@ -321,7 +324,12 @@ class TargetTracker:
         if dist <= max_step or dist <= 0.0:
             return x, y
         s = max_step / dist
-        return last_x + dx * s, last_y + dy * s
+        nx = last_x + dx * s
+        ny = last_y + dy * s
+        up_cap = max(2.0, max_step * 0.42)
+        if ny < last_y - up_cap:
+            ny = last_y - up_cap
+        return nx, ny
 
     @staticmethod
     def _cap_measurement_step_locked_slow(
@@ -339,7 +347,12 @@ class TargetTracker:
         if dist <= max_step or dist <= 0.0:
             return x, y
         s = max_step / dist
-        return last_x + dx * s, last_y + dy * s
+        nx = last_x + dx * s
+        ny = last_y + dy * s
+        up_cap = max(1.5, max_step * 0.35)
+        if ny < last_y - up_cap:
+            ny = last_y - up_cap
+        return nx, ny
 
     def _effective_tau(self, dt: float, speed: float) -> float:
         t = max(0.0, min(1.0, speed / _SPEED_MOVING_PX_S))
@@ -387,8 +400,8 @@ class TargetTracker:
             prev = self._last_stable_bbox
             if prev is not None:
                 pbx, pby, pbw, pbh = prev
-                upward_jump = by < pby - pbh * 0.20
-                shrunk = bh < pbh * 0.55
+                upward_jump = by < pby - pbh * 0.12
+                shrunk = bh < pbh * 0.62
                 if (upward_jump or shrunk) and self._stable_bbox_hold_frames < _STABLE_BBOX_HOLD_MAX:
                     cx, cy, cw, ch = pbx, pby, pbw, pbh
                     self._stable_bbox_hold_frames += 1

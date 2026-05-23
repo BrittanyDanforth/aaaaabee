@@ -55,6 +55,7 @@ class RejectReason(str, Enum):
     NO_BODY_STACK = "no_body_stack"
     SKY_BLOB = "sky_blob"
     VIEWMODEL_COLUMN = "viewmodel_column"
+    BACKGROUND_CLUTTER = "background_clutter"
     LOW_SCORE = "low_body_shape_score"
 
 
@@ -776,6 +777,32 @@ def _is_viewmodel_column_fp(
     if align_s >= 0.40:
         return False
     return True
+
+
+def _is_background_red_clutter(
+    fig: _FigureAnalysis,
+    parts: list,
+    *,
+    red_cov: float,
+) -> bool:
+    """Small distant red props / HUD specks that pass shape heuristics but are not bodies."""
+    if red_cov >= 0.10:
+        return False
+    if any(p.role == PartRole.TORSO for p in parts) and red_cov >= 0.06:
+        return False
+    bh = float(fig.bh)
+    bw = float(fig.bw)
+    if bh >= 62.0 and fig.total_area >= 140.0:
+        return False
+    max_circ = _max_part_circularity(parts)
+    if fig.total_area < 95.0 or bh < 44.0:
+        if red_cov < 0.09:
+            return True
+    if bh < 54.0 and bw < 30.0 and red_cov < 0.075:
+        return True
+    if fig.part_count <= 2 and bh < 64.0 and max_circ >= 0.62 and red_cov < 0.085:
+        return True
+    return False
 
 
 def _is_diamond_sign(part: _RedPart, scale: float) -> bool:
@@ -2710,6 +2737,16 @@ def _collect_candidates(
                 )
             continue
 
+        if red_filled is not None and fig.accepted and _is_background_red_clutter(
+            fig, body_parts, red_cov=red_cov
+        ):
+            if debug:
+                lines.append(
+                    f"cand[{idx}] drop {RejectReason.BACKGROUND_CLUTTER.value} "
+                    f"area={fig.total_area:.0f} bh={fig.bh} red_cov={red_cov:.3f}"
+                )
+            continue
+
         targets.append(
             Target(
                 centroid_x=aim_x,
@@ -2935,6 +2972,12 @@ def score_target(
     # (still tall + multi-part) are unaffected.
     if target.bbox_w < 14 and target.part_count <= 2:
         penalty += fov_radius * 1.2
+    if (
+        target.bbox_h < 58
+        and target.red_coverage < 0.08
+        and target.part_count <= 3
+    ):
+        penalty += fov_radius * 1.4
     # The body<0.48 penalty is normally a strong rejection of marginal
     # silhouettes — but when motion or red coverage independently confirm
     # a tall humanoid bbox, we trust the geometric / chromatic evidence

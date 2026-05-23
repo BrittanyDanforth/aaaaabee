@@ -56,7 +56,7 @@ _APEX_TUNING: dict[str, Any] = {
     # floor let sky/HUD 16-px fragments enter the candidate pool. The
     # Tracking preset overlays 60 (more aggressive) but profile defaults
     # need a sane mid-ground for users who never click the preset.
-    "humanoid_min_height_pixels": 40,
+    "humanoid_min_height_pixels": 48,
     "humanoid_min_aspect": 0.5,
     "humanoid_max_aspect": 5.5,
     # PHASE-7 AUDIT FIX (HIGH6): lowered from 0.15 → 0.10. img2 in the
@@ -135,7 +135,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "enable_overlay": True,
         "capture_fps": 60,
         "overlay_fps": 90,
-        "overlay_dot_smooth_alpha": 0.62,
+        "overlay_dot_smooth_alpha": 0.68,
         "ads_input_mode": "both",
         "dry_run_force_detect": False,
         "trace_pull": True,

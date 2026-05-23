@@ -754,8 +754,15 @@ class AssistRuntime:
                     upward_fragment = (
                         new_t.bbox_y
                         < self._locked_target.bbox_y
-                        - self._locked_target.bbox_h * 0.15
-                        and new_t.bbox_h < self._locked_target.bbox_h
+                        - self._locked_target.bbox_h * 0.12
+                        and new_t.bbox_h < self._locked_target.bbox_h * 0.92
+                    )
+                    aim_jump_up = (
+                        new_t.centroid_y
+                        < self._locked_target.centroid_y - 16.0
+                    )
+                    weak_red_adopt = (
+                        aim_jump_up and new_t.red_coverage < 0.06
                     )
                     from detector import _bbox_iou as _iou
                     adopt_iou = _iou(
@@ -772,6 +779,7 @@ class AssistRuntime:
                         bs_ratio_ok
                         and bs_abs_ok
                         and not upward_fragment
+                        and not weak_red_adopt
                         and bbox_overlap_ok
                         and not sky_band
                     )
@@ -809,6 +817,8 @@ class AssistRuntime:
                         >= self._locked_target.body_shape_score + 0.10
                         and new_t.confidence
                         >= self._locked_target.confidence * 0.90
+                        and new_t.red_coverage >= 0.05
+                        and not weak_red_adopt
                     )
                     if self._switch_frames >= 3 and switch_score_ok:
                         self._locked_target = new_t
@@ -841,10 +851,16 @@ class AssistRuntime:
                     < center_y * 0.40
                 )
                 low_red_lock = new_t.red_coverage < 0.04
+                tiny_clutter_lock = (
+                    new_t.bbox_h < 58
+                    and new_t.red_coverage < 0.07
+                    and new_t.part_count <= 3
+                )
                 if (
                     new_t.body_shape_score < 0.55
                     or new_sky
                     or low_red_lock
+                    or tiny_clutter_lock
                 ):
                     return DetectionResult(None, result.candidates, 0.0)
                 self._locked_target = new_t
