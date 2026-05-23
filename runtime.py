@@ -1134,6 +1134,8 @@ class AssistRuntime:
                     pull_px = 0.0
                     pull_strength = 0.0
                     stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
+                    with self._lock:
+                        firing_now = self._is_firing
                     may_pull = (
                         pull_target is not None
                         and target is not None
@@ -1152,8 +1154,6 @@ class AssistRuntime:
                         and may_pull
                         and self._pull is not None
                     ):
-                        with self._lock:
-                            firing_now = self._is_firing
                         pr = self._pull.compute_delta(
                             pull_target,
                             frame_cx,
@@ -1204,6 +1204,31 @@ class AssistRuntime:
                                 achieved_fps=ach_fps,
                             )
 
+                    elif (
+                        not paused
+                        and self._should_run()
+                        and ads_for_assist
+                        and firing_now
+                        and self._pull is not None
+                        and self._pull.recoil_pull_down_active()
+                    ):
+                        # Recoil cancel is NOT gated on detection — always pull down
+                        # while ADS+LMB even if lock glitches or target is centered.
+                        err_x = 0.0
+                        if pull_target is not None:
+                            err_x = pull_target.centroid_x - frame_cx
+                        pr = self._pull.compute_recoil_only(
+                            time_sec=t0,
+                            is_firing=True,
+                            err_x=err_x,
+                        )
+                        pull_px = pr.magnitude
+                        with self._lock:
+                            self._last_pull_dx = pr.dx
+                            self._last_pull_dy = pr.dy
+                        if (pr.dx != 0 or pr.dy != 0) and self._should_run():
+                            self._safe_mouse_move(pr.dx, pr.dy)
+
                     elif ads_for_assist and self._trace_pull and pull_target is None:
                         gate_result = MouseGateResult(True, "")
                         loop_ms = (time.perf_counter() - t0) * 1000.0
@@ -1231,11 +1256,19 @@ class AssistRuntime:
                             achieved_fps=ach_fps,
                         )
 
-                    elif (not ads_for_assist or paused or target is None) and self._pull is not None:
-                        self._pull.reset()
-                        with self._lock:
-                            self._last_pull_dx = 0
-                            self._last_pull_dy = 0
+                    elif self._pull is not None:
+                        if not ads_for_assist or paused:
+                            self._pull.reset()
+                            with self._lock:
+                                self._last_pull_dx = 0
+                                self._last_pull_dy = 0
+                        elif target is None and not firing_now:
+                            self._pull.reset()
+                            with self._lock:
+                                self._last_pull_dx = 0
+                                self._last_pull_dy = 0
+                        elif target is None and firing_now:
+                            self._pull.reset_assist_velocity()
 
                     with self._lock:
                         elapsed_ms = (time.perf_counter() - t0) * 1000.0

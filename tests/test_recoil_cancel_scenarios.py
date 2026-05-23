@@ -10,6 +10,22 @@ from tests.test_recoil_jitter import _on_target_tgt, _tgt, _tuning
 
 
 class RecoilCancelScenarioTests(unittest.TestCase):
+    def test_recoil_only_without_target_or_lock(self) -> None:
+        ctrl = PullController(
+            _tuning(
+                recoil_compensation_enabled=True,
+                recoil_pull_down_pixels_per_second=60.0,
+                jitter_enabled=False,
+            )
+        )
+        total_dy = 0
+        t = 0.0
+        for _ in range(40):
+            pr = ctrl.compute_recoil_only(time_sec=t, is_firing=True, err_x=0.0)
+            total_dy += pr.dy
+            t += 1.0 / 60.0
+        self.assertGreater(total_dy, 10, "pull-down must run with no target")
+
     def test_on_target_spray_stays_straight_no_sideways(self) -> None:
         ctrl = PullController(
             _tuning(

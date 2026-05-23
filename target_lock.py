@@ -363,12 +363,9 @@ def apply_target_lock(
             if state.target_lost_frames == 0:
                 state.switch_candidate = None
                 state.switch_frames = 0
-                if (
-                    adopt_iou >= SOFT_REFINE_MIN_IOU
-                    and not clutter_fp
-                    and not new_is_env
-                    and _passes_instant_refine_gates(new_t)
-                ):
+                # Same guards as instant/soft refine — weak IoU-only adopt caused
+                # upward head/HUD fragments to steal the lock on moving enemies.
+                if soft_refine_ok:
                     state.locked_target = new_t
                     return result, False
                 return (

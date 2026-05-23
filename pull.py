@@ -147,6 +147,41 @@ class PullController:
         self._humanize.reset()
         self._recoil.reset()
 
+    def reset_assist_velocity(self) -> None:
+        """Clear aim-pull smoothing only — preserve recoil ramp across brief target gaps."""
+        self._vel_x = 0.0
+        self._vel_y = 0.0
+        self._residual_x = 0.0
+        self._residual_y = 0.0
+        self._stale_count = 0
+
+    def recoil_pull_down_active(self) -> bool:
+        return (
+            self._tuning.recoil_compensation_enabled
+            and self._tuning.recoil_pull_down_pixels_per_second > 0.0
+        )
+
+    def compute_recoil_only(
+        self,
+        *,
+        time_sec: float | None = None,
+        is_firing: bool = False,
+        err_x: float = 0.0,
+    ) -> PullResult:
+        """Engagement recoil cancel without a lock — pull-down always fires when armed."""
+        now = time.perf_counter() if time_sec is None else time_sec
+        if not math.isfinite(now):
+            now = time.perf_counter()
+        dt = self._frame_dt(now)
+        self._last_time = now
+        if not is_firing or not self._recoil.active:
+            self._recoil_bias(is_firing=False, dt=dt, err_x=0.0)
+            return PullResult(0, 0, 0.0, 0.0, 0.0)
+        bias_x, bias_y = self._recoil_bias(is_firing=True, dt=dt, err_x=err_x)
+        move_x, move_y = self._emit_integer_delta(bias_x, bias_y)
+        mag = math.hypot(move_x, move_y)
+        return PullResult(move_x, move_y, mag, 0.0, 0.0)
+
     def _magnetism_scale(self, dist: float) -> float:
         radius = self._tuning.magnetism_radius
         floor = self._tuning.magnetism_min_scale

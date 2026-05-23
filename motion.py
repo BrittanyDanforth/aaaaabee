@@ -618,8 +618,12 @@ class TargetTracker:
             # still damps detector 1–3 px noise without freeing the pull anchor.
             ov_cap = max(0.025, min(0.085, 0.12 - (_tau_still - 0.02) * 1.2))
             ov_alpha = min(alpha_from_tau(dt, max(_tau_still * 2.2, 0.036)), ov_cap)
-            self._smooth_x = self._smooth_x + ov_alpha * (x - self._smooth_x)
-            self._smooth_y = self._smooth_y + ov_alpha * (y - self._smooth_y)
+            nx = self._smooth_x + ov_alpha * (x - self._smooth_x)
+            ny = self._smooth_y + ov_alpha * (y - self._smooth_y)
+            # Do not creep the overlay anchor upward on fragment hits (sky steal).
+            if y < self._smooth_y - 6.0:
+                ny = self._smooth_y
+            self._smooth_x, self._smooth_y = nx, ny
             if meas_drift > 0.4:
                 track_alpha = max(alpha * 0.55, alpha_from_tau(dt, 0.028))
                 self._pull_x = self._pull_x + track_alpha * (x - self._pull_x)
