@@ -25,7 +25,13 @@ import math
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from detector import DetectionResult, Target, _bbox_iou, target_is_background_clutter
+from detector import (
+    DetectionResult,
+    Target,
+    _bbox_iou,
+    bbox_mid_in_sky_band,
+    target_is_background_clutter,
+)
 
 # IoU gates (documented in tests/test_detection_hardening.py).
 INSTANT_ADOPT_MIN_IOU = 0.32
@@ -60,10 +66,9 @@ def _same_lock_identity(a: Target, b: Target) -> bool:
 
 def _passes_new_lock_gates(target: Target, *, center_y: float) -> bool:
     """Reject crates, panels, and scope/HUD blobs before a lock can confirm."""
-    mid_y = target.bbox_y + target.bbox_h * 0.5
     if target.body_shape_score < NEW_LOCK_MIN_BODY:
         return False
-    if mid_y < center_y * 0.40:
+    if bbox_mid_in_sky_band(target.bbox_y, target.bbox_h, center_y):
         return False
     if target.red_coverage < NEW_LOCK_MIN_RED:
         return False
@@ -104,8 +109,13 @@ def _locked_is_environment_fp(target: Target, *, center_y: float) -> bool:
     """True when an existing lock is clearly a crate/HUD blob (not mild occlusion)."""
     if target_is_background_clutter(target):
         return True
-    mid_y = target.bbox_y + target.bbox_h * 0.5
-    if mid_y < center_y * 0.40:
+    if bbox_mid_in_sky_band(target.bbox_y, target.bbox_h, center_y):
+        return True
+    if (
+        target.red_coverage < NEW_LOCK_MIN_RED
+        and not target.has_classified_torso
+        and target.torso_score < 0.28
+    ):
         return True
     if target.fill_ratio > 0.82 and int(target.part_count) <= 2:
         return True
@@ -229,7 +239,7 @@ def apply_target_lock(
                 new_t.bbox_w,
                 new_t.bbox_h,
             )
-            sky_band = new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
+            sky_band = bbox_mid_in_sky_band(new_t.bbox_y, new_t.bbox_h, center_y)
             clutter_fp = target_is_background_clutter(new_t)
             instant_adopt_ok = (
                 bs_ratio_ok

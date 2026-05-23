@@ -1115,14 +1115,11 @@ class AssistRuntime:
                     may_pull = (
                         pull_target is not None
                         and target is not None
-                        and (
-                            stale_det
-                            or overlay_may_show_target(
-                                target,
-                                detection_fresh=detection_fresh,
-                                center_y=frame_cy,
-                                lock_state=self._target_lock,
-                            )
+                        and overlay_may_show_target(
+                            target,
+                            detection_fresh=detection_fresh,
+                            center_y=frame_cy,
+                            lock_state=self._target_lock,
                         )
                     )
                     if (

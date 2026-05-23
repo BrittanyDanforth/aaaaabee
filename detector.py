@@ -73,6 +73,29 @@ class RejectReason(str, Enum):
     BACKGROUND_CLUTTER = "background_clutter"
     LOW_SCORE = "low_body_shape_score"
 
+# Shared with target_lock — one sky band + red floor for detector and lock.
+SKY_BAND_CENTER_FRAC = 0.40
+MIN_ENEMY_RED_COVERAGE = 0.04
+
+
+def bbox_mid_in_sky_band(bbox_y: float, bbox_h: float, center_y: float) -> bool:
+    mid_y = bbox_y + bbox_h * 0.5
+    return mid_y < center_y * SKY_BAND_CENTER_FRAC
+
+
+def has_enemy_red_torso_evidence(
+    parts: list,
+    *,
+    torso_score: float,
+    red_cov: float,
+) -> bool:
+    """True when red/torso evidence is real enemy highlight — not mislabeled gun column."""
+    if red_cov >= 0.05:
+        return True
+    if torso_score >= 0.32 and red_cov >= MIN_ENEMY_RED_COVERAGE:
+        return any(p.role == PartRole.TORSO for p in parts)
+    return False
+
 
 class PartRole(str, Enum):
     HEAD = "head"
@@ -768,6 +791,7 @@ def _is_viewmodel_column_fp(
     red_cov: float,
     align_s: float,
     part_count: int,
+    torso_score: float = 0.0,
 ) -> bool:
     """Reject the player's scope/gun column (img7-class false lock).
 
@@ -778,7 +802,7 @@ def _is_viewmodel_column_fp(
         return False
     if red_cov >= 0.05:
         return False
-    if any(p.role == PartRole.TORSO for p in parts):
+    if has_enemy_red_torso_evidence(parts, torso_score=torso_score, red_cov=red_cov):
         return False
     if part_count < 4 or bh < frame_h * 0.12:
         return False
@@ -2740,36 +2764,6 @@ def _collect_candidates(
         # Apex screenshots (img3 red_cov=0.098 — keeps; img7 gun
         # red_cov=0.004 — drops).
         has_torso_part = any(p.role == PartRole.TORSO for p in body_parts)
-        if red_filled is not None:
-            if fig.accepted and red_cov < 0.04:
-                mov_ov = 0.0
-                if context is not None:
-                    mov_ov = context.motion_coverage_ratio(fig.bx, fig.by, fig.bw, fig.bh)
-                if mov_ov < 0.25:
-                    if debug:
-                        lines.append(
-                            f"cand[{idx}] drop low_red_cov={red_cov:.3f} mov={mov_ov:.2f}"
-                        )
-                    continue
-            if fig.accepted and fig.fill_ratio < 0.12 and red_cov < 0.05:
-                if debug:
-                    lines.append(
-                        f"cand[{idx}] drop sparse_red fill={fig.fill_ratio:.2f} "
-                        f"red_cov={red_cov:.3f}"
-                    )
-                continue
-        if fig.accepted and red_filled is not None and red_cov < 0.05 and not has_torso_part:
-            mov_ov = 0.0
-            if context is not None:
-                mov_ov = context.motion_coverage_ratio(fig.bx, fig.by, fig.bw, fig.bh)
-            if mov_ov < 0.20:
-                if debug:
-                    lines.append(
-                        f"cand[{idx}] drop no_torso_no_red torso_part={has_torso_part} "
-                        f"torso={fig.torso_score:.2f} red_cov={red_cov:.3f} mov={mov_ov:.2f}"
-                    )
-                continue
-
         align_for_vm = _part_alignment_score(body_parts, _scale(w, h))
         if red_filled is not None and fig.accepted and _is_viewmodel_column_fp(
             body_parts,
@@ -2784,6 +2778,7 @@ def _collect_candidates(
             red_cov=red_cov,
             align_s=align_for_vm,
             part_count=fig.part_count,
+            torso_score=fig.torso_score,
         ):
             if debug:
                 lines.append(
@@ -2791,6 +2786,45 @@ def _collect_candidates(
                     f"red_cov={red_cov:.3f} align={align_for_vm:.2f}"
                 )
             continue
+        if red_filled is not None:
+            if fig.accepted and red_cov < MIN_ENEMY_RED_COVERAGE:
+                mov_ov = 0.0
+                if context is not None:
+                    mov_ov = context.motion_coverage_ratio(
+                        fig.bx, fig.by, fig.bw, fig.bh
+                    )
+                if mov_ov < 0.25:
+                    if debug:
+                        lines.append(
+                            f"cand[{idx}] drop low_red_cov={red_cov:.3f} "
+                            f"mov={mov_ov:.2f}"
+                        )
+                    continue
+            if fig.accepted and fig.fill_ratio < 0.12 and red_cov < 0.05:
+                if debug:
+                    lines.append(
+                        f"cand[{idx}] drop sparse_red fill={fig.fill_ratio:.2f} "
+                        f"red_cov={red_cov:.3f}"
+                    )
+                continue
+        if (
+            fig.accepted
+            and red_filled is not None
+            and red_cov < 0.05
+            and not has_enemy_red_torso_evidence(
+                body_parts, torso_score=fig.torso_score, red_cov=red_cov
+            )
+        ):
+            mov_ov = 0.0
+            if context is not None:
+                mov_ov = context.motion_coverage_ratio(fig.bx, fig.by, fig.bw, fig.bh)
+            if mov_ov < 0.20:
+                if debug:
+                    lines.append(
+                        f"cand[{idx}] drop no_torso_no_red torso_part={has_torso_part} "
+                        f"torso={fig.torso_score:.2f} red_cov={red_cov:.3f} mov={mov_ov:.2f}"
+                    )
+                continue
 
         if red_filled is not None and fig.accepted and _is_background_red_clutter(
             fig, body_parts, red_cov=red_cov
@@ -2928,8 +2962,7 @@ def score_target(
         # (feet > 0.45 * fov above centre) as sky blobs.
         if foot_y < center_y - fov_radius * 0.45:
             penalty += fov_radius * 2.2
-        bbox_mid_y = target.bbox_y + target.bbox_h * 0.5
-        if bbox_mid_y < center_y * 0.35:
+        if bbox_mid_in_sky_band(target.bbox_y, target.bbox_h, center_y):
             penalty += fov_radius * 1.8
     # REAL-FRAME AUDIT FIX (img1 dummy): when ``analyze_figure`` has
     # already produced a strong humanoid signature (body >= 0.80 with at
@@ -3227,8 +3260,11 @@ def find_best_target(
                     f"red={chosen.red_coverage:.3f} h={chosen.bbox_h}"
                 )
                 return DetectionResult(None, len(candidates), chosen.confidence, debug_lines=dbg, active=False)
-            chosen_mid_y = chosen.bbox_y + chosen.bbox_h * 0.5
-            if chosen_mid_y < cy * 0.35 and chosen.body_shape_score < 0.70:
+            if (
+                bbox_mid_in_sky_band(chosen.bbox_y, chosen.bbox_h, cy)
+                and chosen.body_shape_score < 0.70
+            ):
+                chosen_mid_y = chosen.bbox_y + chosen.bbox_h * 0.5
                 dbg.append(
                     f"sticky reject sky_band mid_y={chosen_mid_y:.0f} cy={cy:.0f} "
                     f"body={chosen.body_shape_score:.2f}"
@@ -3285,8 +3321,8 @@ def find_best_target(
     if best.confidence < min_confidence:
         dbg.append(f"selected reject low_conf={best.confidence:.2f}")
         return DetectionResult(None, len(candidates), best.confidence, debug_lines=dbg, active=False)
-    best_mid_y = best.bbox_y + best.bbox_h * 0.5
-    if best_mid_y < cy * 0.35 and best.body_shape_score < 0.70:
+    if bbox_mid_in_sky_band(best.bbox_y, best.bbox_h, cy) and best.body_shape_score < 0.70:
+        best_mid_y = best.bbox_y + best.bbox_h * 0.5
         dbg.append(f"free-max reject sky_band mid_y={best_mid_y:.0f} cy={cy:.0f} body={best.body_shape_score:.2f}")
         return DetectionResult(None, len(candidates), best.confidence, debug_lines=dbg, active=False)
     _refresh_validation(best)
