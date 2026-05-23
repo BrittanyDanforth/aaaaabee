@@ -2987,7 +2987,7 @@ def find_best_target(
                 t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h,
             )
             dist = math.hypot(t.centroid_x - sticky_target.centroid_x, t.centroid_y - sticky_target.centroid_y)
-            if iou >= 0.20 or dist <= stickiness_pixels:
+            if iou >= 0.20 or (dist <= stickiness_pixels and t.body_shape_score >= 0.45):
                 pool.append(t)
         if pool:
             sticky_best = max(pool, key=rank)
@@ -3020,6 +3020,13 @@ def find_best_target(
             # already softens transient dips, but a hard floor here prevents
             # one bad detection from breaking the lock and causing a re-acquire
             # flicker visible to the user as a "glitching" dot.
+            chosen_mid_y = chosen.bbox_y + chosen.bbox_h * 0.5
+            if chosen_mid_y < cy * 0.35 and chosen.body_shape_score < 0.70:
+                dbg.append(
+                    f"sticky reject sky_band mid_y={chosen_mid_y:.0f} cy={cy:.0f} "
+                    f"body={chosen.body_shape_score:.2f}"
+                )
+                return DetectionResult(None, len(candidates), chosen.confidence, debug_lines=dbg, active=False)
             iou_lock = _bbox_iou(
                 sticky_target.bbox_x, sticky_target.bbox_y,
                 sticky_target.bbox_w, sticky_target.bbox_h,
