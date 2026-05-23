@@ -290,8 +290,6 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     log_file = cfg.get("log_file", "")
     cfg["log_file"] = str(log_file).strip() if log_file else ""
 
-    title = cfg.get("target_window_title", "")
-    cfg["target_window_title"] = str(title).strip() if title else ""
     cfg["pause_on_target_closed"] = bool(cfg.get("pause_on_target_closed", True))
 
     raw_profile = str(cfg.get("profile", "apex_style_dry_run")).lower()

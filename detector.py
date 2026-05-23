@@ -35,8 +35,6 @@ _VALID_DETECTION_MODES = frozenset(
 )
 DETECTION_MODE_DEFAULT = DETECTION_MODE_APEX
 
-_LAST_DEBUG_LINES: list[str] = []
-
 
 class RejectReason(str, Enum):
     OK = "ok"
@@ -152,10 +150,6 @@ class _FigureAnalysis:
     total_area: float
     solidity: float
     debug_detail: str
-
-
-def get_last_debug_lines() -> list[str]:
-    return list(_LAST_DEBUG_LINES)
 
 
 def _scale(frame_w: int, frame_h: int) -> float:
@@ -2489,7 +2483,6 @@ def _collect_candidates(
     max_aspect: float | None = None,
     min_solidity: float | None = None,
 ) -> tuple[list[Target], list[str]]:
-    global _LAST_DEBUG_LINES
     h, w = frame_bgr.shape[:2]
     mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=detection_mode, context=context)
     fov = _build_fov_mask(h, w, cx, cy, fov_radius)
@@ -2655,7 +2648,6 @@ def _collect_candidates(
 
     if debug:
         lines.append(f"accepted={len(targets)} from {len(clusters)} clusters / {len(parts)} parts")
-        _LAST_DEBUG_LINES = lines
     return targets, lines
 
 
@@ -3076,27 +3068,6 @@ def find_best_target(
         f"dist={best.distance_to_center:.0f} bbox={best.bbox_w}x{best.bbox_h}"
     )
     return DetectionResult(best, len(candidates), best.confidence, debug_lines=dbg, active=True)
-
-
-def _is_humanoid_contour(contour: np.ndarray, frame_w: int, frame_h: int) -> tuple[bool, int, int, float, float]:
-    x, y, w, h = cv2.boundingRect(contour)
-    part = _RedPart(
-        contour=contour,
-        x=x,
-        y=y,
-        w=w,
-        h=h,
-        area=float(cv2.contourArea(contour)),
-        cx=x + w * 0.5,
-        cy=y + h * 0.5,
-        aspect_wh=w / max(h, 1),
-        aspect_hw=h / max(w, 1),
-        solidity=0.5,
-        extent=0.5,
-        circularity=0.3,
-    )
-    fig = analyze_figure([part], np.ones((frame_h, frame_w), dtype=np.uint8) * 255, frame_w, frame_h)
-    return fig.accepted, w, h, fig.solidity, fig.body_shape_score
 
 
 def draw_debug(

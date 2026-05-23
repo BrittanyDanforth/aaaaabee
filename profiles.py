@@ -11,7 +11,6 @@ APEX_PROCESS_NAME = "r5apex.exe,r5apex_dx12.exe"
 # Shared Apex tuning (shape detection default; optional HSV legacy).
 _APEX_TUNING: dict[str, Any] = {
     "target_process_name": APEX_PROCESS_NAME,
-    "target_window_title": "",
     "target_process_required": False,
     "pause_on_target_closed": True,
     "offline_dev_mode": True,
