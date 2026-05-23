@@ -221,19 +221,27 @@ class AssistRuntime:
             if huge_jump and weak_upgrade:
                 return False
             if huge_jump:
-                pending = self._pending_pull_target
-                if (
-                    pending is not None
-                    and _m.hypot(target.centroid_x - pending.centroid_x, target.centroid_y - pending.centroid_y) < 14.0
-                ):
-                    self._pending_pull_frames += 1
-                else:
-                    self._pending_pull_target = target
-                    self._pending_pull_frames = 1
-                # Require the jumped candidate to stay stable for two
-                # consecutive frames before allowing pull retarget.
-                if self._pending_pull_frames < 2:
-                    return False
+                from detector import _bbox_iou as _iou
+                iou = _iou(
+                    prev.bbox_x, prev.bbox_y, prev.bbox_w, prev.bbox_h,
+                    target.bbox_x, target.bbox_y, target.bbox_w, target.bbox_h,
+                )
+                strong_upgrade = target.body_shape_score >= prev.body_shape_score + 0.12
+                # Allow immediate pull only when jump still overlaps the
+                # previously pulled body OR is a clear score upgrade.
+                # Otherwise require 2-frame stability to avoid one-frame snaps.
+                if not strong_upgrade and iou < 0.15:
+                    pending = self._pending_pull_target
+                    if (
+                        pending is not None
+                        and _m.hypot(target.centroid_x - pending.centroid_x, target.centroid_y - pending.centroid_y) < 14.0
+                    ):
+                        self._pending_pull_frames += 1
+                    else:
+                        self._pending_pull_target = target
+                        self._pending_pull_frames = 1
+                    if self._pending_pull_frames < 2:
+                        return False
         self._pending_pull_target = None
         self._pending_pull_frames = 0
         self._last_pull_target = target

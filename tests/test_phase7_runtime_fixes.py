@@ -312,6 +312,17 @@ class PullTargetSafetyGateTests(unittest.TestCase):
         self.assertFalse(rt._allow_pull_target(j1, stale_det=False))
         self.assertTrue(rt._allow_pull_target(j2, stale_det=False))
 
+    def test_large_jump_with_overlap_is_allowed_immediately(self) -> None:
+        rt = _make_runtime()
+        from detector import Target
+        rt.config["_runtime_detect_fov"] = 200
+        rt._frame_cy = 225
+        a = Target(centroid_x=400, centroid_y=230, area=220, bbox_x=370, bbox_y=185, bbox_w=60, bbox_h=80, body_shape_score=0.88)
+        # Centroid jump > threshold but bbox still overlaps prior torso heavily.
+        j = Target(centroid_x=458, centroid_y=228, area=228, bbox_x=392, bbox_y=186, bbox_w=62, bbox_h=80, body_shape_score=0.90)
+        self.assertTrue(rt._allow_pull_target(a, stale_det=False))
+        self.assertTrue(rt._allow_pull_target(j, stale_det=False))
+
 # --- Dead code removal (MED7) -------------------------------------------
 
 
