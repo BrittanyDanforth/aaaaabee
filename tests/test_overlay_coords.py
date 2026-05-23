@@ -174,14 +174,9 @@ class OverlayWindowSourceContractTests(unittest.TestCase):
 
     def test_set_fov_radius_propagates_to_canvas(self) -> None:
         text = self.SOURCE.read_text(encoding="utf-8")
-        # _redraw must reach into the canvas oval coords when the stored
-        # radius changes — otherwise set_fov_radius() is a no-op visually.
         self.assertIn("_drawn_fov_radius", text)
-        self.assertRegex(
-            text,
-            r"self\._canvas\.coords\(\s*self\._fov_id",
-            "_redraw must re-coord the FOV oval when fov_radius changes.",
-        )
+        self.assertIn("_replace_fov_ring", text)
+        self.assertIn("_sync_fov_ring", text)
 
 
 try:
@@ -211,10 +206,12 @@ class OverlayWindowRadiusUpdateTests(unittest.TestCase):
         win._active = True
         win._target = None
 
+        canvas.create_oval.return_value = 99
         win.set_fov_radius(218)
         win._redraw()
 
-        canvas.coords.assert_any_call(7, 960 - 218, 540 - 218, 960 + 218, 540 + 218)
+        canvas.delete.assert_called()
+        self.assertEqual(win._fov_id, 99)
         self.assertEqual(win._drawn_fov_radius, 218)
 
 

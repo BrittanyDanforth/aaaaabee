@@ -821,6 +821,7 @@ class AssistRuntime:
         self._frame_cx = 0.0
         self._frame_cy = 0.0
         self._last_fov_radius = -1
+        self._last_display_fov = -1
         self._last_overlay_fps = -1
         if self._dry:
             print(
@@ -1052,8 +1053,11 @@ class AssistRuntime:
                         cfg["_runtime_detect_fov"] = detect_fov
                         if self._pull is not None:
                             self._pull._tuning.fov_radius = float(detect_fov)
-                        if self._overlay is not None:
-                            self._overlay.set_fov_radius(display_fov)
+                    if self._overlay is not None and display_fov != self._last_display_fov:
+                        # One ring only — resize when hip-fire display FOV changes
+                        # (GUI slider), not only when detection crop rebuilds.
+                        self._overlay.set_fov_radius(display_fov)
+                        self._last_display_fov = display_fov
                     frame_cx = self._frame_cx
                     frame_cy = self._frame_cy
 

@@ -43,21 +43,14 @@ class OverlayRingTaggingContractTests(unittest.TestCase):
             "orphan ovals atomically",
         )
 
-    def test_redraw_purges_orphan_fov_ring_items(self) -> None:
+    def test_replace_fov_ring_deletes_all_tagged_ovals(self) -> None:
         text = SOURCE.read_text(encoding="utf-8")
-        # _redraw must call find_withtag('fov_ring') and delete any item
-        # whose id does not match self._fov_id. The user-visible symptom
-        # of a missing purge would be the smaller-inner-larger-outer
-        # double-ring screenshot the user reported.
+        self.assertIn("_replace_fov_ring", text)
+        self.assertIn('_sync_fov_ring', text)
         self.assertRegex(
             text,
             r'find_withtag\(\s*"fov_ring"\s*\)',
-            "_redraw must enumerate items with the fov_ring tag",
-        )
-        self.assertRegex(
-            text,
-            r"if\s+item\s*!=\s*self\._fov_id",
-            "_redraw must skip the tracked _fov_id and delete orphans",
+            "FOV resize must enumerate fov_ring items before delete",
         )
 
     def test_target_dot_uses_state_hidden_when_no_target(self) -> None:
@@ -102,25 +95,30 @@ class OverlayRingCanvasInvariantTests(unittest.TestCase):
 
     def test_single_fov_ring_after_multiple_radius_changes(self) -> None:
         win, canvas = self._make_window()
+        canvas.create_oval.side_effect = [7, 8, 9, 10]
         for r in (180, 200, 220, 168):
             win.set_fov_radius(r)
             win._redraw()
         canvas.find_withtag.assert_any_call("fov_ring")
-        # If find_withtag only ever returned [_fov_id], no delete calls
-        # should have fired (no orphans to purge).
-        canvas.delete.assert_not_called()
-        # The single tracked oval must have been re-coordinated to the
-        # final radius, not deleted.
-        canvas.coords.assert_any_call(7, 960 - 168, 540 - 168, 960 + 168, 540 + 168)
+        self.assertGreaterEqual(canvas.delete.call_count, 1)
+        self.assertEqual(win._fov_id, 10)
+        ring_calls = [
+            c for c in canvas.create_oval.call_args_list
+            if c.kwargs.get("tags") == ("fov_ring",)
+            or (c.args and "fov_ring" in str(c))
+        ]
+        self.assertGreaterEqual(len(ring_calls), 1)
 
     def test_orphan_fov_ring_is_purged(self) -> None:
-        """If somehow a second item ends up tagged 'fov_ring', _redraw
-        must delete it on the next tick."""
+        """If a second item ends up tagged 'fov_ring', resize deletes all."""
         win, canvas = self._make_window()
-        canvas.find_withtag.return_value = (7, 99)  # 99 is an orphan
+        canvas.find_withtag.return_value = (7, 99)
+        canvas.create_oval.return_value = 42
         win.set_fov_radius(200)
         win._redraw()
-        canvas.delete.assert_called_with(99)
+        canvas.delete.assert_any_call(7)
+        canvas.delete.assert_any_call(99)
+        self.assertEqual(win._fov_id, 42)
 
     def test_target_dot_hidden_when_no_target(self) -> None:
         win, canvas = self._make_window()

@@ -255,6 +255,7 @@ class OverlayWindow:
         self._tick_ms = max(4, int(1000 / self._overlay_fps))
         self._fov_radius = fov_radius
         self._drawn_fov_radius = fov_radius
+        self._drawn_ring_color = "#446644"
         self._screen_width = screen_width
         self._screen_height = screen_height
         self._origin_x = origin_x
@@ -352,6 +353,7 @@ class OverlayWindow:
             tags=("fov_ring",),
         )
         self._drawn_fov_radius = fov_radius
+        self._drawn_ring_color = "#446644"
 
         self._cross_h = self._canvas.create_line(
             self._cx - 10,
@@ -406,8 +408,61 @@ class OverlayWindow:
 
     def set_fov_radius(self, radius: int) -> None:
         with self._lock:
-            self._fov_radius = max(40, int(radius))
+            new_r = max(40, int(radius))
+            if new_r == self._fov_radius:
+                return
+            self._fov_radius = new_r
         self._request_redraw()
+
+    def _fov_ring_alive(self) -> bool:
+        if self._canvas is None or self._fov_id is None:
+            return False
+        try:
+            return str(self._canvas.type(self._fov_id)) == "oval"
+        except tk.TclError:
+            return False
+
+    def _replace_fov_ring(self, radius: int, color: str) -> None:
+        """Delete every fov_ring oval and create exactly one (fixes duplicate rings)."""
+        if self._canvas is None:
+            return
+        for item in list(self._canvas.find_withtag("fov_ring")):
+            try:
+                self._canvas.delete(item)
+            except tk.TclError:
+                pass
+        self._fov_id = self._canvas.create_oval(
+            self._cx - radius,
+            self._cy - radius,
+            self._cx + radius,
+            self._cy + radius,
+            outline=color,
+            width=2,
+            tags=("fov_ring",),
+        )
+        self._drawn_fov_radius = radius
+        self._drawn_ring_color = color
+
+    def _sync_fov_ring(self) -> None:
+        """Resize/recolor the single FOV ring — never stack a second oval."""
+        if self._canvas is None:
+            return
+        with self._lock:
+            radius = int(self._fov_radius)
+            ads = self._active
+        color = "#00ff88" if ads else "#446644"
+        if (
+            radius != self._drawn_fov_radius
+            or color != self._drawn_ring_color
+            or not self._fov_ring_alive()
+        ):
+            self._replace_fov_ring(radius, color)
+            return
+        try:
+            self._canvas.itemconfig(self._fov_id, outline=color)
+            self._drawn_ring_color = color
+        except tk.TclError:
+            self._replace_fov_ring(radius, color)
 
     def set_state(self, ads: bool, target: tuple[float, float] | None) -> None:
         with self._lock:
@@ -426,42 +481,14 @@ class OverlayWindow:
             pass
 
     def _redraw(self) -> None:
-        if self._canvas is None or self._fov_id is None:
+        if self._canvas is None:
             return
 
         with self._lock:
-            ads = self._active
             target = self._target
-            fov_radius = self._fov_radius
 
         try:
-            # Defensive single-ring invariant: if for any reason a second
-            # canvas item carries the "fov_ring" tag, destroy it. Bug report
-            # from live Apex play described a smaller inner + larger outer
-            # green ring after the previous overlay rework; tagging + this
-            # purge makes ghost rings impossible regardless of how the
-            # canvas was mutated.
-            stray = [
-                item for item in self._canvas.find_withtag("fov_ring")
-                if item != self._fov_id
-            ]
-            for item in stray:
-                self._canvas.delete(item)
-
-            color = "#00ff88" if ads else "#446644"
-            self._canvas.itemconfig(self._fov_id, outline=color)
-            # set_fov_radius() only stores the new value; the canvas oval
-            # must be re-coordinated here or the ring stays frozen at its
-            # build-time radius (visible ring vs. clamp radius would diverge).
-            if fov_radius != self._drawn_fov_radius:
-                self._canvas.coords(
-                    self._fov_id,
-                    self._cx - fov_radius,
-                    self._cy - fov_radius,
-                    self._cx + fov_radius,
-                    self._cy + fov_radius,
-                )
-                self._drawn_fov_radius = fov_radius
+            self._sync_fov_ring()
 
             if target is not None:
                 tx, ty = int(round(target[0])), int(round(target[1]))

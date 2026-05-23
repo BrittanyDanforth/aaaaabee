@@ -138,6 +138,15 @@ class RuntimeController:
             level = logging.DEBUG if bool(merged.get("verbose_logging", False)) else logging.INFO
             logging.getLogger().setLevel(level)
             logging.getLogger("aba").setLevel(level)
+        if live is not None and getattr(live, "running", False):
+            if any(k in patch for k in ("fov_radius_pixels", "fov_radius_ads_pixels")):
+                from profiles import effective_fov_radius
+
+                display_fov = int(effective_fov_radius(merged, ads_active=False))
+                if getattr(live, "_overlay", None) is not None:
+                    live._overlay.set_fov_radius(display_fov)
+                live._last_display_fov = display_fov
+                live._last_fov_radius = -1
         return merged
 
     def set_benchmark_summary(self, text: str) -> None:
