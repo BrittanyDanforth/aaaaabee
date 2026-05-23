@@ -229,8 +229,9 @@ class AssistRuntime:
 
     @staticmethod
     def _target_for_pull(raw: Target, motion: TargetMotion) -> Target:
-        """Pull + overlay use smoothed aim anchor, not hopping red-plate centroids."""
-        return replace(raw, centroid_x=motion.x, centroid_y=motion.y)
+        """Pull toward the visible overlay dot so crosshair tracks what the user sees."""
+        ox, oy = motion.overlay_xy()
+        return replace(raw, centroid_x=ox, centroid_y=oy)
 
     def stop(self) -> None:
         with self._lock:

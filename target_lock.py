@@ -344,6 +344,18 @@ def apply_target_lock(
                 and drift < 28
                 and drift < fov_lim
             )
+            # Same safety gates as soft_refine but no cumulative centroid drift cap.
+            # Drift is measured from the original lock — strafing enemies exceed
+            # 28 px after ~1 s and the lock froze while detection still tracked.
+            safe_track_ok = (
+                adopt_iou >= SOFT_REFINE_MIN_IOU
+                and bs_ratio_ok
+                and new_t.body_shape_score >= 0.55
+                and not upward_fragment
+                and not weak_red_adopt
+                and not clutter_fp
+                and not sky_band
+            )
             high_overlap_refine = (
                 adopt_iou >= HIGH_OVERLAP_REFINE_IOU
                 and instant_adopt_ok
@@ -365,7 +377,7 @@ def apply_target_lock(
                 state.switch_frames = 0
                 # Same guards as instant/soft refine — weak IoU-only adopt caused
                 # upward head/HUD fragments to steal the lock on moving enemies.
-                if soft_refine_ok:
+                if soft_refine_ok or safe_track_ok:
                     state.locked_target = new_t
                     return result, False
                 return (

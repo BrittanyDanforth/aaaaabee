@@ -446,7 +446,13 @@ class TargetTracker:
                 # deadband flag avoids pinning the smoother on a fresh
                 # observation chain where smoothed velocity is briefly
                 # zero by construction.
-                if self._in_deadband:
+                meas_step = math.hypot(
+                    x - self._last_meas_x, y - self._last_meas_y
+                )
+                lateral_rate = meas_step / max(_MIN_DT, dt_cap)
+                # Strafing targets need the generous step cap even when the
+                # smoother is in the stationary deadband (velocity briefly low).
+                if self._in_deadband and lateral_rate < 22.0 and meas_step < 3.5:
                     x, y = self._cap_measurement_step_locked_slow(
                         x, y, self._last_meas_x, self._last_meas_y, dt_cap
                     )
@@ -592,7 +598,10 @@ class TargetTracker:
             iy = (y - self._last_meas_y) / max(_MIN_DT, dt)
             inst_speed = math.hypot(ix, iy)
         if self._in_deadband:
-            exits_now = meas_drift > 5.0 and inst_speed > 30.0
+            exits_now = (
+                (meas_drift > 5.0 and inst_speed > 30.0)
+                or (meas_drift > 2.5 and inst_speed > 50.0)
+            )
             if exits_now:
                 self._deadband_exit_frames += 1
                 if self._deadband_exit_frames >= 2:
