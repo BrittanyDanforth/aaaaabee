@@ -1384,6 +1384,10 @@ class AssistRuntime:
                             debug_show_detect_ring=bool(
                                 cfg.get("debug_show_detect_ring", False)
                             ),
+                            # PHASE-7 AUDIT FIX (MED10): pass the LIVE
+                            # detection mode so the debug viewer's tint
+                            # mask matches what the runtime sees.
+                            detection_mode=str(cfg.get("detection_mode", "apex")),
                         )
                         if motion is not None:
                             cv2.drawMarker(

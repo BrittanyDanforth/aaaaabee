@@ -3083,6 +3083,7 @@ def draw_debug(
     detection_debug: list[str] | None = None,
     display_fov_radius: int | None = None,
     debug_show_detect_ring: bool = False,
+    detection_mode: str | None = None,
 ) -> np.ndarray:
     """Render the OpenCV debug-window frame.
 
@@ -3102,7 +3103,14 @@ def draw_debug(
 
     cx_f = float(cx)
     cy_f = float(cy)
-    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=DETECTION_MODE_SHAPE)
+    # PHASE-7 AUDIT FIX (MED10): use the LIVE detection mode (passed
+    # from the runtime) so the green-tinted mask in the debug window
+    # reflects what the runtime is actually doing. The previous
+    # hardcoded ``DETECTION_MODE_SHAPE`` made the apex/hybrid masks
+    # invisible in the debug viewer, misleading users debugging Apex
+    # detection by showing only the shape channel.
+    dbg_mode = detection_mode if detection_mode is not None else DETECTION_MODE_SHAPE
+    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=dbg_mode)
     fov = _build_fov_mask(h, w, cx_f, cy_f, fov_radius)
     vm = _build_viewmodel_exclude_mask(h, w, _VIEWMODEL_EXCLUDE_FRAC)
     mask = cv2.bitwise_and(mask, mask, mask=fov)

@@ -112,7 +112,32 @@ class RuntimeController:
                     jitter_enabled=bool(merged.get("jitter_enabled", False)),
                     jitter_amplitude_pixels=float(merged.get("jitter_amplitude_pixels", 0.0)),
                     jitter_frequency_hz=float(merged.get("jitter_frequency_hz", 6.0)),
+                    # PHASE-7 AUDIT FIX (MED9): three additional tuning
+                    # fields that were previously only applied on a full
+                    # Start/Stop cycle. magnetism_min_pull_scale and
+                    # fov_edge_min_pull_scale set the floor for how
+                    # gently the pull behaves near the screen edge /
+                    # outside magnetism radius; smoothing_curve picks
+                    # the easing function. Without hot-reload, GUI
+                    # changes to these were silent until the user
+                    # remembered to Stop->Start.
+                    magnetism_min_scale=float(
+                        merged.get("magnetism_min_pull_scale", 0.35)
+                    ),
+                    fov_edge_min_scale=float(
+                        merged.get("fov_edge_min_pull_scale", 0.85)
+                    ),
+                    smoothing_curve=str(merged.get("smoothing_curve", "linear")),
                 )
+        # PHASE-7 AUDIT FIX (MED11): hot-apply verbose_logging changes
+        # so the user can flip the toggle without restarting the
+        # runtime. Without this, ``cfg["verbose_logging"] = True``
+        # was stored but the root logger level never changed and the
+        # detector debug lines stayed silenced.
+        if "verbose_logging" in patch:
+            level = logging.DEBUG if bool(merged.get("verbose_logging", False)) else logging.INFO
+            logging.getLogger().setLevel(level)
+            logging.getLogger("aba").setLevel(level)
         return merged
 
     def set_benchmark_summary(self, text: str) -> None:
