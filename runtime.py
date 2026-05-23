@@ -1328,7 +1328,6 @@ class AssistRuntime:
                                 dot_alpha = float(
                                     cfg.get("overlay_dot_smooth_alpha", 0.62)
                                 )
-                                self._overlay.set_dot_render_alpha(dot_alpha)
                                 sx, sy = self._aim_tracker.smooth_overlay_point(
                                     ox, oy, alpha=dot_alpha
                                 )

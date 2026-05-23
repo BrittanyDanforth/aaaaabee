@@ -678,7 +678,7 @@ class AbaApplication:
         self._slider(
             parent, "Red dot smoothness", "overlay_dot_smooth_alpha",
             minimum=0.15, maximum=0.90, resolution=0.02,
-            tooltip="lower = smoother red dot on screen (hot-applies while running)",
+            tooltip="red overlay dot only — lower = smoother (not mouse recoil shake)",
         )
         self._slider(
             parent, "Moving Target Response", "smoothing_tau_moving",
@@ -777,13 +777,14 @@ class AbaApplication:
             tooltip="frames mouse can still move after losing detection",
         )
 
-        self._section(parent, "Recoil & jitter (engagement-gated)")
+        self._section(parent, "Recoil control (moves MOUSE — not the red dot)")
         tk.Label(
             parent,
             text=(
-                "Both behaviours fire ONLY while LMB is held AND a target is locked. "
-                "Recoil pull-down compensates for muzzle climb; jitter breaks recoil "
-                "patterns. Leave OFF for pure tracking — turn on for the Strong preset."
+                "These adjust your MOUSE while LMB is held and a target is locked. "
+                "They do NOT shake or move the red overlay dot. Pull-down fights muzzle "
+                "climb; horizontal shake breaks predictable recoil patterns. "
+                "Requires ABA running + Save not needed for live slider tweaks."
             ),
             bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
             justify=tk.LEFT,
@@ -795,16 +796,20 @@ class AbaApplication:
             minimum=0.0, maximum=180.0, resolution=1.0, is_int=False,
             tooltip="downward velocity added while LMB held (0 = off)",
         )
-        self._toggle(parent, "Horizontal jitter (LMB held)", "jitter_enabled")
-        self._slider(
-            parent, "Jitter amplitude (px)", "jitter_amplitude_pixels",
-            minimum=0.0, maximum=6.0, resolution=0.1,
-            tooltip="peak left/right px while LMB firing (0 = no effect even if enabled)",
+        self._toggle(
+            parent,
+            "Recoil-break mouse shake (LMB held)",
+            "jitter_enabled",
         )
         self._slider(
-            parent, "Jitter frequency (Hz)", "jitter_frequency_hz",
+            parent, "Mouse shake amplitude (px)", "jitter_amplitude_pixels",
+            minimum=0.0, maximum=6.0, resolution=0.1,
+            tooltip="sideways MOUSE nudge per frame while firing — not the red dot",
+        )
+        self._slider(
+            parent, "Mouse shake rate (Hz)", "jitter_frequency_hz",
             minimum=0.5, maximum=20.0, resolution=0.5,
-            tooltip="how fast the side-to-side jitter cycles",
+            tooltip="how fast the sideways mouse shake oscillates",
         )
 
     # === DEBUG TAB ===
