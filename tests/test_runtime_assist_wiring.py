@@ -54,3 +54,15 @@ class RuntimeSourceWiringTests(unittest.TestCase):
             "overlay clamp must use the smaller of detect_fov and display_fov",
         )
         self.assertIn(") * 0.96", text)
+
+    def test_overlay_display_fov_updates_independent_of_detect_fov(self) -> None:
+        """ADS hip-fire→scoped display FOV must resize the overlay ring even
+        when detection FOV is capped and detect_fov does not change."""
+        text = RUNTIME_PATH.read_text(encoding="utf-8")
+        self.assertIn("_last_display_fov", text)
+        self.assertIn(
+            "display_fov != self._last_display_fov",
+            text,
+            "overlay set_fov_radius must run when display FOV changes, not only "
+            "when detect_fov triggers a capture rebuild",
+        )
