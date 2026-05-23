@@ -501,20 +501,49 @@ def build_detection_mask(
         context.update_prev(gray)
 
     if mode == DETECTION_MODE_APEX:
-        # D1 (audit): only fuse the OUTLINE (MORPH_GRADIENT) of the filled
-        # red mask into clustering. Fusing the filled INTERIOR collapses
-        # the inner v_score signal for uniformly-red small characters
-        # (firing-range crouched dummy) which then look identical to
-        # synthetic blurred blobs. The glow-ring case the audit targeted
-        # is handled by the MORPH_OPEN fix inside build_red_enemy_mask:
-        # the 2-px ring now survives, and MORPH_GRADIENT of a thin ring
-        # is still a thin ring — sufficient to seed a cluster. The FILLED
-        # mask is still used downstream by red_coverage scoring.
+        # REAL-FRAME AUDIT FIX: on live Apex screenshots the previous
+        # ``shape_m | red_outline`` fusion drowned the red signal — the
+        # edge+contrast shape mask is so dense in a busy game scene that
+        # CLOSE-morphology merges every silhouette into ONE giant
+        # frame-covering contour. cv2.findContours(RETR_EXTERNAL) then
+        # returns ONE contour spanning (0,0,W,H), which is rejected as
+        # too-large or too-wide, and the real character is lost inside.
+        #
+        # New behaviour: when the filled red-enemy mask carries enough
+        # pixels to be the dominant signal (Apex highlights enemies in
+        # red — this is almost always true), use the RED mask alone for
+        # clustering. The character forms many small red parts that
+        # ``_cluster_parts`` then assembles into a humanoid column. The
+        # shape mask is computed but NOT fused into the clustering mask;
+        # it would only re-introduce the giant-blob bug.
+        #
+        # When the red mask is sparse (e.g. no enemy on screen / friendly
+        # team / non-Apex test frame), fall back to the previous
+        # shape+outline fusion so non-apex paths still benefit from the
+        # edge signal.
         filled = build_red_enemy_mask(frame_bgr)
         fh, fw = filled.shape[:2]
         k = max(3, int(3 * _scale(fw, fh)) | 1)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
         outline = cv2.morphologyEx(filled, cv2.MORPH_GRADIENT, kernel, iterations=1)
+        red_px = int((filled > 0).sum())
+        red_floor = max(400, int(fh * fw * 0.0010))
+        if red_px >= red_floor:
+            # Red signal dominates clustering. Motion is still useful
+            # (moving enemies whose red coverage is sparse — e.g. armour
+            # blending into terrain) so fuse the motion ribbon if the
+            # context produced one this frame. The filled mask already
+            # contains its own outline so we don't need ``outline`` here.
+            result = filled
+            if (
+                context is not None
+                and context.last_motion_mask is not None
+                and context.last_motion_mask.shape == filled.shape
+            ):
+                result = cv2.bitwise_or(result, context.last_motion_mask)
+            return result
+        # Sparse-red fallback: keep the historic shape + outline behaviour
+        # so test frames without a red enemy still detect on shape alone.
         return cv2.bitwise_or(shape_m, outline)
     if mode == DETECTION_MODE_SHAPE:
         return shape_m
@@ -665,9 +694,24 @@ def _extract_parts(
         x, y, w, h = cv2.boundingRect(contour)
         if w <= 0 or h <= 0:
             continue
-        if w > frame_w * 0.26:
+        # REAL-FRAME AUDIT FIX: per-contour width/height fraction filters
+        # were dropping real characters on small screenshots. A 110 px
+        # character contour in a 310 px frame trips ``w > frame_w * 0.26``
+        # (35 % > 26 %); a 200 px tall char in a 493 px frame trips
+        # ``h > frame_h * 0.42 and w < frame_w * 0.22``. The intent was
+        # to suppress walls and lampposts but both rules fire on real
+        # Apex bodies at small frame resolutions.
+        #
+        # New gates:
+        #   * width > 60 % of frame → reject (clearly wall-like)
+        #   * width > 30 % AND aspect < 1.2 (h/w < 1.2) → reject (short+wide)
+        #   * very tall AND extremely thin (w < 6 % of frame_w) → reject
+        #     (lamppost / radio mast).
+        if w > frame_w * 0.60:
             continue
-        if h > frame_h * 0.42 and w < frame_w * 0.22:
+        if w > frame_w * 0.30 and h < w * 1.05:
+            continue
+        if h > frame_h * 0.42 and w < max(8, frame_w * 0.06):
             continue
 
         hull = cv2.convexHull(contour)
@@ -1051,12 +1095,65 @@ def _mask_chest_anchor(
     *,
     y0f: float = 0.30,
     y1f: float = 0.50,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
 ) -> tuple[float, float] | None:
-    """Centroid of red pixels in upper-chest band — stable body mass, not sky above head."""
+    """Centroid of red pixels in upper-chest band — stable body mass, not sky above head.
+
+    REAL-FRAME AUDIT FIX: when the cluster bbox is much taller than the
+    actual character (e.g. a real Apex enemy has merged with HUD text
+    or damage numbers above/below, producing a 1.2-aspect cluster that
+    spans 30-40 % of frame height), the fixed 0.30-0.50 chest band of
+    the BBOX lands above the actual body. We now scan multiple candidate
+    Y bands across the bbox and pick the densest 20 %-tall band — that
+    band is the true body chest regardless of bbox extent. For clean
+    character clusters the densest band IS at 0.30-0.50, so behaviour
+    is unchanged; for merged clusters the dot lands on the body, not on
+    a HUD bar.
+    """
     if bw < 4 or bh < 8:
         return None
-    y0 = by + int(bh * y0f)
-    y1 = by + int(bh * y1f)
+    band_height = max(2, int(round(bh * max(0.05, min(0.40, y1f - y0f)))))
+    if band_height >= bh:
+        band_height = max(2, bh - 1)
+
+    # Compute row-density profile across the full bbox once.
+    full = mask[by : by + bh, bx : bx + bw]
+    if full.size == 0:
+        return None
+    row_density = (full > 0).sum(axis=1).astype(np.int64)
+    if row_density.sum() < 8:
+        return None
+
+    # Cumulative sum trick: a sliding-window sum across rows.
+    csum = np.cumsum(row_density)
+    if band_height >= len(csum):
+        band_sums = csum[-1:]
+        start_idx = 0
+    else:
+        # band_sums[i] = sum of row_density[i : i + band_height]
+        band_sums = csum[band_height - 1 :] - np.concatenate(
+            ([0], csum[: -band_height])
+        )
+        # REAL-FRAME AUDIT FIX: when the cluster bbox contains the
+        # crosshair (FOV centre), the user is almost certainly aiming
+        # AT the target — so the desired chest band is the dense band
+        # NEAREST to ``fov_cy``, not necessarily the GLOBALLY densest
+        # band. Without this bias a "merged" cluster (real character
+        # joined with HUD pixels above) sees the HUD as the densest
+        # area and anchors aim into empty sky above the body.
+        if fov_cy is not None and by <= fov_cy <= by + bh:
+            band_centers = np.arange(len(band_sums), dtype=np.float32) + (
+                band_height * 0.5
+            )
+            dist_to_fov = (by + band_centers) - float(fov_cy)
+            sigma = max(2.0, bh * 0.10)
+            decay = np.exp(-(dist_to_fov ** 2) / (2.0 * sigma * sigma))
+            band_sums = band_sums.astype(np.float32) * decay
+        start_idx = int(np.argmax(band_sums))
+
+    y0 = by + start_idx
+    y1 = y0 + band_height
     y0 = max(by, min(y0, by + bh - 2))
     y1 = max(y0 + 2, min(y1, by + bh))
     roi = mask[y0:y1, bx : bx + bw]
@@ -1076,6 +1173,30 @@ def _mask_chest_anchor(
     if col_density.size >= 5:
         kernel = np.ones(5, dtype=np.float32) / 5.0
         col_density = np.convolve(col_density, kernel, mode="same")
+    # REAL-FRAME AUDIT FIX: when ``fov_cx`` is provided and lives inside
+    # the bbox X range, AND the bbox is sparsely filled (the merged-
+    # cluster signature — body + floating HUD bits), weight the column-
+    # density peak toward the crosshair so the dot stays on the visible
+    # character. For a CLEAN humanoid silhouette (sideways character
+    # with a gun arm — D5 fixture) the bbox is densely filled and the
+    # bias is skipped so the torso column stays the densest.
+    full_dense_col_frac = 1.0
+    if full.size > 0:
+        rd_full = (full > 0).sum(axis=1).astype(np.float32)
+        pk_full = float(rd_full.max()) if rd_full.size else 0.0
+        if pk_full >= 2.0:
+            thr_full = max(2.5, pk_full * 0.18)
+            full_dense_col_frac = float((rd_full >= thr_full).sum()) / float(bh)
+    if (
+        fov_cx is not None
+        and bx <= fov_cx <= bx + bw
+        and full_dense_col_frac < 0.45
+    ):
+        col_idx = np.arange(col_density.size, dtype=np.float32)
+        dist_to_cx = (col_idx + bx) - float(fov_cx)
+        sigma_x = max(2.0, bw * 0.18)
+        decay = np.exp(-(dist_to_cx ** 2) / (2.0 * sigma_x * sigma_x))
+        col_density = col_density * decay
     densest_col = int(np.argmax(col_density))
     ax = float(bx + densest_col)
     ay = float(y0 + np.mean(ys))
@@ -1094,19 +1215,205 @@ def _clamp_aim_to_body_bbox(
     aim_y_lo_frac: float = _BODY_Y_LO_FRAC,
     aim_y_hi_frac: float = _BODY_Y_HI_FRAC,
 ) -> tuple[float, float]:
-    """Keep aim inside upper-chest band; never above head plate or into sky above bbox."""
+    """Keep aim inside upper-chest band; never above head plate or into sky above bbox.
+
+    REAL-FRAME AUDIT FIX: when the cluster has many parts (real Apex
+    character whose body forms 5+ disjoint red plates) the original
+    upper-chest clamp is correct: aim should sit just below the head.
+    When the cluster is wide-and-tall (merged with HUD text / damage
+    numbers above the body), the geometric chest band of the BBOX is
+    NOT the actual chest — the body sits lower in the bbox. In that
+    case we widen the Y clamp to the whole bbox interior so the
+    densest-band anchor (computed in ``_mask_chest_anchor``) is not
+    forced upward into HUD pixels. ``_aim_inside_body_bbox`` still
+    rejects an aim that lands outside the bbox bounds entirely.
+    """
     frac = max(0.32, min(0.48, torso_fraction))
-    y_lo = by + bh * aim_y_lo_frac
-    y_hi = by + bh * min(aim_y_hi_frac, frac + 0.10)
-    heads = [p for p in parts if p.role == PartRole.HEAD]
-    if heads:
-        head_bottom = heads[0].y + heads[0].h
-        y_lo = max(y_lo, head_bottom - bh * 0.02)
+    aspect = bh / max(bw, 1)
+    is_merged_cluster = len(parts) >= 6 and aspect < 2.20
+    if is_merged_cluster:
+        y_lo = by + bh * 0.12
+        y_hi = by + bh * 0.85
+    else:
+        y_lo = by + bh * aim_y_lo_frac
+        y_hi = by + bh * min(aim_y_hi_frac, frac + 0.10)
+        heads = [p for p in parts if p.role == PartRole.HEAD]
+        if heads:
+            head_bottom = heads[0].y + heads[0].h
+            y_lo = max(y_lo, head_bottom - bh * 0.02)
     ay = max(y_lo, min(y_hi, ay))
-    x_lo = bx + bw * 0.30
-    x_hi = bx + bw * 0.70
+    x_lo = bx + bw * 0.20
+    x_hi = bx + bw * 0.80
     ax = max(x_lo, min(x_hi, ax))
     return ax, ay
+
+
+def _tighten_bbox_around_aim(
+    mask: np.ndarray,
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    aim_x: float,
+    aim_y: float,
+    *,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
+) -> tuple[int, int, int, int, float, float]:
+    """Shrink the bbox to the dense mass connected to ``(aim_x, aim_y)``.
+
+    Returns the smallest bbox whose rows/columns around the aim point
+    have row-/column-density at least 12 % of the bbox-local peak. This
+    drops sparse outliers (HUD text, damage numbers) that inflated the
+    cluster bbox during the part-clustering stage; the dense body mass
+    around the actual character then forms a tight body bbox where the
+    aim falls naturally into the 28-52 % chest band.
+
+    REAL-FRAME AUDIT FIX: the user's screenshots showed clusters whose
+    bbox extended through HUD pixels above/below the visible character.
+    That left the aim near the body but OUTSIDE the chest band of the
+    reported bbox. With the tight bbox the chest band invariant holds.
+    """
+    if bw <= 0 or bh <= 0:
+        return bx, by, bw, bh, aim_x, aim_y
+    roi = mask[by : by + bh, bx : bx + bw]
+    if roi.size == 0:
+        return bx, by, bw, bh, aim_x, aim_y
+
+    row_density = (roi > 0).sum(axis=1).astype(np.float32)
+    col_density = (roi > 0).sum(axis=0).astype(np.float32)
+    rd_peak = float(row_density.max()) if row_density.size else 0.0
+    cd_peak = float(col_density.max()) if col_density.size else 0.0
+    if rd_peak < 2.0 or cd_peak < 2.0:
+        return bx, by, bw, bh, aim_x, aim_y
+
+    aiy = int(round(aim_y - by))
+    aix = int(round(aim_x - bx))
+    aiy = max(0, min(bh - 1, aiy))
+    aix = max(0, min(bw - 1, aix))
+
+    # Snap the walk start to the densest row within a chest-height
+    # window around the aim. Without this snap an FOV-biased aim that
+    # lands between body part plates (real Apex characters have sparse
+    # gaps between head/torso/limb plates) starts the expansion in a
+    # row below the density threshold and the tight bbox collapses.
+    # When ``fov_cy`` is provided we Gaussian-weight the window scores
+    # toward the crosshair so the snap pulls TOWARD the body, not back
+    # into HUD pixels above the aim.
+    win_h = max(8, int(round(bh * 0.22)))
+    y_lo_w = max(0, aiy - win_h)
+    y_hi_w = min(bh, aiy + win_h + 1)
+    if y_hi_w > y_lo_w:
+        local = row_density[y_lo_w:y_hi_w].astype(np.float32)
+        if fov_cy is not None:
+            idx = np.arange(local.size, dtype=np.float32) + y_lo_w + by
+            sigma_y = max(2.0, bh * 0.08)
+            decay = np.exp(-((idx - float(fov_cy)) ** 2) / (2.0 * sigma_y * sigma_y))
+            local = local * decay
+        aiy = int(np.argmax(local)) + y_lo_w
+    win_w = max(8, int(round(bw * 0.22)))
+    x_lo_w = max(0, aix - win_w)
+    x_hi_w = min(bw, aix + win_w + 1)
+    if x_hi_w > x_lo_w:
+        local_x = col_density[x_lo_w:x_hi_w].astype(np.float32)
+        if fov_cx is not None:
+            idx = np.arange(local_x.size, dtype=np.float32) + x_lo_w + bx
+            sigma_x = max(2.0, bw * 0.10)
+            decay_x = np.exp(-((idx - float(fov_cx)) ** 2) / (2.0 * sigma_x * sigma_x))
+            local_x = local_x * decay_x
+        aix = int(np.argmax(local_x)) + x_lo_w
+
+    # Use a low floor (5 % of bbox-local peak) and a small absolute
+    # pixel floor so tiny clusters (firing-range dummies) do not
+    # collapse to a 1×1 bbox. We then allow a few "gap" rows below the
+    # threshold during the walk — real character bodies have sparse
+    # rows between head/torso/limb plates that should NOT terminate
+    # the walk, but a long stretch of empty rows (the gap between the
+    # body and a HUD element) WILL terminate it.
+    rd_thr = max(2.5, rd_peak * 0.18)
+    cd_thr = max(2.5, cd_peak * 0.18)
+    max_gap = max(4, int(round(bh * 0.05)))
+    max_gap_x = max(4, int(round(bw * 0.05)))
+
+    def _walk_up(arr: np.ndarray, idx: int, thr: float, gap: int) -> int:
+        gap_count = 0
+        out = idx
+        i = idx - 1
+        while i >= 0:
+            if arr[i] >= thr:
+                out = i
+                gap_count = 0
+            else:
+                gap_count += 1
+                if gap_count > gap:
+                    break
+            i -= 1
+        return out
+
+    def _walk_down(arr: np.ndarray, idx: int, thr: float, gap: int, n: int) -> int:
+        gap_count = 0
+        out = idx
+        i = idx + 1
+        while i < n:
+            if arr[i] >= thr:
+                out = i
+                gap_count = 0
+            else:
+                gap_count += 1
+                if gap_count > gap:
+                    break
+            i += 1
+        return out
+
+    y0 = _walk_up(row_density, aiy, rd_thr, max_gap)
+    y1 = _walk_down(row_density, aiy, rd_thr, max_gap, bh)
+    # Recompute X-density profile using ONLY the tight Y range so the
+    # X walk doesn't get inflated by HUD elements that sit above or
+    # below the body. Without this restriction the X expansion fuses
+    # the body column with adjacent HUD columns (ammo numbers / damage
+    # text) even when those HUDs are vertically disjoint from the
+    # body.
+    y0_glob = max(0, y0)
+    y1_glob = min(bh - 1, y1)
+    if y1_glob > y0_glob:
+        col_density_tight = (roi[y0_glob : y1_glob + 1] > 0).sum(axis=0).astype(
+            np.float32
+        )
+        cd_peak_tight = float(col_density_tight.max()) if col_density_tight.size else 0.0
+        if cd_peak_tight >= 2.0:
+            col_density = col_density_tight
+            cd_thr = max(2.5, cd_peak_tight * 0.18)
+            # Re-snap aix inside the new col_density (FOV-biased).
+            x_lo_w = max(0, aix - win_w)
+            x_hi_w = min(bw, aix + win_w + 1)
+            if x_hi_w > x_lo_w:
+                local_x = col_density[x_lo_w:x_hi_w].astype(np.float32)
+                if fov_cx is not None:
+                    idx = np.arange(local_x.size, dtype=np.float32) + x_lo_w + bx
+                    sigma_x = max(2.0, bw * 0.10)
+                    decay_x = np.exp(
+                        -((idx - float(fov_cx)) ** 2) / (2.0 * sigma_x * sigma_x)
+                    )
+                    local_x = local_x * decay_x
+                aix = int(np.argmax(local_x)) + x_lo_w
+    x0 = _walk_up(col_density, aix, cd_thr, max_gap_x)
+    x1 = _walk_down(col_density, aix, cd_thr, max_gap_x, bw)
+
+    new_bx = bx + x0
+    new_by = by + y0
+    new_bw = max(4, x1 - x0 + 1)
+    new_bh = max(8, y1 - y0 + 1)
+    snapped_aim_x = float(bx + aix)
+    snapped_aim_y = float(by + aiy)
+    # Snapped aim sits at (aix, aiy) inside the dense band by
+    # construction; if for any reason the walk produced a degenerate
+    # bbox that doesn't contain it, fall back to the input bbox/aim.
+    if not (
+        new_bx <= snapped_aim_x <= new_bx + new_bw
+        and new_by <= snapped_aim_y <= new_by + new_bh
+    ):
+        return bx, by, bw, bh, aim_x, aim_y
+    return new_bx, new_by, new_bw, new_bh, snapped_aim_x, snapped_aim_y
 
 
 def _aim_inside_body_bbox(
@@ -1219,7 +1526,19 @@ def _hard_reject(
     if bw <= 0 or bh <= 0:
         return RejectReason.TOO_SMALL
     aspect = bh / float(bw)
-    if bw > frame_w * 0.32:
+    # REAL-FRAME AUDIT FIX: the previous ``bw > frame_w * 0.32`` cap
+    # rejected every real Apex character on small screenshots (310-684 px
+    # frame width) — a 110 px-wide character in a 310 px frame is 35 % of
+    # frame, well over the 32 % cap, and was tagged ARCHITECTURE_PANEL.
+    # The intent of this gate is "walls and panels are extremely wide
+    # relative to the play area"; that's only true if the silhouette is
+    # also SHORT (wider than tall). A tall+wide silhouette with aspect>=1
+    # is a near-camera body, not a panel. Reject only on:
+    #   * extreme width (> 60 % of frame), regardless of aspect, OR
+    #   * 32-60 % width AND aspect < 1.20 (short+wide → wall)
+    if bw > frame_w * 0.60:
+        return RejectReason.ARCHITECTURE_PANEL
+    if bw > frame_w * 0.32 and aspect < 1.05:
         return RejectReason.ARCHITECTURE_PANEL
     if aspect < 0.95:
         return RejectReason.HORIZONTAL_STRIPE
@@ -1275,6 +1594,8 @@ def _figure_aim_point(
     torso_fraction: float = 0.38,
     aim_y_lo_frac: float = _BODY_Y_LO_FRAC,
     aim_y_hi_frac: float = _BODY_Y_HI_FRAC,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
 ) -> tuple[float, float]:
     """
     Upper-chest anchor from mask mass in torso band; clamped below head, inside bbox.
@@ -1283,10 +1604,45 @@ def _figure_aim_point(
     ax = bx + bw * 0.5
     ay = by + bh * frac
 
-    chest = _mask_chest_anchor(mask, bx, by, bw, bh, y0f=0.32, y1f=0.50)
+    chest = _mask_chest_anchor(
+        mask, bx, by, bw, bh, y0f=0.32, y1f=0.50,
+        fov_cx=fov_cx, fov_cy=fov_cy,
+    )
     if chest is not None:
         ax = 0.40 * ax + 0.60 * chest[0]
         ay = 0.50 * ay + 0.50 * chest[1]
+
+    # REAL-FRAME AUDIT FIX: when the crosshair sits inside this cluster
+    # bbox AND the cluster is *demonstrably* merged with HUD pixels —
+    # row-density coverage drops well below a normal contiguous body —
+    # the user is aiming AT the body, so blend the densest-band anchor
+    # toward the crosshair so the dot lands on the visible character,
+    # not on a HUD bar at the geometric 38 % position. Gate strictly on
+    # row sparsity so that a clean humanoid silhouette (sideways
+    # character with extended gun arm — the D5 fixture) keeps the
+    # mask-mass anchor and doesn't drift toward the crosshair, which
+    # otherwise sits on the weapon arm.
+    if (
+        fov_cx is not None
+        and fov_cy is not None
+        and bx <= fov_cx <= bx + bw
+        and by <= fov_cy <= by + bh
+    ):
+        bbox_roi_for_blend = mask[by : by + bh, bx : bx + bw]
+        dense_blend_frac = 1.0
+        if bbox_roi_for_blend.size > 0:
+            rd = (bbox_roi_for_blend > 0).sum(axis=1).astype(np.float32)
+            pk = float(rd.max()) if rd.size else 0.0
+            if pk >= 2.0:
+                thr = max(2.5, pk * 0.18)
+                dense_blend_frac = float((rd >= thr).sum()) / float(bh)
+        cluster_is_merged = (
+            dense_blend_frac < 0.40
+            and len(parts) >= 6
+        )
+        if cluster_is_merged:
+            ax = 0.35 * ax + 0.65 * float(fov_cx)
+            ay = 0.35 * ay + 0.65 * float(fov_cy)
 
     y_lo = by + bh * aim_y_lo_frac
     y_hi = by + bh * aim_y_hi_frac
@@ -1327,6 +1683,8 @@ def analyze_figure(
     limb_stack_score_weight: float = 0.22,
     aim_y_min_fraction: float = 0.28,
     aim_y_max_fraction: float = 0.52,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
 ) -> _FigureAnalysis:
     scale = _scale(frame_w, frame_h)
     bx, by, bw, bh = _cluster_bbox(parts)
@@ -1457,7 +1815,66 @@ def analyze_figure(
     if accepted and body_shape < min_accept:
         reason = RejectReason.LOW_SCORE
 
-    ax, ay = _figure_aim_point(parts, mask, bx, by, bw, bh, torso_aim_fraction, aim_y_min_fraction, aim_y_max_fraction)
+    ax, ay = _figure_aim_point(
+        parts, mask, bx, by, bw, bh, torso_aim_fraction,
+        aim_y_min_fraction, aim_y_max_fraction,
+        fov_cx=fov_cx, fov_cy=fov_cy,
+    )
+
+    # REAL-FRAME AUDIT FIX: when the cluster bbox is "merged" (many
+    # disjoint red parts in one column — character + HUD damage text +
+    # weapon ammo etc.), the OUTER bbox spans the full mask extent,
+    # which leaves the aim near the body but OUTSIDE the chest band of
+    # that outer bbox. Tighten the reported bbox to the dense mass
+    # around the aim so the chest-band invariant holds for downstream
+    # tracker / overlay code. Clean small-character clusters skip this
+    # (the tight bbox returns the same coordinates because the mask is
+    # already dense edge to edge).
+    #
+    # IMPORTANT: gate the tighten by row-density coverage. A real
+    # character cluster (synthetic firing-range dummy with separated red
+    # plates, or a real Apex body whose mask is fully connected) keeps
+    # >= 45 % of bbox rows above the 18 %-of-peak density floor. A
+    # merged cluster (body + floating HUD text inside one outer bbox)
+    # drops well below 30 %. Only the latter should be tightened — the
+    # former is already tight and shrinking would lose body extent.
+    bbox_roi = mask[by : by + bh, bx : bx + bw] if (bw > 0 and bh > 0) else None
+    dense_row_frac = 1.0
+    if bbox_roi is not None and bbox_roi.size > 0:
+        row_d = (bbox_roi > 0).sum(axis=1).astype(np.float32)
+        peak_d = float(row_d.max()) if row_d.size else 0.0
+        if peak_d >= 2.0:
+            thr = max(2.5, peak_d * 0.18)
+            dense_row_frac = float((row_d >= thr).sum()) / float(bh)
+    bbox_aspect = bh / max(bw, 1)
+    cluster_is_merged_for_tighten = (
+        len(parts) >= 5
+        and (
+            dense_row_frac < 0.45  # sparse rows → body + floating HUD text
+            or bbox_aspect < 1.65  # wide-ish → body + horizontal HUD merge
+        )
+    )
+    if cluster_is_merged_for_tighten:
+        tbx, tby, tbw, tbh, snap_ax, snap_ay = _tighten_bbox_around_aim(
+            mask, bx, by, bw, bh, ax, ay,
+            fov_cx=fov_cx, fov_cy=fov_cy,
+        )
+        if tbw >= 8 and tbh >= 12 and (tbw != bw or tbh != bh):
+            bx, by, bw, bh = tbx, tby, tbw, tbh
+            aspect = bh / max(bw, 1)
+            # Use the snapped aim and re-clamp into the tight bbox
+            # chest band so the chest-band invariant (28-52 %) holds.
+            # The clamp margins must match ``_aim_inside_body_bbox``
+            # (margin_x=0.12, margin_y_top=0.08, margin_y_bot=0.12) so
+            # the next-line sky-blob check doesn't reject the aim by a
+            # one-pixel rounding error.
+            chest_y_lo = tby + tbh * 0.28
+            chest_y_hi = tby + tbh * 0.52
+            x_lo = tbx + tbw * 0.13
+            x_hi = tbx + tbw - tbw * 0.13
+            ax = max(x_lo, min(x_hi, snap_ax))
+            ay = max(chest_y_lo, min(chest_y_hi, snap_ay))
+
     if not _aim_inside_body_bbox(ax, ay, bx, by, bw, bh):
         return _FigureAnalysis(
             accepted=False,
@@ -1706,6 +2123,8 @@ def enumerate_candidates(
             limb_stack_score_weight=limb_stack_score_weight,
             aim_y_min_fraction=aim_y_min_fraction,
             aim_y_max_fraction=aim_y_max_fraction,
+            fov_cx=cx,
+            fov_cy=cy,
         )
         dist = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))
         accepted = fig.accepted and dist <= fov_radius
@@ -1923,6 +2342,8 @@ def _collect_candidates(
             limb_stack_score_weight=limb_stack_score_weight,
             aim_y_min_fraction=aim_y_min_fraction,
             aim_y_max_fraction=aim_y_max_fraction,
+            fov_cx=cx,
+            fov_cy=cy,
         )
         mc = _max_part_circularity(body_parts)
         dist_c = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))
@@ -2065,17 +2486,72 @@ def score_target(
     red_bonus = red_cov * fov_radius * 0.15 if red_humanoid_height else 0.0
     penalty = 0.0
     if center_y is not None:
-        if target.centroid_y < center_y:
-            penalty += (center_y - target.centroid_y) * 2.8
+        # REAL-FRAME AUDIT FIX: the previous flat "centroid_y < center_y"
+        # penalty (*2.8 per pixel) preferred small clusters BELOW the
+        # crosshair over big visible characters whose chest sat slightly
+        # above the crosshair. In Apex the player commonly aims AT the
+        # chest band, which means a target whose centroid is at or a
+        # little above the screen-center y is the EXPECTED case, not an
+        # outlier. The penalty now only fires when the centroid is far
+        # above the crosshair (more than a third of the FOV radius), and
+        # scales gently so a chest just above center keeps a winning
+        # score. Targets clearly below the FOV (e.g. floor litter) still
+        # incur the foot-above-center penalty below.
+        above_dead = center_y - fov_radius * 0.35
+        if target.centroid_y < above_dead:
+            penalty += (above_dead - target.centroid_y) * 1.2
         if target.bbox_h > 0:
-            chest_hi = target.bbox_y + target.bbox_h * 0.48
-            if target.centroid_y < chest_hi - target.bbox_h * 0.06:
-                penalty += (chest_hi - target.centroid_y) * 4.5
+            # REAL-FRAME AUDIT FIX: the previous formulation
+            # ``chest_hi = bbox_y + bbox_h * 0.48`` and penalizing any aim
+            # above that fired on real Apex enemies whose cluster bbox
+            # had merged with HUD text above the body. For such bboxes
+            # the actual chest sits in the LOWER half of the bbox, so a
+            # correct chest aim was wrongly punished by hundreds of
+            # pixels of penalty. Penalize only when the aim lands in the
+            # clear HEAD zone (top 20 % of bbox) instead.
+            head_zone_bottom = target.bbox_y + target.bbox_h * 0.20
+            if target.centroid_y < head_zone_bottom:
+                penalty += (head_zone_bottom - target.centroid_y) * 4.5
         foot_y = target.bbox_y + target.bbox_h
-        if foot_y < center_y + fov_radius * 0.15:
+        # REAL-FRAME AUDIT FIX: previous threshold (`fov_radius * 0.10`)
+        # punished any enemy whose feet sat above centre-y, which is the
+        # NORMAL framing when the player looks slightly down at a target
+        # (the back-view enemy in img1 stands on a barrier 40 px above
+        # centre — perfectly valid yet got hit by a +2.2*fov penalty,
+        # ~420 px of cost on a 192 px FOV, enough to drop a body=1.0
+        # head=1.0 target below noise). Only treat *very* floating bodies
+        # (feet > 0.45 * fov above centre) as sky blobs.
+        if foot_y < center_y - fov_radius * 0.45:
             penalty += fov_radius * 2.2
-    if target.bbox_w >= target.bbox_h:
-        penalty += fov_radius * 0.8
+    # REAL-FRAME AUDIT FIX (img1 dummy): when ``analyze_figure`` has
+    # already produced a strong humanoid signature (body >= 0.80 with at
+    # least one of head / torso / limb confirming structure), the cluster
+    # IS a humanoid silhouette by independent geometric evidence — don't
+    # re-punish it for the bbox aspect, which is a much coarser signal.
+    # Walls / pipes / health bars register body_shape near 0 already so
+    # they are unaffected. Without this gate, tight 45x41 dummies (img1)
+    # got slapped with +1.8*fov even though body=1.0 head=1.0 limb=1.0.
+    strong_humanoid = (
+        target.body_shape_score >= 0.80
+        and (
+            target.head_score >= 0.70
+            or target.torso_score >= 0.70
+            or target.limb_stack_score >= 0.70
+        )
+    )
+    bbox_h_small = target.bbox_h < 50
+    if not strong_humanoid:
+        if target.bbox_w >= target.bbox_h * 1.25:
+            # Clearly horizontal — wall / pipe / health bar geometry.
+            penalty += fov_radius * 0.8
+        elif target.bbox_w >= target.bbox_h * 1.05 and not bbox_h_small:
+            # Marginal aspect — gentle penalty on bigger bboxes only.
+            penalty += fov_radius * 0.20
+    elif target.bbox_w >= target.bbox_h * 1.40:
+        # Even a "strong humanoid" cluster shouldn't be drastically wider
+        # than tall. Apply a modest cap so a real wall that somehow nudges
+        # body>=0.80 still loses points.
+        penalty += fov_radius * 0.35
     # Single-part target: harsh penalty by default; soft penalty when EITHER
     # motion confirms a real moving body OR the bbox is clearly red-covered
     # (a real Apex enemy whose armour merged into one connected silhouette
@@ -2122,8 +2598,28 @@ def score_target(
             penalty += fov_radius * 0.35
         else:
             penalty += fov_radius * 1.4
-    if target.bbox_h < target.bbox_w * 1.25:
-        penalty += fov_radius * 1.8
+    # REAL-FRAME AUDIT FIX (img1): split the wider-than-tall penalty so
+    # ``analyze_figure``-confirmed humanoids (body>=0.80 + structure)
+    # don't get the *1.8 cliff just because the tight bbox is slightly
+    # stocky. Walls / boards still trip it because their body_shape is
+    # near 0 and they fall into the un-gated branch.
+    if not strong_humanoid:
+        if target.bbox_h < target.bbox_w * 0.95:
+            penalty += fov_radius * 1.8
+        elif target.bbox_h < target.bbox_w * 1.25:
+            penalty += fov_radius * 0.45
+    else:
+        if target.bbox_h < target.bbox_w * 0.75:
+            # Even a "humanoid" cluster shouldn't be very stocky.
+            penalty += fov_radius * 0.6
+    # Thin-stripe penalty: a real character's bbox should be at least a
+    # dozen pixels wide. A 9-px-wide cluster (e.g. crosshair pixel
+    # column / vertical HUD bar fragment) is noise even when the body
+    # score smells humanoid because the analyser sees a tall narrow
+    # column. Gate by ``bbox_w`` and ``part_count`` so distance targets
+    # (still tall + multi-part) are unaffected.
+    if target.bbox_w < 14 and target.part_count <= 2:
+        penalty += fov_radius * 1.2
     # The body<0.48 penalty is normally a strong rejection of marginal
     # silhouettes — but when motion or red coverage independently confirm
     # a tall humanoid bbox, we trust the geometric / chromatic evidence
