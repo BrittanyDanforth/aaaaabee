@@ -400,7 +400,7 @@ class TargetTracker:
             prev = self._last_stable_bbox
             if prev is not None:
                 pbx, pby, pbw, pbh = prev
-                upward_jump = by < pby - pbh * 0.12
+                upward_jump = by < pby - pbh * 0.10
                 shrunk = bh < pbh * 0.62
                 if (upward_jump or shrunk) and self._stable_bbox_hold_frames < _STABLE_BBOX_HOLD_MAX:
                     cx, cy, cw, ch = pbx, pby, pbw, pbh

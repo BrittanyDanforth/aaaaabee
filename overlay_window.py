@@ -422,8 +422,35 @@ class OverlayWindow:
         except tk.TclError:
             return False
 
+    def _purge_orphan_fov_rings(self) -> None:
+        """Delete extra center-screen ovals (slider hot-reload duplicate-ring bug)."""
+        if self._canvas is None:
+            return
+        for item in list(self._canvas.find_all()):
+            if item == self._target_id:
+                continue
+            try:
+                if str(self._canvas.type(item)) != "oval":
+                    continue
+                x0, y0, x1, y1 = self._canvas.coords(item)
+                ocx = (float(x0) + float(x1)) * 0.5
+                ocy = (float(y0) + float(y1)) * 0.5
+                radius = max(float(x1) - float(x0), float(y1) - float(y0)) * 0.5
+            except (tk.TclError, ValueError):
+                continue
+            if radius < 25.0:
+                continue
+            if abs(ocx - self._cx) > 6.0 or abs(ocy - self._cy) > 6.0:
+                continue
+            if item == self._fov_id:
+                continue
+            try:
+                self._canvas.delete(item)
+            except tk.TclError:
+                pass
+
     def _replace_fov_ring(self, radius: int, color: str) -> None:
-        """Delete every fov_ring oval and create exactly one (fixes duplicate rings)."""
+        """Delete every fov_ring oval and create exactly one (first paint / recovery)."""
         if self._canvas is None:
             return
         for item in list(self._canvas.find_withtag("fov_ring")):
@@ -431,6 +458,7 @@ class OverlayWindow:
                 self._canvas.delete(item)
             except tk.TclError:
                 pass
+        self._purge_orphan_fov_rings()
         self._fov_id = self._canvas.create_oval(
             self._cx - radius,
             self._cy - radius,
@@ -444,22 +472,27 @@ class OverlayWindow:
         self._drawn_ring_color = color
 
     def _sync_fov_ring(self) -> None:
-        """Resize/recolor the single FOV ring — never stack a second oval."""
+        """Resize/recolor the single FOV ring in-place — never stack a second oval."""
         if self._canvas is None:
             return
         with self._lock:
             radius = int(self._fov_radius)
             ads = self._active
         color = "#00ff88" if ads else "#446644"
-        if (
-            radius != self._drawn_fov_radius
-            or color != self._drawn_ring_color
-            or not self._fov_ring_alive()
-        ):
+        self._purge_orphan_fov_rings()
+        if not self._fov_ring_alive():
             self._replace_fov_ring(radius, color)
             return
         try:
-            self._canvas.itemconfig(self._fov_id, outline=color)
+            self._canvas.coords(
+                self._fov_id,
+                self._cx - radius,
+                self._cy - radius,
+                self._cx + radius,
+                self._cy + radius,
+            )
+            self._canvas.itemconfig(self._fov_id, outline=color, width=2, tags=("fov_ring",))
+            self._drawn_fov_radius = radius
             self._drawn_ring_color = color
         except tk.TclError:
             self._replace_fov_ring(radius, color)

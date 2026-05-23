@@ -46,7 +46,9 @@ class OverlayRingTaggingContractTests(unittest.TestCase):
     def test_replace_fov_ring_deletes_all_tagged_ovals(self) -> None:
         text = SOURCE.read_text(encoding="utf-8")
         self.assertIn("_replace_fov_ring", text)
-        self.assertIn('_sync_fov_ring', text)
+        self.assertIn("_sync_fov_ring", text)
+        self.assertIn("_purge_orphan_fov_rings", text)
+        self.assertIn("canvas.coords", text)
         self.assertRegex(
             text,
             r'find_withtag\(\s*"fov_ring"\s*\)',
@@ -95,19 +97,23 @@ class OverlayRingCanvasInvariantTests(unittest.TestCase):
 
     def test_single_fov_ring_after_multiple_radius_changes(self) -> None:
         win, canvas = self._make_window()
-        canvas.create_oval.side_effect = [7, 8, 9, 10]
+        canvas.type.return_value = "oval"
+        canvas.find_all.return_value = (7,)
         for r in (180, 200, 220, 168):
             win.set_fov_radius(r)
             win._redraw()
-        canvas.find_withtag.assert_any_call("fov_ring")
-        self.assertGreaterEqual(canvas.delete.call_count, 1)
-        self.assertEqual(win._fov_id, 10)
-        ring_calls = [
-            c for c in canvas.create_oval.call_args_list
+        self.assertGreaterEqual(canvas.coords.call_count, 4)
+        ring_creates = [
+            c
+            for c in canvas.create_oval.call_args_list
             if c.kwargs.get("tags") == ("fov_ring",)
-            or (c.args and "fov_ring" in str(c))
         ]
-        self.assertGreaterEqual(len(ring_calls), 1)
+        self.assertEqual(
+            len(ring_creates),
+            0,
+            "live resize must coords() the existing ring, not create new ovals",
+        )
+        self.assertEqual(win._fov_id, 7)
 
     def test_orphan_fov_ring_is_purged(self) -> None:
         """If a second item ends up tagged 'fov_ring', resize deletes all."""

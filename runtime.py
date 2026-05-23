@@ -117,6 +117,7 @@ class AssistRuntime:
         self._process_debounce = process_debounce or ProcessPresenceDebouncer()
         self._frame_has_target = False
         self._prev_ads_for_assist = False
+        self._ads_hold_frames = 0
         self._trace_frame = 0
         self._trace_pull = False
         self._last_debug: dict[str, float | int | str | bool] = {}
@@ -679,9 +680,22 @@ class AssistRuntime:
             self._release_ads_inner()
 
     def _sync_ads_assist_state(self, ads_for_assist: bool) -> None:
-        """Clear lock/pull when ADS ends (win32 poll path, not only pynput edge)."""
+        """Clear lock/pull when ADS ends; reset motion memory on ADS start / long hold."""
+        if ads_for_assist and not self._prev_ads_for_assist:
+            self._ads_hold_frames = 0
+            self._detect_ctx._validated_bbox = None
+            self._detect_ctx._validated_credit = 0
+            with self._lock:
+                self._target_lock.overlay_confirm_frames = 0
         if self._prev_ads_for_assist and not ads_for_assist:
             self._release_ads_inner()
+            self._ads_hold_frames = 0
+        elif ads_for_assist:
+            self._ads_hold_frames += 1
+            # Long ADS: decay stale motion-validation so ranking cannot drift to sky.
+            if self._ads_hold_frames in (1, 90, 180, 270):
+                self._detect_ctx._validated_bbox = None
+                self._detect_ctx._validated_credit = 0
         self._prev_ads_for_assist = ads_for_assist
 
     def _start_overlay(
@@ -1104,9 +1118,7 @@ class AssistRuntime:
                         target,
                         t0,
                         stale=stale_det,
-                        keep_motion_anchor=(
-                            target is None and self._last_motion is not None
-                        ),
+                        keep_motion_anchor=False,
                     )
                     pull_target = (
                         self._target_for_pull(target, motion)

@@ -568,6 +568,8 @@ def build_detection_mask(
             if mcov > float(getattr(context, "pan_coverage_threshold", 0.18)):
                 context.pan_detected = True
                 context.last_motion_mask = None
+                context._validated_bbox = None
+                context._validated_credit = 0
             else:
                 context.pan_detected = False
                 shape_m = cv2.bitwise_or(shape_m, motion)
@@ -3258,6 +3260,10 @@ def find_best_target(
 
     def _refresh_validation(t: Target) -> None:
         if context is None:
+            return
+        if float(t.red_coverage) < MIN_ENEMY_RED_COVERAGE:
+            return
+        if t.body_shape_score < 0.55:
             return
         live = context.motion_coverage_ratio(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
         if live >= context.motion_validate_threshold:

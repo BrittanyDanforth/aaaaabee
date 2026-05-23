@@ -167,10 +167,16 @@ def overlay_may_show_target(
     if lock_state is not None:
         if not detection_fresh or target is None:
             lock_state.overlay_confirm_frames = 0
+            lock_state._overlay_last_cy = None
             return False
         if not _passes_new_lock_gates(target, center_y=center_y):
             lock_state.overlay_confirm_frames = 0
+            lock_state._overlay_last_cy = None
             return False
+        last_cy = getattr(lock_state, "_overlay_last_cy", None)
+        if last_cy is not None and target.centroid_y < float(last_cy) - 22.0:
+            lock_state.overlay_confirm_frames = 0
+        lock_state._overlay_last_cy = float(target.centroid_y)
         lock_state.overlay_confirm_frames += 1
         return lock_state.overlay_confirm_frames >= OVERLAY_CONFIRM_FRAMES
     if not detection_fresh or target is None:
@@ -187,6 +193,7 @@ class TargetLockState:
     new_lock_candidate: Target | None = None
     new_lock_frames: int = 0
     overlay_confirm_frames: int = 0
+    _overlay_last_cy: float | None = None
 
     def reset(self) -> None:
         self.locked_target = None
@@ -196,6 +203,7 @@ class TargetLockState:
         self.new_lock_candidate = None
         self.new_lock_frames = 0
         self.overlay_confirm_frames = 0
+        self._overlay_last_cy = None
 
 
 def detection_sticky_context(
@@ -267,8 +275,12 @@ def apply_target_lock(
                 new_t.bbox_y < locked.bbox_y - locked.bbox_h * 0.12
                 and new_t.bbox_h < locked.bbox_h * 0.92
             )
-            aim_jump_up = new_t.centroid_y < locked.centroid_y - 16.0
+            aim_jump_up = new_t.centroid_y < locked.centroid_y - 12.0
             weak_red_adopt = aim_jump_up and new_t.red_coverage < 0.06
+            upward_sky_steal = (
+                aim_jump_up
+                and new_t.red_coverage < max(NEW_LOCK_MIN_RED, locked.red_coverage * 0.72)
+            )
             adopt_iou = _bbox_iou(
                 locked.bbox_x,
                 locked.bbox_y,
@@ -280,7 +292,9 @@ def apply_target_lock(
                 new_t.bbox_h,
             )
             sky_band = bbox_mid_in_sky_band(new_t.bbox_y, new_t.bbox_h, center_y)
-            clutter_fp = target_is_background_clutter(new_t) or new_is_env
+            clutter_fp = (
+                target_is_background_clutter(new_t) or new_is_env or upward_sky_steal
+            )
             instant_adopt_ok = (
                 bs_ratio_ok
                 and bs_abs_ok
@@ -358,7 +372,9 @@ def apply_target_lock(
                 and new_t.confidence >= locked.confidence * 0.90
                 and new_t.red_coverage >= 0.05
                 and not weak_red_adopt
+                and not upward_sky_steal
                 and not target_is_background_clutter(new_t)
+                and not new_is_env
                 and adopt_iou >= SWITCH_MIN_IOU
             )
             if state.switch_frames >= 3 and switch_score_ok:

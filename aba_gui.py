@@ -562,25 +562,8 @@ class AbaApplication:
         if key in self._sliders:
             self._sliders[key]._val_label.config(text=str(self._sliders[key].value()))
         patch = {key: self._sliders[key].value() for key in (key,)}
-        if key == "fov_radius_pixels":
-            hip = int(patch["fov_radius_pixels"])
-            ads = int(self.config.get("fov_radius_ads_pixels", hip))
-            if ads < hip:
-                ads = hip
-                patch["fov_radius_ads_pixels"] = ads
-            mag = float(self.config.get("magnetism_radius_pixels", 0))
-            if mag > hip:
-                patch["magnetism_radius_pixels"] = float(hip)
-        elif key == "fov_radius_ads_pixels":
-            hip = int(self.config.get("fov_radius_pixels", 140))
-            ads = int(patch["fov_radius_ads_pixels"])
-            if ads < hip:
-                ads = hip
-                patch["fov_radius_ads_pixels"] = ads
         try:
             self.config = self._controller.apply_config_patch(patch, persist=False)
-            if key in ("fov_radius_pixels", "fov_radius_ads_pixels"):
-                self._sync_controls_from_config()
         except Exception as exc:
             self._error_var.set(f"Config update: {exc}")
 
@@ -596,7 +579,10 @@ class AbaApplication:
             return
         hip = self.config.get("fov_radius_pixels", "?")
         ads = self.config.get("fov_radius_ads_pixels", "?")
-        self._fov_summary_var.set(f"Effective FOV: {hip} px hip / {ads} px ADS (Basic tab sliders)")
+        self._fov_summary_var.set(
+            f"FOV ring: {hip} px (hip) / {ads} px (ADS) — set in config.json or Advanced, "
+            "then Stop→Start to resize ring"
+        )
 
     def _sync_controls_from_config(self) -> None:
         for key, ctrl in self._sliders.items():
@@ -697,16 +683,17 @@ class AbaApplication:
             minimum=20.0, maximum=140.0, resolution=1.0, is_int=True,
             tooltip="px hysteresis before switching targets",
         )
-        self._slider(
-            parent, "FOV ring (hip-fire)", "fov_radius_pixels",
-            minimum=80.0, maximum=200.0, resolution=1.0, is_int=True,
-            tooltip="green overlay ring + detection centre (smaller = tighter scan)",
-        )
-        self._slider(
-            parent, "FOV ring (ADS)", "fov_radius_ads_pixels",
-            minimum=100.0, maximum=280.0, resolution=1.0, is_int=True,
-            tooltip="ring size while aiming down sights (must be >= hip-fire FOV)",
-        )
+        self._fov_summary_var = tk.StringVar(value="")
+        tk.Label(
+            parent,
+            textvariable=self._fov_summary_var,
+            fg=UI_MUTED,
+            bg=UI_PANEL,
+            font=("DejaVu Sans", 9),
+            wraplength=420,
+            justify="left",
+        ).pack(anchor="w", pady=(4, 0))
+        self._update_fov_summary_label()
         self._toggle(parent, "Show overlay (red dot + FOV ring)", "enable_overlay")
 
     # === BODY TARGETING TAB ===
