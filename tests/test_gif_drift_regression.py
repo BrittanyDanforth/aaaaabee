@@ -81,13 +81,20 @@ class _Lock:
                 )
                 fov_lim = float(cfg.get("_runtime_detect_fov", 200) or 200) * 0.55
                 bs_ratio_ok = new_t.body_shape_score >= self.locked.body_shape_score * 0.85
-                bs_abs_ok = new_t.body_shape_score >= 0.55
+                bs_abs_ok = new_t.body_shape_score >= 0.60
                 upward = (
                     new_t.bbox_y
                     < self.locked.bbox_y - self.locked.bbox_h * 0.15
                     and new_t.bbox_h < self.locked.bbox_h
                 )
-                instant_ok = bs_ratio_ok and bs_abs_ok and not upward
+                from detector import _bbox_iou
+                adopt_iou = _bbox_iou(
+                    self.locked.bbox_x, self.locked.bbox_y,
+                    self.locked.bbox_w, self.locked.bbox_h,
+                    new_t.bbox_x, new_t.bbox_y, new_t.bbox_w, new_t.bbox_h,
+                )
+                bbox_overlap_ok = adopt_iou >= 0.15
+                instant_ok = bs_ratio_ok and bs_abs_ok and not upward and bbox_overlap_ok
                 if drift < 25 and drift < fov_lim and instant_ok:
                     self.locked = new_t
                     self.lost = 0
@@ -113,7 +120,7 @@ class _Lock:
                     return self.locked, False
                 self.lost = max(1, self.lost)
                 return self.locked, True
-            if new_t.body_shape_score < 0.50:
+            if new_t.body_shape_score < 0.55:
                 return None, False
             self.locked = new_t
             self.lost = 0

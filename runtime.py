@@ -744,14 +744,31 @@ class AssistRuntime:
                         new_t.body_shape_score
                         >= self._locked_target.body_shape_score * 0.85
                     )
-                    bs_abs_ok = new_t.body_shape_score >= 0.55
+                    bs_abs_ok = new_t.body_shape_score >= 0.60
                     upward_fragment = (
                         new_t.bbox_y
                         < self._locked_target.bbox_y
                         - self._locked_target.bbox_h * 0.15
                         and new_t.bbox_h < self._locked_target.bbox_h
                     )
-                    instant_adopt_ok = bs_ratio_ok and bs_abs_ok and not upward_fragment
+                    from detector import _bbox_iou as _iou
+                    adopt_iou = _iou(
+                        self._locked_target.bbox_x, self._locked_target.bbox_y,
+                        self._locked_target.bbox_w, self._locked_target.bbox_h,
+                        new_t.bbox_x, new_t.bbox_y, new_t.bbox_w, new_t.bbox_h,
+                    )
+                    bbox_overlap_ok = adopt_iou >= 0.15
+                    sky_band = (
+                        new_t.bbox_y + new_t.bbox_h * 0.5
+                        < center_y * 0.40
+                    )
+                    instant_adopt_ok = (
+                        bs_ratio_ok
+                        and bs_abs_ok
+                        and not upward_fragment
+                        and bbox_overlap_ok
+                        and not sky_band
+                    )
                     if drift < 25 and drift < fov_lim and instant_adopt_ok:
                         self._locked_target = new_t
                         self._target_lost_frames = 0
@@ -813,7 +830,11 @@ class AssistRuntime:
                 # lock without a real body score. Below the floor we
                 # report active=False so the dot does not chase a
                 # weak signal.
-                if new_t.body_shape_score < 0.50:
+                new_sky = (
+                    new_t.bbox_y + new_t.bbox_h * 0.5
+                    < center_y * 0.40
+                )
+                if new_t.body_shape_score < 0.55 or new_sky:
                     return DetectionResult(None, result.candidates, 0.0)
                 self._locked_target = new_t
                 self._target_lost_frames = 0

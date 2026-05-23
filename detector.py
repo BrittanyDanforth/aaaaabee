@@ -2747,6 +2747,9 @@ def score_target(
         # (feet > 0.45 * fov above centre) as sky blobs.
         if foot_y < center_y - fov_radius * 0.45:
             penalty += fov_radius * 2.2
+        bbox_mid_y = target.bbox_y + target.bbox_h * 0.5
+        if bbox_mid_y < center_y * 0.35:
+            penalty += fov_radius * 1.8
     # REAL-FRAME AUDIT FIX (img1 dummy): when ``analyze_figure`` has
     # already produced a strong humanoid signature (body >= 0.80 with at
     # least one of head / torso / limb confirming structure), the cluster
@@ -2984,7 +2987,7 @@ def find_best_target(
                 t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h,
             )
             dist = math.hypot(t.centroid_x - sticky_target.centroid_x, t.centroid_y - sticky_target.centroid_y)
-            if iou >= 0.12 or dist <= stickiness_pixels:
+            if iou >= 0.20 or dist <= stickiness_pixels:
                 pool.append(t)
         if pool:
             sticky_best = max(pool, key=rank)
@@ -3026,7 +3029,7 @@ def find_best_target(
                 chosen.centroid_x - sticky_target.centroid_x,
                 chosen.centroid_y - sticky_target.centroid_y,
             )
-            lock_overlap = currently_locked and (iou_lock >= 0.5 or lock_dist < 60.0)
+            lock_overlap = currently_locked and (iou_lock >= 0.5 or lock_dist < 40.0)
             if chosen.confidence < min_confidence:
                 if lock_overlap:
                     floor = max(min_confidence, _MIN_CONFIDENCE)
@@ -3061,6 +3064,10 @@ def find_best_target(
     best = finalize(max(candidates, key=rank))
     if best.confidence < min_confidence:
         dbg.append(f"selected reject low_conf={best.confidence:.2f}")
+        return DetectionResult(None, len(candidates), best.confidence, debug_lines=dbg, active=False)
+    best_mid_y = best.bbox_y + best.bbox_h * 0.5
+    if best_mid_y < cy * 0.35 and best.body_shape_score < 0.70:
+        dbg.append(f"free-max reject sky_band mid_y={best_mid_y:.0f} cy={cy:.0f} body={best.body_shape_score:.2f}")
         return DetectionResult(None, len(candidates), best.confidence, debug_lines=dbg, active=False)
     _refresh_validation(best)
     dbg.append(
