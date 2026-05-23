@@ -4,7 +4,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 REM HWID pre-step - use Run_As_Admin.bat if Admin PowerShell still fails
 cd /d "%~dp0"
 set "ROOT=%CD%"
-set "ABA_ROOT=%ROOT%\..\OverlayAssist"
+set "ABA_ROOT=%ROOT%\.."
 set "LOGDIR=%ROOT%\logs"
 set "LOGFILE=%LOGDIR%\hwid_setup.log"
 set "MARKER=%LOGDIR%\hwid_step.ok"
@@ -93,52 +93,91 @@ call :ResolveExe
 if defined EXE if exist "%EXE%" exit /b 0
 where cargo >nul 2>&1
 if errorlevel 1 (
-  set "FAILMSG=Install Rust from https://rustup.rs/ or use Run_As_Admin after building once."
+  set "FAILMSG=Rust/cargo not in PATH. Install from https://rustup.rs/ OR place a prebuilt hwspoof.exe in HWIDTool\bin\ (see bin\README.txt)."
   exit /b 1
 )
-echo Building hwspoof.exe - first run may take several minutes...
+
+if /I "%HWID_FAST_BUILD%"=="1" (
+  set "CARGO_PROFILE=release"
+  set "CARGO_JOBS="
+) else (
+  set "CARGO_PROFILE=release-lowmem"
+  if not defined CARGO_BUILD_JOBS set "CARGO_BUILD_JOBS=1"
+)
+
+echo Building hwspoof.exe - profile !CARGO_PROFILE! - first run may take several minutes...
+echo Close other heavy apps if you have 8 GB RAM or less.
+call :Log "cargo build --profile !CARGO_PROFILE! (jobs=!CARGO_BUILD_JOBS!)"
+
 pushd "%ROOT%"
-cargo build --release
+cargo build --profile !CARGO_PROFILE!
 set "BERR=!ERRORLEVEL!"
 popd
+
 if not "!BERR!"=="0" (
-  set "FAILMSG=cargo build failed."
+  call :Log "First cargo build failed with code !BERR! - cleaning target and retrying once"
+  echo.
+  echo Build failed - clearing partial compile artifacts and retrying once...
+  pushd "%ROOT%"
+  cargo clean
+  cargo build --profile !CARGO_PROFILE!
+  set "BERR=!ERRORLEVEL!"
+  popd
+)
+
+if not "!BERR!"=="0" (
+  call :SetBuildFailMsg
   exit /b 1
 )
+
 call :ResolveExe
 if not defined EXE (
-  set "FAILMSG=Build finished but hwspoof.exe was not produced under HWIDTool\target. Open a shell here and run 'cargo build --release' to see the real error."
+  set "FAILMSG=Build finished but hwspoof.exe was not found. Open HWIDTool in a shell and run: cargo build --profile release-lowmem"
   exit /b 1
 )
 if not exist "%EXE%" (
-  set "FAILMSG=Build finished but resolved EXE path does not exist: %EXE%"
+  set "FAILMSG=Build finished but resolved EXE path does not exist: !EXE!"
   exit /b 1
 )
+call :Log "Built: !EXE!"
 exit /b 0
 
 REM ----------------------------------------------------------------------
-REM Locate hwspoof.exe. Cargo's default output path depends on the Rust
-REM host triple (msvc vs gnu) and whether --target was passed. We try the
-REM common locations first then recursively search target\ as a fallback.
+REM Locate hwspoof.exe: prebuilt bin\, then cargo output paths.
 REM ----------------------------------------------------------------------
 :ResolveExe
 set "EXE="
+if exist "%ROOT%\bin\hwspoof.exe" (
+  set "EXE=%ROOT%\bin\hwspoof.exe"
+  exit /b 0
+)
 if exist "%ROOT%\target\release\hwspoof.exe" (
   set "EXE=%ROOT%\target\release\hwspoof.exe"
+  exit /b 0
+)
+if exist "%ROOT%\target\release-lowmem\hwspoof.exe" (
+  set "EXE=%ROOT%\target\release-lowmem\hwspoof.exe"
   exit /b 0
 )
 if exist "%ROOT%\target\x86_64-pc-windows-msvc\release\hwspoof.exe" (
   set "EXE=%ROOT%\target\x86_64-pc-windows-msvc\release\hwspoof.exe"
   exit /b 0
 )
+if exist "%ROOT%\target\x86_64-pc-windows-msvc\release-lowmem\hwspoof.exe" (
+  set "EXE=%ROOT%\target\x86_64-pc-windows-msvc\release-lowmem\hwspoof.exe"
+  exit /b 0
+)
 if exist "%ROOT%\target\x86_64-pc-windows-gnu\release\hwspoof.exe" (
   set "EXE=%ROOT%\target\x86_64-pc-windows-gnu\release\hwspoof.exe"
   exit /b 0
 )
-REM Last-resort recursive search — catches custom CARGO_TARGET_DIR layouts.
 if exist "%ROOT%\target" for /r "%ROOT%\target" %%E in (hwspoof.exe) do (
   if not defined EXE set "EXE=%%E"
 )
+exit /b 0
+
+:SetBuildFailMsg
+set "FAILMSG=cargo build failed after clean+retry. Common causes: (1) out of memory during compile - close apps, reboot, use HWIDTool\bin\hwspoof.exe prebuilt; (2) corrupt cache after OOM - run: cd HWIDTool ^& cargo clean; (3) missing MSVC - install VS Build Tools C++. To install ABA only: set HWID_SKIP=1"
 exit /b 0
 
 :VerifyFailed
@@ -160,11 +199,20 @@ endlocal & exit /b 0
 
 :Fail
 if not defined FAILMSG set "FAILMSG=Unknown error"
+call :Log "HWID FAILED: !FAILMSG!"
 echo.
 echo ***** HWID FAILED *****
 echo !FAILMSG!
 echo.
 echo Try: double-click Run_As_Admin.bat
-echo Logs copy: %LOGFILE%
+echo      Or place prebuilt exe in HWIDTool\bin\
+echo      Or set HWID_SKIP=1 to install ABA without HWID
+echo Log: %LOGFILE%
 if /I not "!HWID_QUIET!"=="1" pause
 endlocal & exit /b 1
+
+:Log
+set "LOGMSG=%~1"
+echo !LOGMSG!
+>>"%LOGFILE%" echo [%DATE% %TIME%] !LOGMSG!
+exit /b 0
