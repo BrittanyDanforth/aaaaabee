@@ -143,6 +143,9 @@ class TargetTracker:
         self._last_pred_offset: tuple[float, float] = (0.0, 0.0)
         self._last_pre_predict: tuple[float, float] | None = None
         self._overlay_smooth: tuple[float, float] | None = None
+        # Dedicated overlay drag — never deadband-frozen (pull uses _smooth_x/y).
+        self._overlay_follow_x: float | None = None
+        self._overlay_follow_y: float | None = None
         # M5 (audit): hysteresis state for the stationary jitter deadband.
         # Enter when meas_drift < 2.5 AND speed < 90; exit only when
         # meas_drift > 5.0 for 2 consecutive frames AND the instantaneous
@@ -200,6 +203,48 @@ class TargetTracker:
         _tau_still = max(0.01, float(still))
         _tau_moving = max(0.005, min(_tau_still, float(moving)))
 
+    def _advance_overlay_follow(
+        self,
+        aim_x: float,
+        aim_y: float,
+        dt: float,
+    ) -> tuple[float, float]:
+        """Continuous overlay drag in frame space — independent of pull deadband."""
+        if not (math.isfinite(aim_x) and math.isfinite(aim_y)):
+            return aim_x, aim_y
+        if self._overlay_follow_x is None or self._overlay_follow_y is None:
+            ox, oy = self._clamp_aim_output(aim_x, aim_y)
+            self._overlay_follow_x, self._overlay_follow_y = ox, oy
+            return ox, oy
+        speed = math.hypot(self._vx, self._vy)
+        tau_ov = _tau_moving if speed > 70.0 else _tau_still
+        tau_ov = max(0.032, min(float(tau_ov) * 1.35, 0.10))
+        oa = alpha_from_tau(dt, tau_ov)
+        oa = max(0.20, min(0.58, oa))
+        fx = self._overlay_follow_x + oa * (aim_x - self._overlay_follow_x)
+        fy = self._overlay_follow_y + oa * (aim_y - self._overlay_follow_y)
+        if speed > 20.0:
+            lead = min(dt, 0.05)
+            fx += self._vx * lead * 0.45
+            fy += self._vy * lead * 0.45
+            if fy < self._overlay_follow_y - 8.0:
+                fy = self._overlay_follow_y - 8.0
+        bh = 80
+        if self._body_bbox is not None:
+            bh = self._body_bbox[3]
+        if self._last_meas_x is not None and self._last_meas_y is not None:
+            follow_cap = max(8.0, min(32.0, bh * 0.28)) * max(0.5, min(2.0, dt * 60.0))
+            fdx = fx - self._overlay_follow_x
+            fdy = fy - self._overlay_follow_y
+            fdist = math.hypot(fdx, fdy)
+            if fdist > follow_cap and fdist > 0.0:
+                s = follow_cap / fdist
+                fx = self._overlay_follow_x + fdx * s
+                fy = self._overlay_follow_y + fdy * s
+        ox, oy = self._clamp_aim_output(fx, fy)
+        self._overlay_follow_x, self._overlay_follow_y = ox, oy
+        return ox, oy
+
     def smooth_overlay_point(
         self,
         x: float,
@@ -219,8 +264,8 @@ class TargetTracker:
         bh = max(20, int(bbox_h))
         dt_s = max(_MIN_DT, min(dt, _MAX_DT))
         scale = max(0.45, min(2.0, dt_s * 60.0))
-        max_step = max(3.5, min(18.0, bh * 0.14)) * scale
-        up_cap = max(0.8, min(4.5, bh * 0.028))
+        max_step = max(5.0, min(28.0, bh * 0.22)) * scale
+        up_cap = max(1.0, min(5.5, bh * 0.032))
         if self._overlay_smooth is None:
             self._overlay_smooth = (x, y)
             return x, y
@@ -234,7 +279,7 @@ class TargetTracker:
             y = ly + dy * s
         if y < ly - up_cap:
             y = ly - up_cap
-        a = max(0.05, min(0.55, float(alpha)))
+        a = max(0.12, min(0.72, float(alpha)))
         ay = a
         if y < ly:
             ay = min(a, 0.38)
@@ -245,6 +290,8 @@ class TargetTracker:
 
     def reset_overlay_smoothing(self) -> None:
         self._overlay_smooth = None
+        self._overlay_follow_x = None
+        self._overlay_follow_y = None
 
     def peek_overlay_smooth(self) -> tuple[float, float] | None:
         """Last dragged overlay position in monitor/capture space (for hold-last-dot)."""
@@ -276,6 +323,8 @@ class TargetTracker:
         self._last_pred_offset = (0.0, 0.0)
         self._last_pre_predict = None
         self._overlay_smooth = None
+        self._overlay_follow_x = None
+        self._overlay_follow_y = None
         # M5 deadband memory must also reset when the lock is fully torn down.
         self._in_deadband = False
         self._deadband_exit_frames = 0
@@ -562,7 +611,10 @@ class TargetTracker:
             self._last_meas_x = x
             self._last_meas_y = y
             self._last_time = time_sec
-            ox, oy = self._clamp_aim_output(x, y)
+            if self._body_bbox is not None:
+                ox, oy = self._advance_overlay_follow(x, y, 1.0 / 60.0)
+            else:
+                ox, oy = self._clamp_aim_output(self._smooth_x, self._smooth_y)
             self._last = TargetMotion(x, y, 0.0, 0.0, overlay_x=ox, overlay_y=oy)
             return self._last
 
@@ -670,7 +722,10 @@ class TargetTracker:
                 self._body_bbox[3],
                 dt,
             )
-        overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
+        if self._body_bbox is not None:
+            overlay_x, overlay_y = self._advance_overlay_follow(x, y, dt)
+        else:
+            overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
 
         self._last_meas_x = x
         self._last_meas_y = y

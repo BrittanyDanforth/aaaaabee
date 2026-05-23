@@ -232,8 +232,9 @@ class AssistRuntime:
 
     @staticmethod
     def _target_for_pull(raw: Target, motion: TargetMotion) -> Target:
-        """Pull + overlay use smoothed aim anchor, not hopping red-plate centroids."""
-        return replace(raw, centroid_x=motion.x, centroid_y=motion.y)
+        """Pull moves crosshair toward the visible dot (overlay follow anchor)."""
+        ox, oy = motion.overlay_xy()
+        return replace(raw, centroid_x=ox, centroid_y=oy)
 
     def stop(self) -> None:
         with self._lock:
@@ -1387,7 +1388,7 @@ class AssistRuntime:
                                 if target is not None and int(target.bbox_h) > 0:
                                     bbox_h = int(target.bbox_h)
                                 dot_alpha = float(
-                                    cfg.get("overlay_dot_smooth_alpha", 0.40)
+                                    cfg.get("overlay_dot_smooth_alpha", 0.52)
                                 )
                                 sx, sy = self._aim_tracker.smooth_overlay_point(
                                     ox,

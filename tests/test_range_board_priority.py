@@ -57,6 +57,32 @@ def _range_board(frame: np.ndarray, cx: int, cy: int, *, h: int = 200, w: int = 
 
 
 class RangeBoardPriorityTests(unittest.TestCase):
+    def test_larger_edge_dummy_beats_smaller_center_blob(self) -> None:
+        """Closer = larger bbox at edge must beat smaller central background blob."""
+        frame = np.zeros((H, W, 3), dtype=np.uint8)
+        cv2.rectangle(
+            frame,
+            (CX - 18, CY - 50),
+            (CX + 18, CY + 50),
+            RED,
+            -1,
+        )
+        _apex_dummy(frame, CX + 165, CY + 110, scale=1.35)
+        r = detector.find_best_target(
+            frame,
+            HSV_RED,
+            FOV,
+            MIN_AREA,
+            float(CX),
+            float(CY),
+            stickiness_pixels=90.0,
+            detection_mode="apex",
+        )
+        self.assertTrue(r.active, "\n".join(r.debug_lines))
+        assert r.target is not None
+        self.assertGreater(r.target.bbox_h, 100)
+        self.assertGreater(r.target.centroid_x, CX + 70)
+
     def test_edge_dummy_beats_center_range_board(self) -> None:
         frame = np.zeros((H, W, 3), dtype=np.uint8)
         _range_board(frame, CX, CY - 40, h=210, w=72)

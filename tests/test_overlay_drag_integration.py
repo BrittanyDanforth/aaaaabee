@@ -18,6 +18,11 @@ class OverlayDragIntegrationTests(unittest.TestCase):
         self.assertIn("bbox_h=bbox_h", text)
         self.assertIn("dt=dt_frame", text)
         self.assertIn("sync_overlay_display", text)
+        motion_src = Path(__file__).resolve().parents[1].joinpath("motion.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("_advance_overlay_follow", motion_src)
+        self.assertIn("motion.overlay_xy()", text)
         self.assertNotIn("cap_frame_display_step", text)
 
     def test_sixty_frame_jitter_has_bounded_step(self) -> None:
@@ -38,8 +43,8 @@ class OverlayDragIntegrationTests(unittest.TestCase):
             prev = (x, y)
         self.assertLess(
             max_step,
-            22.0,
-            "unified drag must cap per-frame travel (no teleport/recreate)",
+            28.0,
+            "monitor drag must cap per-frame travel (no teleport/recreate)",
         )
 
     def test_ring_reclamp_syncs_internal_state(self) -> None:

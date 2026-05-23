@@ -2948,10 +2948,9 @@ def _closeness_bonus(target: Target, fov_radius: float) -> float:
     """
     bbox_h_eff = max(0.0, float(target.bbox_h))
     closeness_unit = min(bbox_h_eff, fov_radius * 1.5) / max(fov_radius, 1.0)
-    center_w = max(0.0, 1.0 - target.distance_to_center / max(fov_radius, 1.0))
-    # Tall blobs at the FOV rim (background boards) must not beat a nearer
-    # humanoid just because bbox_h is large — weight by crosshair proximity.
-    return closeness_unit * fov_radius * 0.42 * (0.30 + 0.70 * center_w * center_w)
+    # Pure screen-height proxy for depth — do NOT multiply by center distance;
+    # that was letting small central background blobs beat a larger edge dummy.
+    return closeness_unit * fov_radius * 0.58
 
 
 def score_target(
@@ -2965,7 +2964,7 @@ def score_target(
     include_closeness: bool = False,
 ) -> float:
     body_term = target.body_shape_score * fov_radius * 1.15
-    dist_term = max(0.0, fov_radius - target.distance_to_center) * distance_weight * 0.35
+    dist_term = max(0.0, fov_radius - target.distance_to_center) * distance_weight * 0.28
     area_term = min(math.sqrt(target.area), 80.0) * area_weight
     closeness_term = _closeness_bonus(target, fov_radius) if include_closeness else 0.0
     # Motion-overlap bonus rewards candidates whose bbox covers an inter-frame
@@ -3276,6 +3275,8 @@ def find_best_target(
     if not candidates:
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
 
+    pool_max_h = max(int(t.bbox_h) for t in candidates)
+
     def _motion_overlap(t: Target) -> float:
         if context is None:
             return 0.0
@@ -3292,7 +3293,7 @@ def find_best_target(
         # confidence calculation — confidence must measure detection quality,
         # not target proximity, otherwise small far enemies would never make
         # the threshold and large but low-quality blobs would always pass.
-        return score_target(
+        raw = score_target(
             t,
             float(fov_radius),
             distance_weight,
@@ -3301,6 +3302,11 @@ def find_best_target(
             motion_overlap=_motion_overlap(t),
             include_closeness=True,
         )
+        if pool_max_h > 0:
+            h_ratio = float(t.bbox_h) / float(pool_max_h)
+            if h_ratio < 0.80:
+                raw -= float(fov_radius) * 0.65 * (0.80 - h_ratio)
+        return raw
 
     def finalize(t: Target) -> Target:
         raw = score_target(

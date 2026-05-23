@@ -82,7 +82,10 @@ class PullContinuousFollowTests(unittest.TestCase):
         ov1 = m1.overlay_xy()
         overlay_drift = ((ov1[0] - ov0[0]) ** 2 + (ov1[1] - ov0[1]) ** 2) ** 0.5
         self.assertGreater(pull_drift, 0.05, "pull anchor must move during micro-track in deadband")
-        self.assertLess(overlay_drift, 0.5, "overlay anchor should stay stable in deadband")
+        self.assertGreater(
+            overlay_drift, 0.05,
+            "overlay follow must track the same micro-motion as pull",
+        )
 
     def test_steady_track_produces_pull_over_frames(self) -> None:
         ctrl = PullController(_tuning())

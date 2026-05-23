@@ -136,7 +136,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "enable_overlay": True,
         "capture_fps": 60,
         "overlay_fps": 90,
-        "overlay_dot_smooth_alpha": 0.40,
+        "overlay_dot_smooth_alpha": 0.52,
         "ads_input_mode": "both",
         "dry_run_force_detect": False,
         "trace_pull": True,

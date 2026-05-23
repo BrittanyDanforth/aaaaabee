@@ -20,6 +20,7 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         self.assertIn("bbox_h=target.bbox_h", text)
         self.assertIn("_smooth_aim", text)
         self.assertIn("_target_for_pull", text)
+        self.assertIn("motion.overlay_xy()", text)
         self.assertIn("to_monitor_coords(motion.x, motion.y", text)
 
     def test_runtime_ast_has_smooth_aim_method(self) -> None:

@@ -31,9 +31,9 @@ class StationaryDeadbandTests(unittest.TestCase):
             positions.append(m.overlay_xy())
         xs = [p[0] for p in positions]
         ys = [p[1] for p in positions]
-        # Deadband should keep the smoothed point pinned at the seed (500,400).
-        self.assertLess(max(abs(x - 500.0) for x in xs), 0.5)
-        self.assertLess(max(abs(y - 400.0) for y in ys), 0.5)
+        # Pull deadband pins; overlay on bare observe uses the same smooth anchor.
+        self.assertLess(max(abs(x - 500.0) for x in xs), 1.0)
+        self.assertLess(max(abs(y - 400.0) for y in ys), 1.0)
 
     def test_slow_moving_target_still_tracks(self) -> None:
         """A target moving > 50 px/s must escape the deadband — the smoother
