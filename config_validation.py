@@ -261,7 +261,18 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         cfg, "mouse_gate_pull_budget_scale", default=3.5, minimum=1.0, maximum=8.0
     )
 
+    # PHASE-5 AUDIT FIX (D-LOW dead debug flags): the seven
+    # ``debug_show_body_bbox`` / ``debug_show_anchor`` / etc. flags were
+    # defined and persisted by validation/profiles but never read by
+    # ``draw_debug``. Dead config is worse than no config — drop them.
+    # ``debug_show_detect_ring`` IS read by draw_debug and runtime.py
+    # to gate the optional second FOV ring, so it stays.
     for flag in (
+        "debug_show_detect_ring",
+    ):
+        cfg[flag] = bool(cfg.get(flag, False))
+    # Strip dead debug_show_* keys if a legacy profile leaked them in.
+    for stale in (
         "debug_show_body_bbox",
         "debug_show_anchor",
         "debug_show_rejected",
@@ -269,13 +280,8 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         "debug_show_reject_reasons",
         "debug_show_mask_overlay",
         "debug_show_timing",
-        # O1 (audit): when True, the OpenCV debug window draws a faint
-        # second ring at the detection FOV alongside the live display
-        # ring. Off by default so only ONE green ring is ever visible
-        # — kills the "two FOV rings" screenshot artefact.
-        "debug_show_detect_ring",
     ):
-        cfg[flag] = bool(cfg.get(flag, False))
+        cfg.pop(stale, None)
 
     cfg["stats_log_interval_frames"] = int(
         _require_number(cfg, "stats_log_interval_frames", default=60.0, minimum=1)
