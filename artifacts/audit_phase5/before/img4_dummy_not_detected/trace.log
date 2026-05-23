@@ -1,0 +1,15 @@
+INPUT img4_dummy_not_detected.webp  size=310x417  ads_hint=False
+FOV center=(155,208) radius=111  min_area=40.0
+MASK_PX red_enemy=19196  shape=70313  chroma=14879  motion=34047  fused=19196
+PARTS=9  CLUSTERS=4
+  cand[0] accepted=False reject=floating_cluster bbox=(68,131,10x32) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=1.00 fill=0.78 circ=0.22 aspect=3.20 parts=1 area=98 dist=105 | floating_cluster
+  cand[1] accepted=False reject=too_small bbox=(0,0,0x0) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=0.00 fill=0.00 circ=0.00 aspect=0.00 parts=1 area=5 dist=0 | area=5 < min=40.0
+  cand[2] accepted=False reject=too_small bbox=(0,0,0x0) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=0.00 fill=0.00 circ=0.00 aspect=0.00 parts=2 area=17 dist=0 | area=17 < min=40.0
+  cand[3] accepted=True reject=ok bbox=(151,110,58x111) body=1.00 head=1.00 torso=0.80 limb=1.00 vert=1.00 fill=0.45 circ=0.61 aspect=1.91 parts=5 area=4386 dist=41 | parts=5 head=1.00 torso=0.80 limb=1.00 vert=1.00 geom=0.42 align=0.11 circ=0.61 fill=0.45
+SELECTED active=True body=1.00 conf=0.82 red_cov=0.504 bbox=(151,110,58x111) centroid=(158.5,167.7) dist=40.9
+  DBG cand[0] reject=floating_cluster body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=3.20 fill=0.78 circ=0.22 bbox=(68,131,10x32) area=98 dist=105 parts=1 | floating_cluster
+  DBG cand[1] skip area=5
+  DBG cand[2] skip area=17
+  DBG cand[3] reject=ok body=1.00 head=1.00 torso=0.80 limb=1.00 aspect=1.91 fill=0.45 circ=0.61 bbox=(151,110,58x111) area=4386 dist=41 parts=5 | parts=5 head=1.00 torso=0.80 limb=1.00 vert=1.00 geom=0.42 align=0.11 circ=0.61 fill=0.45
+  DBG accepted=1 from 4 clusters / 9 parts
+  DBG SELECTED body=1.00 head=1.00 dist=41 bbox=58x111

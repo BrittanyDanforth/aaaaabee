@@ -1,0 +1,9 @@
+image                                p1_active  p1_body  p2_active  p2_body  y_top   y_mid   IS_SKY  motion_cov%
+----------------------------------------------------------------------------------------------------------------
+img1_back_view.png                   False        -1.00  True          0.99   0.437   0.520  False   21.2
+img2_shooting_26.png                 False        -1.00  False        -1.00  -1.000  -1.000  False   25.2
+img3_side_view.webp                  True          1.00  True          0.62   0.222   0.501  False   25.9
+img4_dummy_not_detected.webp         True          1.00  True          0.74   0.221   0.414  False   28.4
+img5_close_ads.webp                  False        -1.00  True          0.76   0.000   0.300  True    23.0
+img6_seven_characters.png            False        -1.00  False        -1.00  -1.000  -1.000  False   53.2
+img7_sky_dot_bug.png                 False        -1.00  False        -1.00  -1.000  -1.000  False   20.0

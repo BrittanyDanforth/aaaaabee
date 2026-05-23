@@ -75,9 +75,9 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         raise ConfigError(f"Missing required keys: {', '.join(sorted(missing))}")
 
     cfg: dict[str, Any] = dict(raw)
-    mode = str(cfg.get("detection_mode", "shape")).strip().lower()
-    if mode not in ("shape", "hsv", "hybrid"):
-        raise ConfigError("detection_mode must be shape, hsv, or hybrid")
+    mode = str(cfg.get("detection_mode", "apex")).strip().lower()
+    if mode not in ("shape", "hsv", "hybrid", "apex"):
+        raise ConfigError("detection_mode must be apex, shape, hsv, or hybrid")
     cfg["detection_mode"] = mode
     if mode in ("hsv", "hybrid"):
         cfg["hsv_ranges"] = _validate_hsv_ranges(cfg.get("hsv_ranges"))
@@ -132,6 +132,21 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         cfg, "humanize_jerk_limit", default=2.5, minimum=0.0
     )
 
+    # Engagement-gated recoil compensator (only fires while LMB held + locked).
+    # Defaults are OFF / zero so adding the keys does not change existing
+    # tracking behaviour for users on older profiles.
+    cfg["recoil_compensation_enabled"] = bool(cfg.get("recoil_compensation_enabled", False))
+    cfg["recoil_pull_down_pixels_per_second"] = _require_number(
+        cfg, "recoil_pull_down_pixels_per_second", default=0.0, minimum=0.0, maximum=180.0
+    )
+    cfg["jitter_enabled"] = bool(cfg.get("jitter_enabled", False))
+    cfg["jitter_amplitude_pixels"] = _require_number(
+        cfg, "jitter_amplitude_pixels", default=0.0, minimum=0.0, maximum=6.0
+    )
+    cfg["jitter_frequency_hz"] = _require_number(
+        cfg, "jitter_frequency_hz", default=6.0, minimum=0.5, maximum=20.0
+    )
+
     cfg["target_stickiness_pixels"] = _require_number(
         cfg, "target_stickiness_pixels", default=45.0, minimum=0.0
     )
@@ -147,6 +162,15 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     )
     cfg["capture_fps"] = int(
         _require_number(cfg, "capture_fps", default=60.0, minimum=1, maximum=240)
+    )
+    cfg["overlay_fps"] = int(
+        _require_number(cfg, "overlay_fps", default=90.0, minimum=30, maximum=144)
+    )
+    cfg["overlay_dot_smooth_alpha"] = _require_number(
+        cfg, "overlay_dot_smooth_alpha", default=0.78, minimum=0.05, maximum=1.0
+    )
+    cfg["viewmodel_exclude_bottom_frac"] = _require_number(
+        cfg, "viewmodel_exclude_bottom_frac", default=0.28, minimum=0.05, maximum=0.45
     )
     cfg["monitor_index"] = int(_require_number(cfg, "monitor_index", default=1.0, minimum=1))
     cfg["crosshair_offset_x"] = _require_number(cfg, "crosshair_offset_x", default=0.0)
@@ -216,10 +240,16 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         raise ConfigError("aim_body_y_min_fraction must be < aim_body_y_max_fraction")
 
     cfg["smoothing_tau_still"] = _require_number(
-        cfg, "smoothing_tau_still", default=0.062, minimum=0.01, maximum=0.25
+        cfg, "smoothing_tau_still", default=0.042, minimum=0.01, maximum=0.25
     )
     cfg["smoothing_tau_moving"] = _require_number(
-        cfg, "smoothing_tau_moving", default=0.028, minimum=0.005, maximum=0.15
+        cfg, "smoothing_tau_moving", default=0.018, minimum=0.005, maximum=0.15
+    )
+    cfg["detection_motion_assist"] = bool(cfg.get("detection_motion_assist", True))
+    cfg["detection_motion_threshold"] = int(
+        _require_number(
+            cfg, "detection_motion_threshold", default=10.0, minimum=4.0, maximum=80.0
+        )
     )
     cfg["body_shape_min_score"] = _require_number(
         cfg, "body_shape_min_score", default=0.40, minimum=0.2, maximum=0.85
@@ -240,7 +270,18 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         cfg, "mouse_gate_pull_budget_scale", default=3.5, minimum=1.0, maximum=8.0
     )
 
+    # PHASE-5 AUDIT FIX (D-LOW dead debug flags): the seven
+    # ``debug_show_body_bbox`` / ``debug_show_anchor`` / etc. flags were
+    # defined and persisted by validation/profiles but never read by
+    # ``draw_debug``. Dead config is worse than no config — drop them.
+    # ``debug_show_detect_ring`` IS read by draw_debug and runtime.py
+    # to gate the optional second FOV ring, so it stays.
     for flag in (
+        "debug_show_detect_ring",
+    ):
+        cfg[flag] = bool(cfg.get(flag, False))
+    # Strip dead debug_show_* keys if a legacy profile leaked them in.
+    for stale in (
         "debug_show_body_bbox",
         "debug_show_anchor",
         "debug_show_rejected",
@@ -249,7 +290,7 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         "debug_show_mask_overlay",
         "debug_show_timing",
     ):
-        cfg[flag] = bool(cfg.get(flag, False))
+        cfg.pop(stale, None)
 
     cfg["stats_log_interval_frames"] = int(
         _require_number(cfg, "stats_log_interval_frames", default=60.0, minimum=1)
@@ -258,8 +299,6 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     log_file = cfg.get("log_file", "")
     cfg["log_file"] = str(log_file).strip() if log_file else ""
 
-    title = cfg.get("target_window_title", "")
-    cfg["target_window_title"] = str(title).strip() if title else ""
     cfg["pause_on_target_closed"] = bool(cfg.get("pause_on_target_closed", True))
 
     raw_profile = str(cfg.get("profile", "apex_style_dry_run")).lower()

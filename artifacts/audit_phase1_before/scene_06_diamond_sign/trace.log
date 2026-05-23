@@ -1,0 +1,2 @@
+cand[0] reject=horizontal_stripe body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=0.82 fill=0.71 circ=0.43 bbox=(556,235,305x251) area=36369 dist=77 parts=1 | horizontal_stripe
+accepted=0 from 1 clusters / 1 parts

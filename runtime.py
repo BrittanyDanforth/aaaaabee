@@ -22,7 +22,21 @@ from ban_safety import (
     validate_runtime_policy,
 )
 from capture import build_capture_region, grab_bgr, to_monitor_coords
-from detector import DetectionResult, Target, draw_debug, find_best_target
+from detector import (
+    DetectionContext,
+    DetectionResult,
+    Target,
+    draw_debug,
+    find_best_target,
+)
+from target_lock import (
+    TargetLockState,
+    apply_target_lock,
+    detection_sticky_context,
+    may_assist_pull_target,
+    overlay_may_show_target,
+    viewmodel_exclude_bottom,
+)
 from input_state import AdsInputState
 from motion import TargetMotion, TargetTracker
 from mouse_gate import MouseGateContext, MouseGateResult, evaluate_mouse_gate
@@ -34,6 +48,7 @@ from profiles import (
     effective_capture_fov_radius,
     effective_detection_fov_radius,
     effective_fov_radius,
+    effective_overlay_fps,
 )
 from pull import PullController, PullTuning
 from stats import RuntimeStats
@@ -68,6 +83,12 @@ class AssistRuntime:
         # Body-column aim smoothing (bbox-aware — required for moving targets)
         self._aim_tracker = TargetTracker()
         self._last_motion: TargetMotion | None = None
+        # Stateful detection context — supplies prev-frame gray buffer for the
+        # motion-difference channel that boosts recall on low-contrast targets.
+        self._detect_ctx = DetectionContext(
+            motion_assist=bool(config.get("detection_motion_assist", True)),
+            motion_threshold=int(config.get("detection_motion_threshold", 10)),
+        )
 
         if mouse_backend is not None:
             self._mouse = mouse_backend
@@ -87,8 +108,7 @@ class AssistRuntime:
 
         self._overlay: OverlayWindow | None = None
         self._overlay_thread: threading.Thread | None = None
-        self._locked_target: Target | None = None
-        self._target_lost_frames = 0
+        self._target_lock = TargetLockState()
         self._pull: PullController | None = None
         self._stats: RuntimeStats | None = None
         self._paused = False
@@ -97,8 +117,8 @@ class AssistRuntime:
         self._stopping = False
         self._process_debounce = process_debounce or ProcessPresenceDebouncer()
         self._frame_has_target = False
-        self._switch_candidate: Target | None = None
-        self._switch_frames = 0
+        self._prev_ads_for_assist = False
+        self._ads_hold_frames = 0
         self._trace_frame = 0
         self._trace_pull = False
         self._last_debug: dict[str, float | int | str | bool] = {}
@@ -107,20 +127,89 @@ class AssistRuntime:
         self._last_gate_allowed = True
         self._pending_debug_save = False
         self._last_frame_bgr = None
+        # LMB-held flag for recoil compensator engagement gating. Updated by
+        # the pynput mouse listener under _lock; read by the runtime loop.
+        self._is_firing = False
+
+    @property
+    def _locked_target(self) -> Target | None:
+        return self._target_lock.locked_target
+
+    @_locked_target.setter
+    def _locked_target(self, value: Target | None) -> None:
+        self._target_lock.locked_target = value
+
+    @property
+    def _target_lost_frames(self) -> int:
+        return self._target_lock.target_lost_frames
+
+    @_target_lost_frames.setter
+    def _target_lost_frames(self, value: int) -> None:
+        self._target_lock.target_lost_frames = value
+
+    @property
+    def _switch_candidate(self) -> Target | None:
+        return self._target_lock.switch_candidate
+
+    @_switch_candidate.setter
+    def _switch_candidate(self, value: Target | None) -> None:
+        self._target_lock.switch_candidate = value
+
+    @property
+    def _switch_frames(self) -> int:
+        return self._target_lock.switch_frames
+
+    @_switch_frames.setter
+    def _switch_frames(self, value: int) -> None:
+        self._target_lock.switch_frames = value
 
     def _smooth_aim(
         self,
         target: Target | None,
         time_sec: float,
+        *,
+        stale: bool = False,
+        keep_motion_anchor: bool = False,
     ) -> TargetMotion | None:
         """
         Upper-chest body column via observe_target(bbox_*).
         Returns None when no target — overlay/pull must not use raw plate centroids.
+
+        M1 (audit): when ``stale`` is True (the runtime is returning a
+        frozen lock during the grace window because no fresh detection
+        was made this frame) we DO NOT call ``observe_target`` — that
+        would keep feeding the smoother with the stale centroid every
+        frame and accumulate motion the user perceives as glitchy chase.
+        Instead we hold ``_last_motion`` so the overlay/pull see a frozen
+        anchor until detection refreshes or the lock expires.
+
+        PHASE-7 AUDIT FIX (CRIT2): when ``target`` is None we used to
+        immediately ``self._aim_tracker.reset()`` (HARD reset that
+        clears ``_smooth_x/y`` and ``_last_meas_x/y``). The runtime's
+        ``_select_target`` calls ``self._aim_tracker.soft_reset()``
+        right before returning None at the lock-expiry boundary —
+        carefully preserving the smoothed anchor — and then the very
+        next line of the main loop calls ``_smooth_aim(target=None)``
+        which would HARD reset and undo the soft_reset. The next
+        acquired target would teleport.
+
+        Fix: when we have a ``_last_motion`` cached (lock just
+        expired but the tracker still carries an anchor), return that
+        frozen anchor for one frame instead of hard-resetting. The
+        overlay logic already hides the dot after ``>=2`` stale frames
+        (``hide_overlay_stale``), and the next observed target will
+        step-cap from this anchor rather than teleport.
         """
         if target is None:
+            # CRIT2 pull anchor only — never feed a ghost dot when detection
+            # is empty (firing-range crates/HUD were showing _last_motion).
+            if keep_motion_anchor and self._last_motion is not None:
+                return self._last_motion
             self._aim_tracker.reset()
-            self._last_motion = None
             return None
+
+        if stale:
+            return self._last_motion
 
         fov_r = float(self.config.get("_runtime_detect_fov", 0) or 0)
         if fov_r > 0 and hasattr(self, "_frame_cx"):
@@ -148,6 +237,7 @@ class AssistRuntime:
             self.running = False
             self._mouse_enabled = False
             self._stopping = True
+            self._is_firing = False
         self._ads.clear()
         self._release_ads()
         self._process_debounce.reset()
@@ -175,7 +265,11 @@ class AssistRuntime:
             active = self.running and self._mouse_enabled and not self._stopping
             ads_live = self._ads.is_ads_active() if active else False
             paused = self._paused
-            locked = self._locked_target is not None
+            locked = (
+                self._locked_target is not None
+                and ads_live
+                and not paused
+            )
             stats = self._stats.last if self._stats and self._stats.total_frames > 0 else None
             stats_valid = bool(
                 stats is not None and self.running and not self._stopping and active
@@ -193,7 +287,7 @@ class AssistRuntime:
                 "ads": ads_ui,
                 "has_target": has_target,
                 "frame_has_target": frame_has,
-                "locked": locked and not paused and active,
+                "locked": locked and active,
                 "stats_valid": stats_valid,
                 "live_input_enabled": self._live and active,
                 "mouse_armed": self._live and active and not self._dry,
@@ -405,7 +499,7 @@ class AssistRuntime:
                 frame_bgr, hsv, int(fov), min_area, cx, cy,
                 torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
                 body_shape_min_score=float(cfg.get("body_shape_min_score", 0.40)),
-                detection_mode=str(cfg.get("detection_mode", "shape")),
+                detection_mode=str(cfg.get("detection_mode", "apex")),
             )
             import cv2
 
@@ -518,21 +612,39 @@ class AssistRuntime:
         return self._paused
 
     def _release_ads_inner(self) -> None:
-        self._locked_target = None
-        self._target_lost_frames = 0
-        self._switch_candidate = None
-        self._switch_frames = 0
-        self._aim_tracker.reset()
+        self._target_lock.reset()
+        # PHASE-7 AUDIT FIX (HIGH4): RMB releases used to ``reset()`` the
+        # tracker, wiping ``_smooth_x/y`` and ``_last_meas_x/y``. Every
+        # re-ADS observation would then have no step-cap anchor, so the
+        # first observed target teleported into place. ``soft_reset()``
+        # preserves the geometric anchor; the lock state above is
+        # already cleared so there's no risk of re-using stale lock
+        # data on the next acquisition. Hard ``reset()`` is reserved
+        # for ``stop()`` / ``_teardown`` (full session end).
+        self._aim_tracker.soft_reset()
         self._last_motion = None
+        self._detect_ctx.reset()
+        # Releasing ADS implicitly ends an engagement — drop the firing edge
+        # so the recoil compensator phase resets cleanly. The LMB listener
+        # will re-arm on the next LMB press.
+        self._is_firing = False
         if self._pull is not None:
             self._pull.reset()
 
     def _on_click(self, _x: int, _y: int, button, pressed: bool) -> None:
-        if getattr(button, "name", None) == "right" or str(button).endswith("right"):
+        name = getattr(button, "name", None)
+        label = str(button)
+        if name == "right" or label.endswith("right"):
             was = self._ads.is_ads_active()
             self._ads.set_pynput_ads(pressed)
             if was and not pressed:
                 self._release_ads()
+        elif name == "left" or label.endswith("left"):
+            # Recoil compensator engagement signal — `_is_firing` is read under
+            # `_lock` from the main runtime loop. Polling pynput state would be
+            # race-prone; tracking edges here is the only thread-safe path.
+            with self._lock:
+                self._is_firing = bool(pressed)
 
     @staticmethod
     def _key_label(key) -> str | None:
@@ -568,6 +680,25 @@ class AssistRuntime:
         with self._lock:
             self._release_ads_inner()
 
+    def _sync_ads_assist_state(self, ads_for_assist: bool) -> None:
+        """Clear lock/pull when ADS ends; reset motion memory on ADS start / long hold."""
+        if ads_for_assist and not self._prev_ads_for_assist:
+            self._ads_hold_frames = 0
+            self._detect_ctx._validated_bbox = None
+            self._detect_ctx._validated_credit = 0
+            with self._lock:
+                self._target_lock.overlay_confirm_frames = 0
+        if self._prev_ads_for_assist and not ads_for_assist:
+            self._release_ads_inner()
+            self._ads_hold_frames = 0
+        elif ads_for_assist:
+            self._ads_hold_frames += 1
+            # Long ADS: decay stale motion-validation so ranking cannot drift to sky.
+            if self._ads_hold_frames in (1, 90, 180, 270):
+                self._detect_ctx._validated_bbox = None
+                self._detect_ctx._validated_credit = 0
+        self._prev_ads_for_assist = ads_for_assist
+
     def _start_overlay(
         self,
         width: int,
@@ -580,6 +711,7 @@ class AssistRuntime:
         from overlay_window import OverlayWindow
 
         radius = effective_fov_radius(self.config, ads_active=False)
+        cfg = self.config
         self._overlay = OverlayWindow(
             width,
             height,
@@ -588,6 +720,7 @@ class AssistRuntime:
             origin_y,
             fov_center_x=fov_center_x,
             fov_center_y=fov_center_y,
+            overlay_fps=effective_overlay_fps(cfg),
         )
 
         def run_overlay() -> None:
@@ -608,9 +741,9 @@ class AssistRuntime:
     ):
         cfg = self.config
         with self._lock:
-            sticky = self._locked_target if self._target_lost_frames < int(
-                cfg["target_lost_frames_before_unlock"]
-            ) else None
+            sticky, currently_locked, _lost_max = detection_sticky_context(
+                self._target_lock, cfg
+            )
         result = find_best_target(
             frame_bgr,
             hsv_ranges,
@@ -634,71 +767,30 @@ class AssistRuntime:
             aim_y_min_fraction=float(cfg.get("aim_body_y_min_fraction", 0.28)),
             aim_y_max_fraction=float(cfg.get("aim_body_y_max_fraction", 0.52)),
             debug=bool(cfg.get("verbose_logging", False)),
-            detection_mode=str(cfg.get("detection_mode", "shape")),
+            detection_mode=str(cfg.get("detection_mode", "apex")),
+            context=self._detect_ctx,
+            currently_locked=currently_locked,
+            exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
         )
         with self._lock:
-            if result.target is not None:
-                new_t = result.target
-                if self._locked_target is not None:
-                    import math as _m
 
-                    drift = _m.hypot(
-                        new_t.centroid_x - self._locked_target.centroid_x,
-                        new_t.centroid_y - self._locked_target.centroid_y,
-                    )
-                    fov_lim = float(cfg.get("_runtime_detect_fov", 200) or 200) * 0.55
-                    if drift < 25 and drift < fov_lim:
-                        self._locked_target = new_t
-                        self._target_lost_frames = 0
-                        self._switch_candidate = None
-                        self._switch_frames = 0
-                        return result
-                    if (
-                        self._switch_candidate is not None
-                        and _m.hypot(
-                            new_t.centroid_x - self._switch_candidate.centroid_x,
-                            new_t.centroid_y - self._switch_candidate.centroid_y,
-                        )
-                        < 30
-                    ):
-                        self._switch_frames += 1
-                    else:
-                        self._switch_candidate = new_t
-                        self._switch_frames = 1
-                    if self._switch_frames >= 3:
-                        self._locked_target = new_t
-                        self._target_lost_frames = 0
-                        self._switch_candidate = None
-                        self._switch_frames = 0
-                        return result
-                    self._target_lost_frames = 0
-                    return DetectionResult(
-                        self._locked_target,
-                        result.candidates,
-                        self._locked_target.confidence,
-                    )
-                self._locked_target = new_t
-                self._target_lost_frames = 0
-                self._switch_candidate = None
-                self._switch_frames = 0
-                return result
-
-            self._target_lost_frames += 1
-            self._switch_candidate = None
-            self._switch_frames = 0
-            lost_max = int(cfg["target_lost_frames_before_unlock"])
-            if self._target_lost_frames >= lost_max:
-                self._locked_target = None
+            def _on_lock_expired() -> None:
                 if self._pull is not None:
                     self._pull.reset()
-                self._aim_tracker.reset()
-            elif self._locked_target is not None:
-                return DetectionResult(
-                    self._locked_target,
-                    result.candidates,
-                    self._locked_target.confidence,
-                )
-            return DetectionResult(None, result.candidates, 0.0)
+                self._aim_tracker.soft_reset()
+
+            fh, fw = frame_bgr.shape[0], frame_bgr.shape[1]
+            result, _is_stale = apply_target_lock(
+                self._target_lock,
+                result,
+                center_y=center_y,
+                cfg=cfg,
+                on_lock_expired=_on_lock_expired,
+                fov_cx=center_x,
+                fov_cy=center_y,
+                frame_size=(fw, fh),
+            )
+            return result
 
     def _teardown(
         self,
@@ -708,6 +800,7 @@ class AssistRuntime:
         with self._lock:
             self._mouse_enabled = False
             self._stopping = True
+            self._is_firing = False
         self._ads.clear()
         self._release_ads()
         self._process_debounce.reset()
@@ -747,6 +840,8 @@ class AssistRuntime:
         self._frame_cx = 0.0
         self._frame_cy = 0.0
         self._last_fov_radius = -1
+        self._last_display_fov = -1
+        self._last_overlay_fps = -1
         if self._dry:
             print(
                 f"[ABA] DRY-RUN @ {fps} FPS (capped): mask/detection sanity — NOT flick/reacquire/combat proof."
@@ -790,7 +885,7 @@ class AssistRuntime:
                 magnetism_radius=float(cfg["magnetism_radius_pixels"]),
                 magnetism_min_scale=float(cfg["magnetism_min_pull_scale"]),
                 fov_radius=float(
-                    effective_detection_fov_radius(cfg, ads_active=True)
+                    effective_detection_fov_radius(cfg, ads_active=False)
                 ),
                 fov_edge_min_scale=float(cfg["fov_edge_min_pull_scale"]),
                 prediction_enabled=bool(cfg["prediction_enabled"]),
@@ -800,6 +895,15 @@ class AssistRuntime:
                 humanize_amplitude=float(cfg["humanize_amplitude_pixels"]),
                 humanize_jerk_limit=float(cfg["humanize_jerk_limit"]),
                 aim_pre_smoothed=True,
+                recoil_compensation_enabled=bool(
+                    cfg.get("recoil_compensation_enabled", False)
+                ),
+                recoil_pull_down_pixels_per_second=float(
+                    cfg.get("recoil_pull_down_pixels_per_second", 0.0)
+                ),
+                jitter_enabled=bool(cfg.get("jitter_enabled", False)),
+                jitter_amplitude_pixels=float(cfg.get("jitter_amplitude_pixels", 0.0)),
+                jitter_frequency_hz=float(cfg.get("jitter_frequency_hz", 6.0)),
             )
         )
 
@@ -885,6 +989,55 @@ class AssistRuntime:
                     cfg = self.config
                     hsv_ranges = cfg.get("hsv_ranges", [])
                     show_debug = bool(cfg.get("show_debug_window", False))
+
+                    # PHASE-5 AUDIT FIX (D-LOW hot-reload): re-read
+                    # ``enable_overlay`` and ``trace_pull`` each frame so
+                    # the user's GUI toggle takes effect without
+                    # Stop → Start. ``enable_overlay`` starts or closes
+                    # the overlay thread on the flip; ``trace_pull``
+                    # lazily wires the pull-trace logger on first
+                    # enable.
+                    want_overlay = bool(cfg.get("enable_overlay", False))
+                    if want_overlay and self._overlay is None:
+                        self._start_overlay(
+                            mon["width"],
+                            mon["height"],
+                            int(mon["left"]),
+                            int(mon["top"]),
+                            center_x,
+                            center_y,
+                        )
+                    elif (
+                        not want_overlay
+                        and self._overlay is not None
+                    ):
+                        try:
+                            self._overlay.close()
+                        except Exception:
+                            logger.exception("hot-reload overlay close failed")
+                        if self._overlay_thread is not None:
+                            self._overlay_thread.join(timeout=1.5)
+                        self._overlay = None
+                        self._overlay_thread = None
+
+                    want_trace = bool(cfg.get("trace_pull", False))
+                    if want_trace and not self._trace_pull:
+                        from pull_trace import setup_trace_logging
+
+                        try:
+                            setup_trace_logging(
+                                cfg, app_root=self.config_path.parent
+                            )
+                            self._trace_pull = True
+                            print(
+                                f"[ABA] Pull trace hot-enabled -> "
+                                f"{cfg.get('trace_pull_log_file', 'logs/pull_trace.log')}"
+                            )
+                        except Exception:
+                            logger.exception("hot-reload trace_pull setup failed")
+                    elif not want_trace and self._trace_pull:
+                        self._trace_pull = False
+                        print("[ABA] Pull trace hot-disabled")
                     paused = self._update_target_pause(cfg)
                     if paused:
                         with self._lock:
@@ -892,16 +1045,18 @@ class AssistRuntime:
                         if self._pull is not None:
                             self._pull.reset()
                         self._aim_tracker.reset()
+                        self._detect_ctx.reset()
                         sleep_time = frame_interval - (time.perf_counter() - t0)
                         self._sleep_interruptible(sleep_time)
                         continue
 
                     ads_live = self._ads.is_ads_active()
                     ads_for_assist = ads_live if self._live else (self._force_detect or ads_live)
+                    self._sync_ads_assist_state(ads_for_assist)
 
-                    display_fov = effective_fov_radius(cfg, ads_active=ads_for_assist)
-                    detect_fov = effective_detection_fov_radius(cfg, ads_active=ads_for_assist)
-                    capture_fov = effective_capture_fov_radius(cfg, ads_active=ads_for_assist)
+                    display_fov = effective_fov_radius(cfg, ads_active=False)
+                    detect_fov = effective_detection_fov_radius(cfg, ads_active=False)
+                    capture_fov = effective_capture_fov_radius(cfg, ads_active=False)
                     if cap_region is None or detect_fov != self._last_fov_radius:
                         cap_region = build_capture_region(
                             mon,
@@ -917,8 +1072,11 @@ class AssistRuntime:
                         cfg["_runtime_detect_fov"] = detect_fov
                         if self._pull is not None:
                             self._pull._tuning.fov_radius = float(detect_fov)
-                        if self._overlay is not None:
-                            self._overlay.set_fov_radius(display_fov)
+                    if self._overlay is not None and display_fov != self._last_display_fov:
+                        # One ring only — resize when hip-fire display FOV changes
+                        # (GUI slider), not only when detection crop rebuilds.
+                        self._overlay.set_fov_radius(display_fov)
+                        self._last_display_fov = display_fov
                     frame_cx = self._frame_cx
                     frame_cy = self._frame_cy
 
@@ -951,12 +1109,18 @@ class AssistRuntime:
                     else:
                         det = DetectionResult(None, 0, 0.0)
                         self._aim_tracker.reset()
+                        self._detect_ctx.reset()
                     target = det.target
                     stale_det = target is not None and self._target_lost_frames > 0
                     with self._lock:
                         self._frame_has_target = detection_fresh
 
-                    motion = self._smooth_aim(target, t0)
+                    motion = self._smooth_aim(
+                        target,
+                        t0,
+                        stale=stale_det,
+                        keep_motion_anchor=False,
+                    )
                     pull_target = (
                         self._target_for_pull(target, motion)
                         if target is not None and motion is not None
@@ -965,19 +1129,34 @@ class AssistRuntime:
 
                     pull_px = 0.0
                     pull_strength = 0.0
+                    stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
+                    may_pull = (
+                        pull_target is not None
+                        and target is not None
+                        and may_assist_pull_target(
+                            target,
+                            detection_fresh=detection_fresh,
+                            center_y=frame_cy,
+                            target_lost_frames=self._target_lost_frames,
+                            stale_grace_frames=stale_grace,
+                        )
+                    )
                     if (
                         not paused
                         and self._should_run()
                         and ads_for_assist
-                        and pull_target is not None
+                        and may_pull
                         and self._pull is not None
                     ):
+                        with self._lock:
+                            firing_now = self._is_firing
                         pr = self._pull.compute_delta(
                             pull_target,
                             frame_cx,
                             frame_cy,
                             time_sec=t0,
                             stale_detection=stale_det,
+                            is_firing=firing_now,
                         )
                         pull_px = pr.magnitude
                         pull_strength = pr.effective_strength
@@ -1050,6 +1229,9 @@ class AssistRuntime:
 
                     elif (not ads_for_assist or paused or target is None) and self._pull is not None:
                         self._pull.reset()
+                        with self._lock:
+                            self._last_pull_dx = 0
+                            self._last_pull_dy = 0
 
                     with self._lock:
                         elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -1072,29 +1254,91 @@ class AssistRuntime:
                                 confidence=pull_target.confidence if pull_target else 0.0,
                                 pull_px=pull_px,
                                 pull_strength=pull_strength,
-                                locked=self._locked_target is not None,
+                                locked=(
+                                    self._locked_target is not None
+                                    and ads_for_assist
+                                ),
                                 has_target=detection_fresh,
                                 mouse_backend=self._mouse.name,
                                 candidates=det.candidates,
                                 capture_size=(cap_region.width, cap_region.height),
                             )
 
+                    if self._overlay is not None:
+                        want_fps = effective_overlay_fps(cfg)
+                        if want_fps != getattr(self, "_last_overlay_fps", -1):
+                            self._overlay.set_overlay_fps(want_fps)
+                            self._last_overlay_fps = want_fps
+
                     if self._overlay is not None and self._should_run():
-                        if motion is not None:
-                            ox, oy = to_monitor_coords(motion.x, motion.y, cap_region)
+                        overlay_pt = None
+                        # M1 (audit): hide the overlay dot after >=2 stale
+                        # frames so the user does not see it parked on the
+                        # last-known position when the target has moved.
+                        show_overlay_dot = overlay_may_show_target(
+                            target,
+                            detection_fresh=detection_fresh,
+                            center_y=frame_cy,
+                            lock_state=self._target_lock,
+                        )
+                        overlay_motion = (
+                            motion
+                            if show_overlay_dot
+                            else None
+                        )
+                        if (
+                            overlay_motion is not None
+                            and math.isfinite(overlay_motion.x)
+                            and math.isfinite(overlay_motion.y)
+                        ):
+                            ox, oy = to_monitor_coords(
+                                overlay_motion.x, overlay_motion.y, cap_region
+                            )
                             fov_cx_mon = float(center_x)
                             fov_cy_mon = float(center_y)
                             odx = ox - fov_cx_mon
                             ody = oy - fov_cy_mon
                             odist = math.hypot(odx, ody)
-                            fov_limit = float(display_fov) * 0.96
-                            if odist > fov_limit and odist > 0.0:
+                            # O2 (audit): clamp the overlay dot to the
+                            # SMALLER of (display_fov, detect_fov) so the
+                            # dot always stays inside the GREEN ring the
+                            # user sees on screen. The previous clamp used
+                            # detect_fov alone which is wider than the
+                            # display ring when detection_fov_margin_pixels
+                            # is non-zero — that's why the user saw the
+                            # dot pop outside the visible ring.
+                            fov_limit = max(
+                                1.0,
+                                min(float(detect_fov), float(display_fov)),
+                            ) * 0.96
+                            if math.isfinite(odist) and odist > fov_limit and odist > 0.0:
                                 s = fov_limit / odist
                                 ox = fov_cx_mon + odx * s
                                 oy = fov_cy_mon + ody * s
-                            overlay_pt = (ox, oy)
+                            if math.isfinite(ox) and math.isfinite(oy):
+                                # Mild EMA on the overlay-clamped point so the
+                                # dot does not flicker in/out when the centroid
+                                # oscillates across the FOV ring boundary.
+                                dot_alpha = float(
+                                    cfg.get("overlay_dot_smooth_alpha", 0.62)
+                                )
+                                sx, sy = self._aim_tracker.smooth_overlay_point(
+                                    ox, oy, alpha=dot_alpha
+                                )
+                                # O3 (audit): re-clamp AFTER the EMA so
+                                # boundary-motion drift can't drag the
+                                # dot outside the ring on a smoothed
+                                # frame.
+                                sodx = sx - fov_cx_mon
+                                sody = sy - fov_cy_mon
+                                sodist = math.hypot(sodx, sody)
+                                if math.isfinite(sodist) and sodist > fov_limit and sodist > 0.0:
+                                    scale_r = fov_limit / sodist
+                                    sx = fov_cx_mon + sodx * scale_r
+                                    sy = fov_cy_mon + sody * scale_r
+                                overlay_pt = (sx, sy)
                         else:
-                            overlay_pt = None
+                            self._aim_tracker.reset_overlay_smoothing()
                         self._overlay.set_state(ads_for_assist, overlay_pt)
 
                     frame_i += 1
@@ -1114,6 +1358,20 @@ class AssistRuntime:
                             hsv_ranges=hsv_ranges,
                             stats_lines=self._stats.format_lines() if self._stats else [],
                             detection_debug=det.debug_lines if hasattr(det, "debug_lines") else None,
+                            # O1 (audit): draw the green ring at the
+                            # SAME radius as the live overlay so the
+                            # debug window can't show a phantom second
+                            # ring at the detection FOV. The second
+                            # detect-FOV ring is opt-in via cfg flag.
+                            display_fov_radius=display_fov,
+                            debug_show_detect_ring=bool(
+                                cfg.get("debug_show_detect_ring", False)
+                            ),
+                            # PHASE-7 AUDIT FIX (MED10): pass the LIVE
+                            # detection mode so the debug viewer's tint
+                            # mask matches what the runtime sees.
+                            detection_mode=str(cfg.get("detection_mode", "apex")),
+                            exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
                         )
                         if motion is not None:
                             cv2.drawMarker(

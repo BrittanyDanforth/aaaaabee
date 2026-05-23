@@ -55,52 +55,109 @@ STATUS_COLORS = {
 TUNING_PRESETS: dict[str, dict[str, Any]] = {
     "Stable": {
         "pull_strength": 0.55,
-        "smoothing_tau_still": 0.080,
-        "smoothing_tau_moving": 0.040,
-        "velocity_smoothing": 0.60,
-        "max_pull_speed_pixels_per_frame": 18.0,
+        "smoothing_tau_still": 0.060,
+        "smoothing_tau_moving": 0.030,
+        "velocity_smoothing": 0.55,
+        "max_pull_speed_pixels_per_frame": 20.0,
         "torso_aim_fraction": 0.38,
         "target_stickiness_pixels": 100,
         "body_shape_min_score": 0.50,
         "deadzone_pixels": 4,
+        "detection_mode": "apex",
+        "detection_motion_assist": True,
+        "detection_motion_threshold": 12,
     },
     "Responsive": {
-        "pull_strength": 0.82,
-        "smoothing_tau_still": 0.048,
-        "smoothing_tau_moving": 0.020,
-        "velocity_smoothing": 0.48,
-        "max_pull_speed_pixels_per_frame": 26.0,
+        "pull_strength": 0.88,
+        "smoothing_tau_still": 0.034,
+        "smoothing_tau_moving": 0.014,
+        "velocity_smoothing": 0.42,
+        "max_pull_speed_pixels_per_frame": 30.0,
         "torso_aim_fraction": 0.40,
         "target_stickiness_pixels": 60,
         "body_shape_min_score": 0.40,
         "deadzone_pixels": 2,
+        "detection_mode": "apex",
+        "detection_motion_assist": True,
+        "detection_motion_threshold": 9,
+    },
+    # PHASE-5 AUDIT: "Tracking" preset sits between Responsive and Strong.
+    # Looser body-shape gate + tighter smoothing + slightly higher pull
+    # speed than Responsive, without arming Strong's recoil / jitter.
+    "Tracking": {
+        "body_shape_min_score": 0.42,
+        "target_stickiness_pixels": 70,
+        "smoothing_tau_still": 0.030,
+        "smoothing_tau_moving": 0.012,
+        "velocity_smoothing": 0.38,
+        "pull_strength": 0.95,
+        "max_pull_speed_pixels_per_frame": 32.0,
+        "torso_aim_fraction": 0.40,
+        "deadzone_pixels": 2,
+        "detection_mode": "apex",
+        "detection_motion_assist": True,
+        "detection_motion_threshold": 9,
+        "recoil_compensation_enabled": False,
+        "jitter_enabled": False,
+        # PHASE-6 AUDIT FIX (D-MED10): the apex profile defaults
+        # ``humanoid_min_height_pixels=16`` which lets tiny HUD numerals
+        # (ammo "6", health pips), distant sky tiles and 20x20 cloud
+        # edges pass the height gate. Real Apex enemies on screen are
+        # always >= 60 px tall (close-ADS easily 200+ px; medium-range
+        # 100-150; long-range still ~60). The Tracking preset is the
+        # "real Apex" preset (per AGENTS.md) so it locks the floor at
+        # 60 to keep the dot off tiny FPs.
+        "humanoid_min_height_pixels": 60,
     },
     "Strong": {
-        "pull_strength": 1.05,
-        "smoothing_tau_still": 0.035,
-        "smoothing_tau_moving": 0.015,
-        "velocity_smoothing": 0.35,
-        "max_pull_speed_pixels_per_frame": 34.0,
+        "pull_strength": 1.10,
+        "smoothing_tau_still": 0.026,
+        "smoothing_tau_moving": 0.010,
+        "velocity_smoothing": 0.32,
+        "max_pull_speed_pixels_per_frame": 38.0,
         "torso_aim_fraction": 0.42,
         "target_stickiness_pixels": 45,
         "body_shape_min_score": 0.35,
         "deadzone_pixels": 1,
+        "detection_mode": "apex",
+        "detection_motion_assist": True,
+        "detection_motion_threshold": 8,
+        # Strong is the only built-in preset that arms the recoil/jitter
+        # helpers, and it does so at deliberately small values (per
+        # spec: amplitude=1.5 px horizontal jitter, 25 px/s pull-down).
+        "recoil_compensation_enabled": True,
+        "recoil_pull_down_pixels_per_second": 25.0,
+        "jitter_enabled": True,
+        "jitter_amplitude_pixels": 1.5,
+        "jitter_frequency_hz": 7.0,
     },
     "Debug": {
-        "pull_strength": 0.82,
-        "smoothing_tau_still": 0.048,
-        "smoothing_tau_moving": 0.020,
-        "velocity_smoothing": 0.48,
-        "max_pull_speed_pixels_per_frame": 26.0,
+        "pull_strength": 0.88,
+        "smoothing_tau_still": 0.034,
+        "smoothing_tau_moving": 0.014,
+        "velocity_smoothing": 0.42,
+        "max_pull_speed_pixels_per_frame": 30.0,
         "torso_aim_fraction": 0.40,
         "target_stickiness_pixels": 60,
         "body_shape_min_score": 0.40,
         "deadzone_pixels": 2,
+        "detection_mode": "apex",
+        "detection_motion_assist": True,
+        "detection_motion_threshold": 9,
         "enable_overlay": True,
         "trace_pull": True,
         "verbose_logging": True,
     },
 }
+
+# Detection-mode dropdown options for the Basic tab. The default ("apex") auto-fuses
+# the Apex red-enemy-outline cue with shape edges, saturation, and motion difference.
+DETECTION_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("apex", "Apex (default — auto-fuses red outline + shape + motion)"),
+    ("shape", "Shape only (no colour cue)"),
+    ("hybrid", "Hybrid (shape + HSV)"),
+    ("hsv", "HSV only (legacy colour mask)"),
+)
 
 
 def _fmt_num(value: float, *, suffix: str = "", precision: int = 1) -> str:
@@ -517,12 +574,23 @@ class AbaApplication:
         except Exception as exc:
             self._error_var.set(f"Config update: {exc}")
 
+    def _update_fov_summary_label(self) -> None:
+        if not hasattr(self, "_fov_summary_var"):
+            return
+        hip = self.config.get("fov_radius_pixels", "?")
+        ads = self.config.get("fov_radius_ads_pixels", "?")
+        self._fov_summary_var.set(
+            f"FOV ring: {hip} px (hip) / {ads} px (ADS) — set in config.json or Advanced, "
+            "then Stop→Start to resize ring"
+        )
+
     def _sync_controls_from_config(self) -> None:
         for key, ctrl in self._sliders.items():
             if key in self.config:
                 ctrl.set(float(self.config[key]))
         for key, var in self._bool_vars.items():
             var.set(bool(self.config.get(key, False)))
+        self._update_fov_summary_label()
 
     def _show_tab(self, tab_id: str) -> None:
         self._active_tab = tab_id
@@ -615,6 +683,17 @@ class AbaApplication:
             minimum=20.0, maximum=140.0, resolution=1.0, is_int=True,
             tooltip="px hysteresis before switching targets",
         )
+        self._fov_summary_var = tk.StringVar(value="")
+        tk.Label(
+            parent,
+            textvariable=self._fov_summary_var,
+            fg=UI_MUTED,
+            bg=UI_PANEL,
+            font=("DejaVu Sans", 9),
+            wraplength=420,
+            justify="left",
+        ).pack(anchor="w", pady=(4, 0))
+        self._update_fov_summary_label()
         self._toggle(parent, "Show overlay (red dot + FOV ring)", "enable_overlay")
 
     # === BODY TARGETING TAB ===
@@ -640,6 +719,12 @@ class AbaApplication:
             minimum=10, maximum=120, resolution=1, is_int=True,
             tooltip="reject blobs smaller than this",
         )
+        self._slider(
+            parent, "Motion detection sensitivity", "detection_motion_threshold",
+            minimum=4, maximum=40, resolution=1, is_int=True,
+            tooltip="lower = picks up subtler movement (Apex strafing). raise to ignore noise.",
+        )
+        self._toggle(parent, "Use inter-frame motion to find low-contrast enemies", "detection_motion_assist")
         self._slider(
             parent, "Min humanoid height (px)", "humanoid_min_height_pixels",
             minimum=8, maximum=60, resolution=1,
@@ -678,6 +763,36 @@ class AbaApplication:
             parent, "Stale grace frames", "mouse_gate_stale_grace_frames",
             minimum=0, maximum=30, resolution=1, is_int=True,
             tooltip="frames mouse can still move after losing detection",
+        )
+
+        self._section(parent, "Recoil & jitter (engagement-gated)")
+        tk.Label(
+            parent,
+            text=(
+                "Both behaviours fire ONLY while LMB is held AND a target is locked. "
+                "Recoil pull-down compensates for muzzle climb; jitter breaks recoil "
+                "patterns. Leave OFF for pure tracking — turn on for the Strong preset."
+            ),
+            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(0, 6))
+        self._toggle(parent, "Recoil compensation (downward pull while firing)",
+                     "recoil_compensation_enabled")
+        self._slider(
+            parent, "Recoil pull-down (px/s)", "recoil_pull_down_pixels_per_second",
+            minimum=0.0, maximum=180.0, resolution=1.0, is_int=False,
+            tooltip="downward velocity added while LMB held (0 = off)",
+        )
+        self._toggle(parent, "Horizontal jitter (LMB held)", "jitter_enabled")
+        self._slider(
+            parent, "Jitter amplitude (px)", "jitter_amplitude_pixels",
+            minimum=0.0, maximum=6.0, resolution=0.1,
+            tooltip="peak left/right pixels while firing",
+        )
+        self._slider(
+            parent, "Jitter frequency (Hz)", "jitter_frequency_hz",
+            minimum=0.5, maximum=20.0, resolution=0.5,
+            tooltip="how fast the side-to-side jitter cycles",
         )
 
     # === DEBUG TAB ===
@@ -737,6 +852,40 @@ class AbaApplication:
 
     # === ADVANCED: Detector ===
     def _build_detector_adv_panel(self, parent: tk.Frame) -> None:
+        # R2 (audit): expose the detection_mode selection in the GUI so
+        # users can switch between apex / shape / hsv / hybrid without
+        # hand-editing config.json. Defaults to "apex" — the only mode
+        # the audit fixes specifically validate.
+        self._section(parent, "Detection mode")
+        current = str(self.config.get("detection_mode", "apex")).lower()
+        if current not in {"apex", "shape", "hsv", "hybrid"}:
+            current = "apex"
+        self._detection_mode_var = tk.StringVar(value=current)
+        row = tk.Frame(parent, bg=UI_PANEL)
+        row.pack(fill=tk.X, pady=4)
+        tk.Label(
+            row, text="Mode:", bg=UI_PANEL, fg=UI_TEXT, width=10, anchor="w",
+        ).pack(side=tk.LEFT)
+        from tkinter import ttk
+        combo = ttk.Combobox(
+            row,
+            textvariable=self._detection_mode_var,
+            values=("apex", "shape", "hsv", "hybrid"),
+            state="readonly",
+            width=12,
+        )
+        combo.pack(side=tk.LEFT)
+        combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _e: self._on_detection_mode_change(),
+        )
+        tk.Label(
+            parent,
+            text="apex = Apex enemy red outline + shape/chroma/motion fusion (default).\n"
+                 "shape/hsv/hybrid are legacy modes kept for back-compat only.",
+            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
+        ).pack(anchor="w", pady=(0, 8))
+
         self._section(parent, "Advanced body scoring weights")
         self._slider(parent, "Head score weight", "head_score_weight", minimum=0.0, maximum=0.5)
         self._slider(parent, "Torso score weight", "torso_score_weight", minimum=0.0, maximum=0.5)
@@ -744,6 +893,17 @@ class AbaApplication:
             parent, "Limb stack weight", "limb_stack_score_weight",
             minimum=0.0, maximum=0.5,
         )
+
+    def _on_detection_mode_change(self) -> None:
+        mode = self._detection_mode_var.get().strip().lower()
+        if mode not in {"apex", "shape", "hsv", "hybrid"}:
+            mode = "apex"
+        try:
+            self.config = self._controller.apply_config_patch(
+                {"detection_mode": mode}, persist=False
+            )
+        except Exception as exc:
+            self._error_var.set(f"Detection mode update: {exc}")
 
     # === ADVANCED: Overlay ===
     def _build_overlay_adv_panel(self, parent: tk.Frame) -> None:
@@ -811,10 +971,11 @@ class AbaApplication:
             fg=UI_TEXT,
             font=("Consolas", 9),
         ).pack(anchor="w", pady=4)
+        self._fov_summary_var = tk.StringVar()
+        self._update_fov_summary_label()
         tk.Label(
             parent,
-            text=f"FOV radius (read-only): {self.config.get('fov_radius_pixels', '?')} hip / "
-            f"{self.config.get('fov_radius_ads_pixels', '?')} ADS",
+            textvariable=self._fov_summary_var,
             bg=UI_PANEL,
             fg=UI_MUTED,
             font=("Consolas", 8),

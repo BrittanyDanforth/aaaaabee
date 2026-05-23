@@ -1,0 +1,8 @@
+INPUT img3_side_view.webp  size=428x468  ads_hint=True
+FOV center=(214,234) radius=179  min_area=40.0
+MASK_PX red_enemy=16105  shape=91121  chroma=31337  motion=50039  fused=93068
+PARTS=1  CLUSTERS=1
+  cand[0] accepted=False reject=horizontal_stripe bbox=(67,127,18x10) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=0.45 fill=0.90 circ=0.66 aspect=0.56 parts=1 area=102 dist=172 | horizontal_stripe
+SELECTED active=False  reason=NO_TARGET
+  DBG cand[0] reject=horizontal_stripe body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=0.56 fill=0.90 circ=0.66 bbox=(67,127,18x10) area=102 dist=172 parts=1 | horizontal_stripe
+  DBG accepted=0 from 1 clusters / 1 parts

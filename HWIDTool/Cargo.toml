@@ -1,0 +1,61 @@
+[package]
+name = "hwid-spoofer"
+version = "1.4.2"
+authors = ["hwidspoof.net"]
+edition = "2021"
+description = "Hardware ID Spoofer - Modify system identifiers for Windows 10/11"
+homepage = "https://hwidspoof.net"
+repository = "https://github.com/hwspf/hwidtool/"
+license = "Proprietary"
+readme = "README.md"
+
+[lib]
+name = "hwid_spoof"
+path = "src/lib.rs"
+
+[package.metadata.winres]
+OriginalFilename = "hwspoof.exe"
+ProductName = "HWID Spoofer"
+FileDescription = "Hardware ID Modification Tool"
+LegalCopyright = "Copyright (c) 2025 hwidspoof.net"
+CompanyName = "hwidspoof.net"
+ProductVersion = "1.4.2.0"
+FileVersion = "1.4.2.0"
+
+[dependencies]
+iced = { version = "0.12", features = ["image", "tokio"] }
+tokio = { version = "1", features = ["full"] }
+winapi = { version = "0.3", features = [
+  "winuser", "winnt", "processthreadsapi", "memoryapi", "sysinfoapi", "winreg",
+  "debugapi", "shellapi", "fileapi", "ioapiset", "handleapi", "winioctl",
+  "securitybaseapi", "winsvc",
+] }
+sysinfo = "0.30"
+rand = "0.8"
+chrono = "0.4"
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+winres = "0.1"
+
+[build-dependencies]
+winres = "0.1"
+sha2 = "0.10"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+incremental = false
+overflow-checks = false
+debug = 0
+strip = "symbols"
+
+[profile.release.package."*"]
+opt-level = 3
+strip = true
+
+[[bin]]
+name = "hwspoof"
+path = "src/main.rs"

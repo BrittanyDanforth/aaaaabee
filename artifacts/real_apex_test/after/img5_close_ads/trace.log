@@ -1,0 +1,17 @@
+INPUT img5_close_ads.webp  size=468x427  ads_hint=True
+FOV center=(234,214) radius=179  min_area=40.0
+MASK_PX red_enemy=20943  shape=85773  chroma=12600  motion=44203  fused=20943
+PARTS=14  CLUSTERS=5
+  cand[0] accepted=True reject=ok bbox=(184,42,88x191) body=1.00 head=0.99 torso=0.86 limb=1.00 vert=1.00 fill=0.57 circ=0.46 aspect=2.17 parts=7 area=10886 dist=73 | parts=7 head=0.99 torso=0.86 limb=1.00 vert=1.00 geom=0.35 align=0.00 circ=0.46 fill=0.57
+  cand[1] accepted=False reject=floating_cluster bbox=(305,52,32x36) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=0.72 fill=0.31 circ=0.56 aspect=1.12 parts=3 area=222 dist=172 | floating_cluster
+  cand[2] accepted=False reject=too_small bbox=(0,0,0x0) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=0.00 fill=0.00 circ=0.00 aspect=0.00 parts=1 area=12 dist=0 | area=12 < min=40.0
+  cand[3] accepted=True reject=ok bbox=(353,263,27x35) body=0.97 head=0.94 torso=0.90 limb=0.62 vert=0.72 fill=0.34 circ=0.40 aspect=1.30 parts=2 area=134 dist=152 | parts=2 head=0.94 torso=0.90 limb=0.62 vert=0.72 geom=0.55 align=0.59 circ=0.40 fill=0.34
+  cand[4] accepted=False reject=floating_cluster bbox=(387,133,17x25) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=1.00 fill=0.84 circ=0.47 aspect=1.47 parts=1 area=204 dist=177 | floating_cluster
+SELECTED active=True body=1.00 conf=0.81 red_cov=0.541 bbox=(184,42,88x191) centroid=(226.0,141.3) dist=72.6
+  DBG cand[0] reject=ok body=1.00 head=0.99 torso=0.86 limb=1.00 aspect=2.17 fill=0.57 circ=0.46 bbox=(184,42,88x191) area=10886 dist=73 parts=7 | parts=7 head=0.99 torso=0.86 limb=1.00 vert=1.00 geom=0.35 align=0.00 circ=0.46 fill=0.57
+  DBG cand[1] reject=floating_cluster body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=1.12 fill=0.31 circ=0.56 bbox=(305,52,32x36) area=222 dist=172 parts=3 | floating_cluster
+  DBG cand[2] skip area=12
+  DBG cand[3] reject=ok body=0.97 head=0.94 torso=0.90 limb=0.62 aspect=1.30 fill=0.34 circ=0.40 bbox=(353,263,27x35) area=134 dist=152 parts=2 | parts=2 head=0.94 torso=0.90 limb=0.62 vert=0.72 geom=0.55 align=0.59 circ=0.40 fill=0.34
+  DBG cand[4] reject=floating_cluster body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=1.47 fill=0.84 circ=0.47 bbox=(387,133,17x25) area=204 dist=177 parts=1 | floating_cluster
+  DBG accepted=2 from 5 clusters / 14 parts
+  DBG SELECTED body=1.00 head=0.99 dist=73 bbox=88x191

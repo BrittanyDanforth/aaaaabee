@@ -1,0 +1,2 @@
+# Dev/CI only — not installed by run_windows.bat
+pytest>=7.0.0,<9

@@ -8,11 +8,14 @@ from dataclasses import dataclass
 _MAX_VELOCITY = 3200.0
 _MAX_DT = 0.12
 _MIN_DT = 0.001
-_TAU_POS_STILL = 0.062
-_TAU_POS_MOVING = 0.028
-_TAU_VEL = 0.040
-_TAU_PRED_BLEND = 0.018
-_MAX_PRED_LEAD_S = 0.038
+# Apex-tuned smoothing time constants. Tighter than the previous defaults so the
+# aim point keeps up with strafing enemies — overall feel is snappier without
+# inducing jitter (verified by moving_body_lag_bounded tests).
+_TAU_POS_STILL = 0.042
+_TAU_POS_MOVING = 0.018
+_TAU_VEL = 0.032
+_TAU_PRED_BLEND = 0.016
+_MAX_PRED_LEAD_S = 0.040
 _MAX_PRED_PX = 22.0
 _MAX_UPWARD_LEAD_PX = 4.0
 _BODY_Y_LO_FRAC = 0.28
@@ -23,7 +26,9 @@ _tau_still = _TAU_POS_STILL
 _tau_moving = _TAU_POS_MOVING
 _max_upward_lead_px = _MAX_UPWARD_LEAD_PX
 _BODY_X_MARGIN_FRAC = 0.18
-_SPEED_MOVING_PX_S = 85.0
+# Velocity threshold (px/s) where smoothing slides from "still" tau to "moving" tau.
+# Lower threshold = quicker response to small movements (peeking, strafing).
+_SPEED_MOVING_PX_S = 60.0
 
 
 def _finite(v: float, fallback: float = 0.0) -> float:
@@ -108,12 +113,31 @@ class TargetTracker:
         self._prediction_lead_s: float = _MAX_PRED_LEAD_S
         self._prediction_max_px: float = _MAX_PRED_PX
         self._body_bbox: tuple[int, int, int, int] | None = None
+        # PHASE-7 AUDIT FIX (CRIT3): track the last stable body bbox so we
+        # can refuse a single-frame fragment (e.g. the detector returns
+        # just the helmet because the enemy crouched or slid behind
+        # cover). When the new bbox jumps significantly upward OR shrinks
+        # dramatically we treat it as a likely fragment and keep using
+        # the previous stable bbox for the chest-band clamp for a few
+        # frames, giving the detector time to re-acquire the full body.
+        # Without this, a 40-px head fragment replacing a 140-px torso
+        # bbox would jump the chest-band clamp upward by ~30 px in one
+        # frame, manifesting as visible aim drift.
+        self._last_stable_bbox: tuple[int, int, int, int] | None = None
+        self._stable_bbox_hold_frames: int = 0
         self._aim_is_body_anchor: bool = True
         self._fov_cx: float | None = None
         self._fov_cy: float | None = None
         self._fov_radius: float | None = None
         self._last_pred_offset: tuple[float, float] = (0.0, 0.0)
         self._last_pre_predict: tuple[float, float] | None = None
+        self._overlay_smooth: tuple[float, float] | None = None
+        # M5 (audit): hysteresis state for the stationary jitter deadband.
+        # Enter when meas_drift < 2.5 AND speed < 90; exit only when
+        # meas_drift > 5.0 for 2 consecutive frames AND the instantaneous
+        # velocity also exceeds the threshold (not just smoothed speed).
+        self._in_deadband: bool = False
+        self._deadband_exit_frames: int = 0
 
     def configure_prediction(
         self,
@@ -165,6 +189,37 @@ class TargetTracker:
         _tau_still = max(0.01, float(still))
         _tau_moving = max(0.005, min(_tau_still, float(moving)))
 
+    def smooth_overlay_point(
+        self,
+        x: float,
+        y: float,
+        *,
+        alpha: float = 0.45,
+    ) -> tuple[float, float]:
+        """Mild EMA smoothing applied to the post-FOV-clamp overlay point.
+
+        The overlay dot is clamped to the visible FOV ring (96 % radius). When
+        the detected aim point oscillates around the ring boundary the dot can
+        pop in and out — applying a light EMA here keeps the dot's visible
+        position stable without affecting the underlying tracked motion.
+        """
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return x, y
+        if self._overlay_smooth is None:
+            self._overlay_smooth = (x, y)
+            return x, y
+        a = max(0.05, min(1.0, float(alpha)))
+        ay = a
+        if y < self._overlay_smooth[1]:
+            ay = min(a, 0.48)
+        sx = self._overlay_smooth[0] + a * (x - self._overlay_smooth[0])
+        sy = self._overlay_smooth[1] + ay * (y - self._overlay_smooth[1])
+        self._overlay_smooth = (sx, sy)
+        return sx, sy
+
+    def reset_overlay_smoothing(self) -> None:
+        self._overlay_smooth = None
+
     def reset(self) -> None:
         self._last = None
         self._last_time = None
@@ -175,12 +230,51 @@ class TargetTracker:
         self._vx = 0.0
         self._vy = 0.0
         self._body_bbox = None
+        self._last_stable_bbox = None
+        self._stable_bbox_hold_frames = 0
         self._aim_is_body_anchor = True
         self._fov_cx = None
         self._fov_cy = None
         self._fov_radius = None
         self._last_pred_offset = (0.0, 0.0)
         self._last_pre_predict = None
+        self._overlay_smooth = None
+        # M5 deadband memory must also reset when the lock is fully torn down.
+        self._in_deadband = False
+        self._deadband_exit_frames = 0
+
+    def soft_reset(self) -> None:
+        """
+        PHASE-6 AUDIT FIX (D-HIGH5): partial reset that PRESERVES the
+        last smoothed position and last measurement so the next aim
+        sample is step-capped relative to where the dot already is.
+
+        ``reset()`` clears ``_smooth_x/y`` and ``_last_meas_x/y`` to
+        None, which means the next observation has no anchor — the
+        step-cap branch in ``update()`` is bypassed and the dot
+        teleports to the new measurement in a single frame.  When the
+        runtime drops a target after the grace window, calling
+        ``soft_reset()`` instead keeps the dot at the last known
+        position; the velocity and motion-validated memory are
+        cleared so the smoother does not fight a stale prediction,
+        but the geometric anchor survives.
+        """
+        self._last = None
+        self._last_time = None
+        # Keep: _smooth_x/y, _last_meas_x/y
+        self._vx = 0.0
+        self._vy = 0.0
+        self._body_bbox = None
+        # PHASE-7 (CRIT3): soft_reset also clears the stable-bbox cache
+        # because the lock has been released — no continuity assumption
+        # holds between the old target and whatever new body the
+        # next observation will refer to.
+        self._last_stable_bbox = None
+        self._stable_bbox_hold_frames = 0
+        self._last_pred_offset = (0.0, 0.0)
+        self._last_pre_predict = None
+        self._in_deadband = False
+        self._deadband_exit_frames = 0
 
     @staticmethod
     def _clamp_to_body_bbox(
@@ -212,15 +306,53 @@ class TargetTracker:
         bbox_h: int,
         dt: float,
     ) -> tuple[float, float]:
-        """Limit per-frame detector jumps so overlay dot does not teleport."""
-        max_step = max(6.0, min(32.0, bbox_h * 0.22)) * max(0.35, min(1.8, dt * 60.0))
+        """
+        Limit per-frame detector jumps so overlay dot does not teleport across the
+        screen, but allow generous travel proportional to bbox height so the
+        smoother keeps up with strafing/sliding enemies. The floor is kept low
+        (6 px) so slow strafes pass through without being clipped.
+        """
+        # M6 (audit): a 6-px floor lets 5-6 px snaps through on a locked
+        # stationary target; the user perceives those as glitch. The caller
+        # passes locked_slow=True when smoothed speed < 30 px/s AND the
+        # tracker is locked so we tighten the floor to 2 px. Fast-moving /
+        # unlocked / re-acquire stays at the 6 px floor (responsive snaps).
+        max_step = max(6.0, min(34.0, bbox_h * 0.24)) * max(0.35, min(2.2, dt * 60.0))
         dx = x - last_x
         dy = y - last_y
         dist = math.hypot(dx, dy)
         if dist <= max_step or dist <= 0.0:
             return x, y
         s = max_step / dist
-        return last_x + dx * s, last_y + dy * s
+        nx = last_x + dx * s
+        ny = last_y + dy * s
+        up_cap = max(2.0, max_step * 0.42)
+        if ny < last_y - up_cap:
+            ny = last_y - up_cap
+        return nx, ny
+
+    @staticmethod
+    def _cap_measurement_step_locked_slow(
+        x: float,
+        y: float,
+        last_x: float,
+        last_y: float,
+        dt: float,
+    ) -> tuple[float, float]:
+        """Tighter 2-px floor used when the lock is stationary (M6 audit)."""
+        max_step = 2.0 * max(0.35, min(2.2, dt * 60.0))
+        dx = x - last_x
+        dy = y - last_y
+        dist = math.hypot(dx, dy)
+        if dist <= max_step or dist <= 0.0:
+            return x, y
+        s = max_step / dist
+        nx = last_x + dx * s
+        ny = last_y + dy * s
+        up_cap = max(1.5, max_step * 0.35)
+        if ny < last_y - up_cap:
+            ny = last_y - up_cap
+        return nx, ny
 
     def _effective_tau(self, dt: float, speed: float) -> float:
         t = max(0.0, min(1.0, speed / _SPEED_MOVING_PX_S))
@@ -252,7 +384,38 @@ class TargetTracker:
             and bbox_h > 0
         ):
             bx, by, bw, bh = int(bbox_x), int(bbox_y), int(bbox_w), int(bbox_h)
-            self._body_bbox = (bx, by, bw, bh)
+            # PHASE-7 AUDIT FIX (CRIT3): stabilise the bbox used for the
+            # chest-band clamp against single-frame fragment hits.
+            # ``bx, by, bw, bh`` is the bbox the detector returned this
+            # frame; ``cx, cy, cw, ch`` is what we ACTUALLY use for the
+            # clamp.  When the new bbox jumps upward (top above the prior
+            # stable top by more than 20% of stable height) OR shrinks
+            # dramatically (h < 55% of stable h), we treat it as a likely
+            # fragment and keep using the prior stable bbox for the next
+            # few frames.  After ``_STABLE_BBOX_HOLD_MAX`` consecutive
+            # fragment frames the detector has clearly committed to the
+            # smaller bbox, so we accept it as the new baseline.
+            cx, cy, cw, ch = bx, by, bw, bh
+            _STABLE_BBOX_HOLD_MAX = 4
+            prev = self._last_stable_bbox
+            if prev is not None:
+                pbx, pby, pbw, pbh = prev
+                upward_jump = by < pby - pbh * 0.10
+                shrunk = bh < pbh * 0.62
+                if (upward_jump or shrunk) and self._stable_bbox_hold_frames < _STABLE_BBOX_HOLD_MAX:
+                    cx, cy, cw, ch = pbx, pby, pbw, pbh
+                    self._stable_bbox_hold_frames += 1
+                else:
+                    self._last_stable_bbox = (bx, by, bw, bh)
+                    self._stable_bbox_hold_frames = 0
+            else:
+                self._last_stable_bbox = (bx, by, bw, bh)
+                self._stable_bbox_hold_frames = 0
+            self._body_bbox = (cx, cy, cw, ch)
+            # Recompute bx/by/bw/bh to refer to the STABILISED bbox so
+            # the rest of this method (clamp, column blend, last_meas
+            # step cap) operates against the stable baseline.
+            bx, by, bw, bh = cx, cy, cw, ch
             if self._aim_is_body_anchor:
                 x, y = self._clamp_to_body_bbox(x, y, bx, by, bw, bh)
             else:
@@ -264,9 +427,20 @@ class TargetTracker:
                 dt_cap = 1.0 / 60.0
                 if self._last_time is not None and time_sec > self._last_time:
                     dt_cap = min(0.12, time_sec - self._last_time)
-                x, y = self._cap_measurement_step(
-                    x, y, self._last_meas_x, self._last_meas_y, bh, dt_cap
-                )
+                # M6 (audit): tighter 2-px step when the lock is already
+                # in the stationary deadband. Outside the deadband the
+                # 6-px floor preserves responsive snaps. Gating on the
+                # deadband flag avoids pinning the smoother on a fresh
+                # observation chain where smoothed velocity is briefly
+                # zero by construction.
+                if self._in_deadband:
+                    x, y = self._cap_measurement_step_locked_slow(
+                        x, y, self._last_meas_x, self._last_meas_y, dt_cap
+                    )
+                else:
+                    x, y = self._cap_measurement_step(
+                        x, y, self._last_meas_x, self._last_meas_y, bh, dt_cap
+                    )
         else:
             self._body_bbox = None
         return self.observe(x, y, time_sec)
@@ -310,9 +484,12 @@ class TargetTracker:
         if self._last_meas_x is not None and self._last_meas_y is not None:
             inst_vx = (x - self._last_meas_x) / dt
             inst_vy = (y - self._last_meas_y) / dt
-            cap_v = 120.0
+            # Velocity ceiling scaled to bbox height — bigger (closer) targets move
+            # more screen pixels per second, so cap accordingly. Raised from
+            # 200 -> 600 px/s baseline to accommodate Apex strafing/slide speeds.
+            cap_v = 360.0
             if self._body_bbox is not None:
-                cap_v = max(55.0, min(200.0, self._body_bbox[3] * 1.6))
+                cap_v = max(120.0, min(800.0, self._body_bbox[3] * 4.5))
             ivmag = math.hypot(inst_vx, inst_vy)
             if ivmag > cap_v and ivmag > 0.0:
                 s = cap_v / ivmag
@@ -333,14 +510,50 @@ class TargetTracker:
         tau = self._effective_tau(dt, speed)
         alpha = alpha_from_tau(dt, tau)
 
-        self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
-        self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
+        # M5 (audit): hysteresis deadband. Enter when speed < 90 AND
+        # meas_drift < 2.5; exit only when (meas_drift > 5.0 AND
+        # instantaneous velocity > 30 px/s) for 2 consecutive frames.
+        # The binary 2.0-px threshold previously oscillated against mask
+        # noise (1.5-3 px). Hysteresis stabilises the dot — small drift
+        # stays frozen, real movement triggers a clean exit.
+        meas_drift = math.hypot(x - self._smooth_x, y - self._smooth_y)
+        inst_speed = 0.0
+        if self._last_meas_x is not None and self._last_meas_y is not None:
+            ix = (x - self._last_meas_x) / max(_MIN_DT, dt)
+            iy = (y - self._last_meas_y) / max(_MIN_DT, dt)
+            inst_speed = math.hypot(ix, iy)
+        if self._in_deadband:
+            exits_now = meas_drift > 5.0 and inst_speed > 30.0
+            if exits_now:
+                self._deadband_exit_frames += 1
+                if self._deadband_exit_frames >= 2:
+                    self._in_deadband = False
+                    self._deadband_exit_frames = 0
+            else:
+                self._deadband_exit_frames = 0
+        else:
+            if speed < 90.0 and meas_drift < 2.5:
+                self._in_deadband = True
+                self._deadband_exit_frames = 0
+        in_deadband = self._in_deadband
+        if not in_deadband:
+            self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
+            self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
+        elif self._aim_is_body_anchor and self._body_bbox is not None:
+            # Pull must follow steady tracking: deadband freezes overlay jitter
+            # but the assist anchor still creeps toward the live measurement.
+            if meas_drift > 0.4:
+                track_alpha = max(alpha * 0.55, alpha_from_tau(dt, 0.028))
+                self._smooth_x = self._smooth_x + track_alpha * (x - self._smooth_x)
+                self._smooth_y = self._smooth_y + track_alpha * (y - self._smooth_y)
 
         pre_x, pre_y = self._smooth_x, self._smooth_y
         self._last_pre_predict = (pre_x, pre_y)
 
-        use_inline_lead = self._prediction_enabled and not (
-            self._aim_is_body_anchor and self._body_bbox is not None
+        use_inline_lead = (
+            self._prediction_enabled
+            and not (self._aim_is_body_anchor and self._body_bbox is not None)
+            and not in_deadband
         )
         if use_inline_lead:
             lead_dt = min(dt, _MAX_PRED_LEAD_S)
@@ -369,6 +582,7 @@ class TargetTracker:
             and self._prediction_lead_s > 0.0
             and self._prediction_max_px > 0.0
             and not (self._aim_is_body_anchor and self._body_bbox is not None)
+            and not in_deadband
         )
         if use_second_predict:
             px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
@@ -382,6 +596,14 @@ class TargetTracker:
         if self._fov_radius is not None and self._fov_cx is not None and self._fov_cy is not None:
             fx, fy = self._clamp_to_fov(motion.x, motion.y)
             motion = TargetMotion(fx, fy, motion.vx, motion.vy)
+            # M4 (audit): re-apply body-bbox clamp AFTER the FOV clamp so
+            # a radial FOV pull cannot push Y above the chest band. Order
+            # used to be body -> FOV; FOV could drag Y up onto the head
+            # plate or even out of the bbox at extreme edge positions.
+            if self._body_bbox is not None:
+                bx, by, bw, bh = self._body_bbox
+                cbx, cby = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
+                motion = TargetMotion(cbx, cby, motion.vx, motion.vy)
 
         self._last_pred_offset = (motion.x - pre_x, motion.y - pre_y)
         self._last = motion
@@ -434,3 +656,90 @@ class HumanizedMotion:
         if not (math.isfinite(out_x) and math.isfinite(out_y)):
             return dx, dy
         return out_x, out_y
+
+
+class RecoilCompensator:
+    """
+    Engagement-gated recoil-helper bias.
+
+    While the caller signals ``is_firing=True``:
+      * a steady downward Y bias is added (``pull_down_px_per_s``)
+      * a band-limited sinusoidal horizontal jitter is added
+        (``jitter_amplitude_px`` × sin(2π · jitter_frequency_hz · t)).
+
+    Bias is *additive* on top of the pull velocity — it is NOT fed back into
+    the velocity smoother. That's important: it would otherwise leak into the
+    EMA state and the cursor would keep drifting downward for several frames
+    after the user stops firing.
+
+    When ``is_firing=False`` the compensator returns the input unchanged and
+    its phase is reset, so the next trigger-pull starts cleanly at phase 0
+    instead of resuming a random offset.
+    """
+
+    def __init__(
+        self,
+        *,
+        recoil_enabled: bool,
+        pull_down_px_per_s: float,
+        jitter_enabled: bool,
+        jitter_amplitude_px: float,
+        jitter_frequency_hz: float,
+    ) -> None:
+        self._recoil_enabled = bool(recoil_enabled)
+        self._pull_down = max(0.0, min(_finite(pull_down_px_per_s, 0.0), 180.0))
+        self._jitter_enabled = bool(jitter_enabled)
+        self._jitter_amp = max(0.0, min(_finite(jitter_amplitude_px, 0.0), 6.0))
+        self._jitter_hz = max(0.0, min(_finite(jitter_frequency_hz, 6.0), 20.0))
+        self._phase = 0.0
+        self._was_firing = False
+
+    @property
+    def active(self) -> bool:
+        """True iff any compensation channel would emit a non-zero bias."""
+        recoil_on = self._recoil_enabled and self._pull_down > 0.0
+        jitter_on = self._jitter_enabled and self._jitter_amp > 0.0 and self._jitter_hz > 0.0
+        return recoil_on or jitter_on
+
+    def reset(self) -> None:
+        self._phase = 0.0
+        self._was_firing = False
+
+    def compute_bias(self, *, is_firing: bool, dt: float) -> tuple[float, float]:
+        """
+        Returns (bias_x, bias_y) in pixels for this frame.
+
+        - bias_y is positive-down (matches the screen-coordinate convention
+          used by `compute_delta`).
+        - bias_x is the horizontal jitter sample for this frame.
+        """
+        if not is_firing:
+            if self._was_firing:
+                self._phase = 0.0
+            self._was_firing = False
+            return 0.0, 0.0
+
+        dt = _finite(dt, 0.0)
+        if dt <= 0.0 or dt > 0.5:
+            dt = 1.0 / 60.0
+        self._was_firing = True
+
+        bias_y = 0.0
+        if self._recoil_enabled and self._pull_down > 0.0:
+            bias_y = self._pull_down * dt
+
+        bias_x = 0.0
+        if self._jitter_enabled and self._jitter_amp > 0.0 and self._jitter_hz > 0.0:
+            # Sample BEFORE advancing the phase. The first firing frame after
+            # reset/release therefore emits sin(0)=0, ensuring an engagement
+            # starts with no horizontal kick — important so the integer-truncation
+            # path doesn't immediately pop a 1-px sideways step the user would
+            # perceive as input lag.
+            bias_x = self._jitter_amp * math.sin(self._phase)
+            self._phase += 2.0 * math.pi * self._jitter_hz * dt
+            if self._phase > 1e6:
+                self._phase = math.fmod(self._phase, 2.0 * math.pi)
+
+        if not (math.isfinite(bias_x) and math.isfinite(bias_y)):
+            return 0.0, 0.0
+        return bias_x, bias_y

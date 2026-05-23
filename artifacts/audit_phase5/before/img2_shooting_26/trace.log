@@ -1,0 +1,13 @@
+INPUT img2_shooting_26.png  size=576x493  ads_hint=False
+FOV center=(288,246) radius=177  min_area=40.0
+MASK_PX red_enemy=32286  shape=123307  chroma=29334  motion=69331  fused=32286
+PARTS=27  CLUSTERS=3
+  cand[0] accepted=True reject=ok bbox=(162,174,104x63) body=1.00 head=0.90 torso=0.74 limb=1.00 vert=1.00 fill=0.29 circ=0.61 aspect=0.61 parts=21 area=8076 dist=53 | parts=21 head=0.90 torso=0.74 limb=1.00 vert=1.00 geom=0.36 align=0.20 circ=0.61 fill=0.29
+  cand[1] accepted=False reject=floating_cluster bbox=(336,91,49x81) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=1.00 fill=0.67 circ=0.36 aspect=1.65 parts=2 area=446 dist=146 | floating_cluster
+  cand[2] accepted=True reject=ok bbox=(385,109,69x190) body=1.00 head=0.97 torso=0.92 limb=1.00 vert=1.00 fill=0.31 circ=0.75 aspect=2.75 parts=4 area=1690 dist=144 | parts=4 head=0.97 torso=0.92 limb=1.00 vert=1.00 geom=0.75 align=0.45 circ=0.75 fill=0.31
+SELECTED active=True body=1.00 conf=0.76 red_cov=0.234 bbox=(385,109,69x190) centroid=(424.1,200.2) dist=143.8
+  DBG cand[0] reject=ok body=1.00 head=0.90 torso=0.74 limb=1.00 aspect=0.61 fill=0.29 circ=0.61 bbox=(162,174,104x63) area=8076 dist=53 parts=21 | parts=21 head=0.90 torso=0.74 limb=1.00 vert=1.00 geom=0.36 align=0.20 circ=0.61 fill=0.29
+  DBG cand[1] reject=floating_cluster body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=1.65 fill=0.67 circ=0.36 bbox=(336,91,49x81) area=446 dist=146 parts=2 | floating_cluster
+  DBG cand[2] reject=ok body=1.00 head=0.97 torso=0.92 limb=1.00 aspect=2.75 fill=0.31 circ=0.75 bbox=(385,109,69x190) area=1690 dist=144 parts=4 | parts=4 head=0.97 torso=0.92 limb=1.00 vert=1.00 geom=0.75 align=0.45 circ=0.75 fill=0.31
+  DBG accepted=2 from 3 clusters / 27 parts
+  DBG SELECTED body=1.00 head=0.97 dist=144 bbox=69x190

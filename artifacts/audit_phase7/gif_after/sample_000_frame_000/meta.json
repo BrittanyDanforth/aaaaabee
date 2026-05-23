@@ -1,0 +1,22 @@
+{
+  "sample_idx": 0,
+  "frame_path": "/workspace/artifacts/real_apex_test/_gif_frames/frame_000.png",
+  "frame_h": 450,
+  "frame_w": 800,
+  "fov_radius": 204,
+  "active": false,
+  "is_stale": false,
+  "raw_detection_target": null,
+  "effective_target": null,
+  "selected_y": -1.0,
+  "selected_h": -1.0,
+  "selected_y_top_frac": -1.0,
+  "body_shape": -1.0,
+  "motion_x": -1.0,
+  "motion_y": -1.0,
+  "target_lost_frames": 1,
+  "instant_adopted": false,
+  "switch_adopted": false,
+  "candidate_count": 16,
+  "accepted_count": 2
+}
