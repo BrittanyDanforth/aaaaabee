@@ -820,13 +820,23 @@ def _classify_parts(parts: list[_RedPart], cluster_h: int, scale: float) -> None
     areas = [p.area for p in sorted_p]
     max_area = max(areas)
     top = sorted_p[0]
+    cluster_top_y = sorted_p[0].y
 
     for i, p in enumerate(sorted_p):
-        rel_y = (p.cy - sorted_p[0].y) / max(cluster_h, 1)
+        rel_y = (p.cy - cluster_top_y) / max(cluster_h, 1)
         ar = p.aspect_hw
-        if i == 0 and rel_y < 0.32:
+        # PHASE-5 AUDIT FIX (D-HIGH-A): on real Apex frames the bright
+        # red head/helmet glow is often the brightest AND largest
+        # connected part. The old rule ``p.area <= max_area * 0.85``
+        # forced head_score = 0.0 for those frames. Relax the area
+        # constraint to allow the head to be slightly larger than the
+        # other parts but still require the part's centroid to sit in
+        # the upper 30 % of the cluster's vertical extent — that's a
+        # geometric invariant that holds even when the helmet is the
+        # mass-dominant body part.
+        if i == 0 and rel_y < 0.30:
             if (
-                p.area <= max_area * 0.85
+                p.area <= max_area * 1.10
                 and 0.35 <= ar <= 3.5
                 and p.h <= 85 * scale
                 and not _is_health_bar(p, scale)
@@ -1712,8 +1722,33 @@ def _figure_aim_point(
             ay = 0.82 * ay + 0.18 * tcy
             ax = max(float(t.x), min(float(t.x + t.w), ax))
         else:
-            cx_parts = float(np.mean([p.cx for p in parts]))
-            cy_parts = float(np.mean([max(y_lo, min(y_hi, p.cy)) for p in parts]))
+            # PHASE-5 AUDIT FIX (D-HIGH-B): when no part is classified
+            # TORSO and we average cx of all parts, an extended gun arm
+            # in a side-view frame pulls aim X laterally onto the
+            # weapon. Reject outlier parts whose cx deviates from the
+            # cluster's median cx by more than 1.4 * MAD and whose
+            # area is < 60 % of the median area — those are the
+            # weapon-arm parts. Keep at least 2 parts in the average
+            # so we don't collapse to a single fragment.
+            cx_arr = np.array([p.cx for p in parts], dtype=np.float32)
+            area_arr = np.array([p.area for p in parts], dtype=np.float32)
+            median_cx = float(np.median(cx_arr))
+            median_area = float(np.median(area_arr))
+            mad_cx = float(np.median(np.abs(cx_arr - median_cx)))
+            if mad_cx <= 0.0:
+                mad_cx = 1.0
+            kept = [
+                p
+                for p in parts
+                if not (
+                    abs(p.cx - median_cx) > 1.4 * mad_cx
+                    and p.area < 0.6 * median_area
+                )
+            ]
+            if len(kept) < 2:
+                kept = list(parts)
+            cx_parts = float(np.mean([p.cx for p in kept]))
+            cy_parts = float(np.mean([max(y_lo, min(y_hi, p.cy)) for p in kept]))
             ax = 0.90 * ax + 0.10 * cx_parts
             ay = 0.80 * ay + 0.20 * cy_parts
 
