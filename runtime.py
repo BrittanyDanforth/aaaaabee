@@ -28,8 +28,8 @@ from detector import (
     Target,
     draw_debug,
     find_best_target,
-    target_is_background_clutter,
 )
+from target_lock import TargetLockState, apply_target_lock
 from input_state import AdsInputState
 from motion import TargetMotion, TargetTracker
 from mouse_gate import MouseGateContext, MouseGateResult, evaluate_mouse_gate
@@ -101,8 +101,7 @@ class AssistRuntime:
 
         self._overlay: OverlayWindow | None = None
         self._overlay_thread: threading.Thread | None = None
-        self._locked_target: Target | None = None
-        self._target_lost_frames = 0
+        self._target_lock = TargetLockState()
         self._pull: PullController | None = None
         self._stats: RuntimeStats | None = None
         self._paused = False
@@ -111,8 +110,6 @@ class AssistRuntime:
         self._stopping = False
         self._process_debounce = process_debounce or ProcessPresenceDebouncer()
         self._frame_has_target = False
-        self._switch_candidate: Target | None = None
-        self._switch_frames = 0
         self._trace_frame = 0
         self._trace_pull = False
         self._last_debug: dict[str, float | int | str | bool] = {}
@@ -124,6 +121,38 @@ class AssistRuntime:
         # LMB-held flag for recoil compensator engagement gating. Updated by
         # the pynput mouse listener under _lock; read by the runtime loop.
         self._is_firing = False
+
+    @property
+    def _locked_target(self) -> Target | None:
+        return self._target_lock.locked_target
+
+    @_locked_target.setter
+    def _locked_target(self, value: Target | None) -> None:
+        self._target_lock.locked_target = value
+
+    @property
+    def _target_lost_frames(self) -> int:
+        return self._target_lock.target_lost_frames
+
+    @_target_lost_frames.setter
+    def _target_lost_frames(self, value: int) -> None:
+        self._target_lock.target_lost_frames = value
+
+    @property
+    def _switch_candidate(self) -> Target | None:
+        return self._target_lock.switch_candidate
+
+    @_switch_candidate.setter
+    def _switch_candidate(self, value: Target | None) -> None:
+        self._target_lock.switch_candidate = value
+
+    @property
+    def _switch_frames(self) -> int:
+        return self._target_lock.switch_frames
+
+    @_switch_frames.setter
+    def _switch_frames(self, value: int) -> None:
+        self._target_lock.switch_frames = value
 
     def _smooth_aim(
         self,
@@ -567,10 +596,7 @@ class AssistRuntime:
         return self._paused
 
     def _release_ads_inner(self) -> None:
-        self._locked_target = None
-        self._target_lost_frames = 0
-        self._switch_candidate = None
-        self._switch_frames = 0
+        self._target_lock.reset()
         # PHASE-7 AUDIT FIX (HIGH4): RMB releases used to ``reset()`` the
         # tracker, wiping ``_smooth_x/y`` and ``_last_meas_x/y``. Every
         # re-ADS observation would then have no step-cap anchor, so the
@@ -722,216 +748,20 @@ class AssistRuntime:
             ),
         )
         with self._lock:
-            if result.target is not None:
-                new_t = result.target
-                if self._locked_target is not None:
-                    import math as _m
 
-                    drift = _m.hypot(
-                        new_t.centroid_x - self._locked_target.centroid_x,
-                        new_t.centroid_y - self._locked_target.centroid_y,
-                    )
-                    fov_lim = float(cfg.get("_runtime_detect_fov", 200) or 200) * 0.55
-                    # PHASE-6 AUDIT FIX (D-CRIT4 instant-adopt guard) +
-                    # PHASE-7 AUDIT FIX (CRIT1 hardening):
-                    # the drift<25 branch used to overwrite the lock
-                    # whenever a candidate appeared within 25 px of the
-                    # last lock. The Phase-6 fix added a multiplicative
-                    # ratio check (>=0.85 of the locked body score),
-                    # but that floor compounds across successive
-                    # replacements (0.99→0.84→0.71→0.60→0.51→0.43 after
-                    # five rounds) so the lock could slowly migrate to
-                    # a fragmented head-only candidate. Phase-7 adds
-                    # TWO hard floors:
-                    #
-                    #  (a) ABSOLUTE body_shape_score floor >= 0.55 —
-                    #      kills the ratchet's tail.
-                    #  (b) UPWARD-BIAS guard — refuse to instant-adopt
-                    #      when the candidate's bbox top is at least
-                    #      15% of the locked bbox's height higher than
-                    #      the locked top AND the candidate is shorter.
-                    #      This is the signature of a head-only fragment
-                    #      replacing a torso bbox (which would then
-                    #      drag the chest-band clamp upward into sky).
-                    bs_ratio_ok = (
-                        new_t.body_shape_score
-                        >= self._locked_target.body_shape_score * 0.85
-                    )
-                    bs_abs_ok = new_t.body_shape_score >= 0.60
-                    upward_fragment = (
-                        new_t.bbox_y
-                        < self._locked_target.bbox_y
-                        - self._locked_target.bbox_h * 0.12
-                        and new_t.bbox_h < self._locked_target.bbox_h * 0.92
-                    )
-                    aim_jump_up = (
-                        new_t.centroid_y
-                        < self._locked_target.centroid_y - 16.0
-                    )
-                    weak_red_adopt = (
-                        aim_jump_up and new_t.red_coverage < 0.06
-                    )
-                    from detector import _bbox_iou as _iou
-                    adopt_iou = _iou(
-                        self._locked_target.bbox_x, self._locked_target.bbox_y,
-                        self._locked_target.bbox_w, self._locked_target.bbox_h,
-                        new_t.bbox_x, new_t.bbox_y, new_t.bbox_w, new_t.bbox_h,
-                    )
-                    # Lock-identity: 0.15 IoU let unrelated nearby FPs instant-adopt
-                    # and flicker the dot upward while the user still sees a lock.
-                    _INSTANT_ADOPT_MIN_IOU = 0.35
-                    _SWITCH_MIN_IOU = 0.28
-                    bbox_overlap_ok = adopt_iou >= _INSTANT_ADOPT_MIN_IOU
-                    sky_band = (
-                        new_t.bbox_y + new_t.bbox_h * 0.5
-                        < center_y * 0.40
-                    )
-                    clutter_fp = target_is_background_clutter(new_t)
-                    instant_adopt_ok = (
-                        bs_ratio_ok
-                        and bs_abs_ok
-                        and not upward_fragment
-                        and not weak_red_adopt
-                        and not clutter_fp
-                        and bbox_overlap_ok
-                        and not sky_band
-                    )
-                    high_overlap_refine = (
-                        adopt_iou >= 0.45 and instant_adopt_ok
-                    )
-                    if (
-                        instant_adopt_ok
-                        and (
-                            high_overlap_refine
-                            or (drift < 25 and drift < fov_lim)
-                        )
-                    ):
-                        self._locked_target = new_t
-                        self._target_lost_frames = 0
-                        self._switch_candidate = None
-                        self._switch_frames = 0
-                        return result
-                    # Fresh lock: do not enter switch hysteresis or bump
-                    # lost when the detector hiccups on a nearby wall/sky FP.
-                    if self._target_lost_frames == 0:
-                        self._switch_candidate = None
-                        self._switch_frames = 0
-                        return DetectionResult(
-                            self._locked_target,
-                            result.candidates,
-                            self._locked_target.confidence,
-                        )
-                    if clutter_fp or adopt_iou < 0.18:
-                        self._switch_candidate = None
-                        self._switch_frames = 0
-                        self._target_lost_frames = max(1, self._target_lost_frames)
-                        return DetectionResult(
-                            self._locked_target,
-                            result.candidates,
-                            self._locked_target.confidence,
-                        )
-                    if (
-                        self._switch_candidate is not None
-                        and _m.hypot(
-                            new_t.centroid_x - self._switch_candidate.centroid_x,
-                            new_t.centroid_y - self._switch_candidate.centroid_y,
-                        )
-                        < 30
-                    ):
-                        self._switch_frames += 1
-                    else:
-                        self._switch_candidate = new_t
-                        self._switch_frames = 1
-                    # PHASE-6 AUDIT FIX (D-CRIT4 switch hysteresis):
-                    # 3-frame switch hysteresis was previously purely
-                    # spatial+temporal — a sky cloud FP at the same
-                    # position for 3 frames stole the lock from a real
-                    # target. Require the new candidate to materially
-                    # beat the locked target on BOTH body-shape and
-                    # confidence before accepting the switch. The
-                    # +0.10 body-score margin AND >=90% confidence
-                    # ratio together mean only a clearly stronger
-                    # alternative (a closer/better-framed real enemy)
-                    # can win the switch.
-                    switch_score_ok = (
-                        new_t.body_shape_score
-                        >= self._locked_target.body_shape_score + 0.10
-                        and new_t.confidence
-                        >= self._locked_target.confidence * 0.90
-                        and new_t.red_coverage >= 0.05
-                        and not weak_red_adopt
-                        and not target_is_background_clutter(new_t)
-                        and adopt_iou >= _SWITCH_MIN_IOU
-                    )
-                    if self._switch_frames >= 3 and switch_score_ok:
-                        self._locked_target = new_t
-                        self._target_lost_frames = 0
-                        self._switch_candidate = None
-                        self._switch_frames = 0
-                        return result
-                    # M2 (audit): do NOT reset target_lost_frames to 0
-                    # while switch hysteresis is pending. The old code set
-                    # it to 0, masking the fact that detection isn't on
-                    # the locked target. We bump it up to 1 (at minimum)
-                    # so M1's stale-detection path can fire and the dot
-                    # stops chasing the frozen lock position.
-                    self._target_lost_frames = max(1, self._target_lost_frames)
-                    return DetectionResult(
-                        self._locked_target,
-                        result.candidates,
-                        self._locked_target.confidence,
-                    )
-                # PHASE-6 AUDIT FIX (D-MED9 new-lock body-score floor):
-                # when transitioning from no lock to a new lock, require
-                # the detector's body_shape_score to be at least 0.50.
-                # This is defence-in-depth: even if the detector accepts
-                # a marginal FP, the runtime won't let it BECOME the
-                # lock without a real body score. Below the floor we
-                # report active=False so the dot does not chase a
-                # weak signal.
-                new_sky = (
-                    new_t.bbox_y + new_t.bbox_h * 0.5
-                    < center_y * 0.40
-                )
-                low_red_lock = new_t.red_coverage < 0.04
-                if (
-                    new_t.body_shape_score < 0.55
-                    or new_sky
-                    or low_red_lock
-                    or target_is_background_clutter(new_t)
-                ):
-                    return DetectionResult(None, result.candidates, 0.0)
-                self._locked_target = new_t
-                self._target_lost_frames = 0
-                self._switch_candidate = None
-                self._switch_frames = 0
-                return result
-
-            self._target_lost_frames += 1
-            self._switch_candidate = None
-            self._switch_frames = 0
-            lost_max = int(cfg["target_lost_frames_before_unlock"])
-            if self._target_lost_frames >= lost_max:
-                self._locked_target = None
+            def _on_lock_expired() -> None:
                 if self._pull is not None:
                     self._pull.reset()
-                # PHASE-6 AUDIT FIX (D-HIGH5): switch to soft_reset so
-                # the dot stays at the last known position instead of
-                # teleporting. The old reset() cleared _last_meas_x/y
-                # which meant the next observation had no step cap —
-                # any new target was reached in one frame, producing
-                # the visible "dot jumps across the screen" snap.
-                # soft_reset() keeps _smooth_x/y and _last_meas_x/y
-                # but clears velocity & deadband memory so the next
-                # observation is bounded by the per-frame step cap.
                 self._aim_tracker.soft_reset()
-            elif self._locked_target is not None:
-                return DetectionResult(
-                    self._locked_target,
-                    result.candidates,
-                    self._locked_target.confidence,
-                )
-            return DetectionResult(None, result.candidates, 0.0)
+
+            result, _is_stale = apply_target_lock(
+                self._target_lock,
+                result,
+                center_y=center_y,
+                cfg=cfg,
+                on_lock_expired=_on_lock_expired,
+            )
+            return result
 
     def _teardown(
         self,

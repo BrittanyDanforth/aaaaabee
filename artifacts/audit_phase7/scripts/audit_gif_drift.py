@@ -5,8 +5,7 @@ through the LIVE detection + lock + smoothing path, exactly as the runtime
 does.  Maintains:
 
   * ONE DetectionContext for the whole sequence (motion-validated memory).
-  * Lock state (`_locked_target`, `_target_lost_frames`, `_switch_candidate`,
-    `_switch_frames`) updated EXACTLY like `runtime.AssistRuntime._select_target`.
+  * Lock state via ``target_lock.TargetLockMachine`` (same module as runtime).
   * A TargetTracker that observes the locked target each frame.
 
 For each sampled frame this writes:
@@ -42,6 +41,9 @@ if str(REPO_ROOT) not in sys.path:
 import detector  # noqa: E402
 import motion as motion_mod  # noqa: E402
 import profiles  # noqa: E402
+from target_lock import TargetLockMachine  # noqa: E402
+
+LockMachine = TargetLockMachine
 
 
 def _live_cfg() -> dict:
@@ -86,118 +88,6 @@ def _target_dict(t) -> dict | None:
     }
 
 
-class LockMachine:
-    """Faithful re-implementation of runtime._select_target lock semantics."""
-
-    def __init__(self, cfg: dict) -> None:
-        self.cfg = cfg
-        self.locked_target = None
-        self.target_lost_frames = 0
-        self.switch_candidate = None
-        self.switch_frames = 0
-        self.last_instant_adopted = False
-        self.last_switch_adopted = False
-
-    def step(self, result: detector.DetectionResult) -> tuple[detector.DetectionResult, bool]:
-        """Returns (effective_result, is_stale).  is_stale=True when we are
-        returning a frozen lock during the grace window because no fresh
-        detection was made this frame.
-        """
-        cfg = self.cfg
-        lost_max = int(cfg["target_lost_frames_before_unlock"])
-        self.last_instant_adopted = False
-        self.last_switch_adopted = False
-        if result.target is not None:
-            new_t = result.target
-            if self.locked_target is not None:
-                drift = math.hypot(
-                    new_t.centroid_x - self.locked_target.centroid_x,
-                    new_t.centroid_y - self.locked_target.centroid_y,
-                )
-                fov_lim = float(cfg.get("_runtime_detect_fov", 200) or 200) * 0.55
-                instant_adopt_ok = (
-                    new_t.body_shape_score >= self.locked_target.body_shape_score * 0.85
-                )
-                # PHASE-7 fix-aware guards (mirrored when applied to runtime.py).
-                # These two predicates are read directly from cfg so the
-                # BEFORE run still sees the same multiplicative-only floor.
-                # When PHASE7_FIX_ACTIVE in the cfg is True, also require an
-                # absolute floor and refuse upward-bias replacements.
-                if cfg.get("_PHASE7_FIX_ACTIVE", False):
-                    abs_ok = new_t.body_shape_score >= 0.55
-                    upward = (
-                        new_t.bbox_y
-                        < self.locked_target.bbox_y - self.locked_target.bbox_h * 0.15
-                        and new_t.bbox_h < self.locked_target.bbox_h
-                    )
-                    instant_adopt_ok = instant_adopt_ok and abs_ok and not upward
-                if drift < 25 and drift < fov_lim and instant_adopt_ok:
-                    self.locked_target = new_t
-                    self.target_lost_frames = 0
-                    self.switch_candidate = None
-                    self.switch_frames = 0
-                    self.last_instant_adopted = True
-                    return result, False
-                if (
-                    self.switch_candidate is not None
-                    and math.hypot(
-                        new_t.centroid_x - self.switch_candidate.centroid_x,
-                        new_t.centroid_y - self.switch_candidate.centroid_y,
-                    )
-                    < 30
-                ):
-                    self.switch_frames += 1
-                else:
-                    self.switch_candidate = new_t
-                    self.switch_frames = 1
-                switch_score_ok = (
-                    new_t.body_shape_score
-                    >= self.locked_target.body_shape_score + 0.10
-                    and new_t.confidence
-                    >= self.locked_target.confidence * 0.90
-                )
-                if self.switch_frames >= 3 and switch_score_ok:
-                    self.locked_target = new_t
-                    self.target_lost_frames = 0
-                    self.switch_candidate = None
-                    self.switch_frames = 0
-                    self.last_switch_adopted = True
-                    return result, False
-                self.target_lost_frames = max(1, self.target_lost_frames)
-                effective = detector.DetectionResult(
-                    self.locked_target,
-                    result.candidates,
-                    self.locked_target.confidence,
-                    active=True,
-                )
-                return effective, True
-            # No prior lock — apply new-lock body-score floor (D-MED9 / runtime.py)
-            if new_t.body_shape_score < 0.50:
-                return detector.DetectionResult(None, result.candidates, 0.0, active=False), False
-            self.locked_target = new_t
-            self.target_lost_frames = 0
-            self.switch_candidate = None
-            self.switch_frames = 0
-            return result, False
-
-        # No detection this frame.
-        self.target_lost_frames += 1
-        self.switch_candidate = None
-        self.switch_frames = 0
-        if self.target_lost_frames >= lost_max:
-            self.locked_target = None
-            return detector.DetectionResult(None, result.candidates, 0.0, active=False), False
-        if self.locked_target is not None:
-            effective = detector.DetectionResult(
-                self.locked_target,
-                result.candidates,
-                self.locked_target.confidence,
-                active=True,
-            )
-            return effective, True
-        return detector.DetectionResult(None, result.candidates, 0.0, active=False), False
-
-
 def _detect_fov(cfg: dict, frame_w: int, frame_h: int) -> int:
     return profiles.effective_detection_fov_radius(cfg, ads_active=False)
 
@@ -230,7 +120,7 @@ def run_audit(out_root: Path, phase7_fix: bool, stride: int = 5) -> None:
         motion_assist=bool(cfg.get("detection_motion_assist", True)),
         motion_threshold=int(cfg.get("detection_motion_threshold", 10)),
     )
-    lock = LockMachine(cfg)
+    lock = LockMachine(cfg, center_y=360.0)
     tracker = motion_mod.TargetTracker()
     rows: list[dict] = []
 
@@ -241,6 +131,7 @@ def run_audit(out_root: Path, phase7_fix: bool, stride: int = 5) -> None:
             continue
         h, w = img.shape[:2]
         cx, cy = w / 2.0, h / 2.0
+        lock.center_y = cy
         fov_r = _detect_fov(cfg, w, h)
         min_area = float(cfg["min_target_area_pixels"])
         exclude_bottom = 0.05
@@ -299,7 +190,7 @@ def run_audit(out_root: Path, phase7_fix: bool, stride: int = 5) -> None:
             currently_locked=currently_locked,
         )
 
-        effective, is_stale = lock.step(result)
+        effective, is_stale = lock.step_detection(result)
 
         # Smooth aim — observe the EFFECTIVE target (locked or fresh).
         t_sec = float(sample_i) * (1.0 / 30.0)

@@ -2,30 +2,13 @@
 
 Replays 10 representative frames from
 ``artifacts/real_apex_test/_gif_frames/`` through the LIVE detection +
-lock machine (matching ``runtime.AssistRuntime._select_target``) and
-asserts the three guards Phase-7 added:
-
-  1. When a frame is active the locked bbox top must NOT collapse to
-     the upper 5 % of the frame (the "dot drifts into sky" smoking
-     gun the user reported).
-  2. The locked target's ``body_shape_score`` must NEVER decrease by
-     more than 0.20 between successive sampled frames (instant-adopt
-     ratchet guard — without the absolute floor the multiplicative
-     0.85 ratchet could collapse the score across 5 successive
-     replacements).
-  3. The locked target's ``bbox_y`` must NEVER drop by more than
-     ``bbox_h * 0.15`` from one sampled frame to the next (upward-bias
-     guard — head-fragment replacing torso bbox).
-
-The test fixture intentionally uses the exact same lock-state machine
-the audit harness uses so it is testing the behaviour the user sees
-in live play, not a synthetic re-implementation.
+lock machine (``target_lock.apply_target_lock`` — same code as runtime)
+and asserts the guards that prevent sky-drift and upward fragments.
 """
 
 from __future__ import annotations
 
 import copy
-import math
 import unittest
 from pathlib import Path
 
@@ -33,14 +16,12 @@ import cv2
 
 import detector
 import profiles
+from target_lock import TargetLockMachine
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FRAMES_DIR = REPO_ROOT / "artifacts" / "real_apex_test" / "_gif_frames"
 
-# Sampled frame indices spread across the 166-frame GIF. These are the
-# 10 representative frames called out in the Phase-7 audit (0, 20, 40,
-# 60, 80, 100, 120, 140, 160, 165).
 SAMPLE_INDICES = [0, 20, 40, 60, 80, 100, 120, 140, 160, 165]
 
 
@@ -59,113 +40,6 @@ def _live_cfg() -> dict:
     return cfg
 
 
-class _Lock:
-    """Mirror of runtime._select_target lock semantics (Phase-7 guards)."""
-
-    def __init__(self, cfg: dict) -> None:
-        self.cfg = cfg
-        self.locked = None
-        self.lost = 0
-        self.switch_cand = None
-        self.switch_frames = 0
-
-    def step(self, raw_target, *, center_y: float = 360.0):
-        cfg = self.cfg
-        lost_max = int(cfg["target_lost_frames_before_unlock"])
-        if raw_target is not None:
-            new_t = raw_target
-            if self.locked is not None:
-                drift = math.hypot(
-                    new_t.centroid_x - self.locked.centroid_x,
-                    new_t.centroid_y - self.locked.centroid_y,
-                )
-                fov_lim = float(cfg.get("_runtime_detect_fov", 200) or 200) * 0.55
-                bs_ratio_ok = new_t.body_shape_score >= self.locked.body_shape_score * 0.85
-                bs_abs_ok = new_t.body_shape_score >= 0.60
-                upward = (
-                    new_t.bbox_y
-                    < self.locked.bbox_y - self.locked.bbox_h * 0.12
-                    and new_t.bbox_h < self.locked.bbox_h * 0.92
-                )
-                aim_jump_up = new_t.centroid_y < self.locked.centroid_y - 16.0
-                weak_red = aim_jump_up and new_t.red_coverage < 0.06
-                from detector import _bbox_iou, target_is_background_clutter
-                adopt_iou = _bbox_iou(
-                    self.locked.bbox_x, self.locked.bbox_y,
-                    self.locked.bbox_w, self.locked.bbox_h,
-                    new_t.bbox_x, new_t.bbox_y, new_t.bbox_w, new_t.bbox_h,
-                )
-                sky_band = new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
-                clutter = target_is_background_clutter(new_t)
-                instant_ok = (
-                    bs_ratio_ok
-                    and bs_abs_ok
-                    and not upward
-                    and not weak_red
-                    and not clutter
-                    and adopt_iou >= 0.35
-                    and not sky_band
-                )
-                high_overlap = adopt_iou >= 0.45 and instant_ok
-                if instant_ok and (high_overlap or (drift < 25 and drift < fov_lim)):
-                    self.locked = new_t
-                    self.lost = 0
-                    self.switch_cand = None
-                    self.switch_frames = 0
-                    return self.locked, False
-                if self.lost == 0:
-                    self.switch_cand = None
-                    self.switch_frames = 0
-                    return self.locked, False
-                if clutter or adopt_iou < 0.18:
-                    self.switch_cand = None
-                    self.switch_frames = 0
-                    self.lost = max(1, self.lost)
-                    return self.locked, True
-                if (self.switch_cand is not None
-                        and math.hypot(new_t.centroid_x - self.switch_cand.centroid_x,
-                                       new_t.centroid_y - self.switch_cand.centroid_y) < 30):
-                    self.switch_frames += 1
-                else:
-                    self.switch_cand = new_t
-                    self.switch_frames = 1
-                switch_ok = (
-                    new_t.body_shape_score >= self.locked.body_shape_score + 0.10
-                    and new_t.confidence >= self.locked.confidence * 0.90
-                    and new_t.red_coverage >= 0.05
-                    and not weak_red
-                    and not clutter
-                    and adopt_iou >= 0.28
-                )
-                if self.switch_frames >= 3 and switch_ok:
-                    self.locked = new_t
-                    self.lost = 0
-                    self.switch_cand = None
-                    self.switch_frames = 0
-                    return self.locked, False
-                self.lost = max(1, self.lost)
-                return self.locked, True
-            from detector import target_is_background_clutter
-            new_sky = new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
-            if (
-                new_t.body_shape_score < 0.55
-                or new_sky
-                or new_t.red_coverage < 0.04
-                or target_is_background_clutter(new_t)
-            ):
-                return None, False
-            self.locked = new_t
-            self.lost = 0
-            return self.locked, False
-        self.lost += 1
-        if self.lost >= lost_max:
-            self.locked = None
-            return None, False
-        if self.locked is not None:
-            return self.locked, True
-        return None, False
-
-
 def _gif_available() -> bool:
     return FRAMES_DIR.exists() and any(FRAMES_DIR.glob("frame_*.png"))
 
@@ -177,7 +51,7 @@ class GifDriftRegressionTests(unittest.TestCase):
         ctx = detector.DetectionContext(
             motion_assist=True, motion_threshold=int(cfg["detection_motion_threshold"]),
         )
-        lock = _Lock(cfg)
+        lock = TargetLockMachine(cfg, center_y=360.0)
         prev_body = None
         prev_locked = None
         violations: list[str] = []
@@ -187,6 +61,7 @@ class GifDriftRegressionTests(unittest.TestCase):
             img = cv2.imread(str(path), cv2.IMREAD_COLOR)
             h, w = img.shape[:2]
             cx, cy = w / 2.0, h / 2.0
+            lock.center_y = cy
             fov_r = profiles.effective_detection_fov_radius(cfg, ads_active=False)
             sticky = lock.locked if lock.lost < int(cfg["target_lost_frames_before_unlock"]) else None
             currently_locked = sticky is not None
@@ -217,17 +92,15 @@ class GifDriftRegressionTests(unittest.TestCase):
                 area_weight=float(cfg["area_score_weight"]),
                 currently_locked=currently_locked,
             )
-            effective, is_stale = lock.step(result.target, center_y=cy)
+            effective, is_stale = lock.step_target(result.target)
             active = effective is not None and not is_stale
             if active and effective is not None:
-                # (1) sky guard — bbox top below 5% line
                 self.assertGreater(
                     effective.bbox_y,
                     h * 0.05,
                     f"sample {sample_i} (frame {frame_idx}): bbox_y={effective.bbox_y} "
                     f"< 5% of frame_h ({h*0.05:.0f}) — looks like sky-drift",
                 )
-                # (2) body_shape_score drop guard
                 if prev_body is not None:
                     drop = prev_body - effective.body_shape_score
                     if drop > 0.20:
@@ -235,7 +108,6 @@ class GifDriftRegressionTests(unittest.TestCase):
                             f"sample {sample_i}: body_shape dropped "
                             f"{prev_body:.2f} -> {effective.body_shape_score:.2f} (>0.20)"
                         )
-                # (3) upward-bias guard
                 if prev_locked is not None:
                     y_drop = prev_locked.bbox_y - effective.bbox_y
                     if y_drop > prev_locked.bbox_h * 0.15 and effective.bbox_h < prev_locked.bbox_h:

@@ -6,7 +6,7 @@ hardened code path is actually reachable and effective.
 
 Tested guards:
   1. Instant-adopt body floor (0.55 old → 0.60 new)
-  2. Instant-adopt IoU overlap (new ≥ 0.15 gate)
+  2. Instant-adopt IoU overlap (new ≥ 0.35 gate)
   3. Instant-adopt sky-band reject (bbox_mid_y < center_y * 0.40)
   4. New-lock sky-band reject (same formula)
   5. New-lock body floor (0.50 old → 0.55 new)
@@ -27,13 +27,8 @@ import numpy as np
 
 import detector
 import profiles
-from detector import (
-    Target,
-    DetectionResult,
-    _bbox_iou,
-    score_target,
-    target_is_background_clutter,
-)
+from detector import Target, _bbox_iou, score_target
+from target_lock import INSTANT_ADOPT_MIN_IOU, TargetLockMachine
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -89,133 +84,9 @@ def _live_cfg() -> dict:
     return cfg
 
 
-class _Lock:
-    """Mirror of runtime._select_target lock semantics including sky-band.
-
-    Extends the pattern from test_gif_drift_regression.py by adding
-    the sky-band guard on BOTH instant-adopt and new-lock paths, matching
-    the runtime at lines 761-770 and 833-837.
-    """
-
-    def __init__(self, cfg: dict, center_y: float = 360.0) -> None:
-        self.cfg = cfg
-        self.center_y = center_y
-        self.locked: Target | None = None
-        self.lost = 0
-        self.switch_cand: Target | None = None
-        self.switch_frames = 0
-
-    def step(self, raw_target: Target | None):
-        cfg = self.cfg
-        lost_max = int(cfg["target_lost_frames_before_unlock"])
-        center_y = self.center_y
-
-        if raw_target is not None:
-            new_t = raw_target
-            if self.locked is not None:
-                drift = math.hypot(
-                    new_t.centroid_x - self.locked.centroid_x,
-                    new_t.centroid_y - self.locked.centroid_y,
-                )
-                fov_lim = float(cfg.get("_runtime_detect_fov", 200) or 200) * 0.55
-
-                bs_ratio_ok = (
-                    new_t.body_shape_score >= self.locked.body_shape_score * 0.85
-                )
-                bs_abs_ok = new_t.body_shape_score >= 0.60
-                upward = (
-                    new_t.bbox_y < self.locked.bbox_y - self.locked.bbox_h * 0.12
-                    and new_t.bbox_h < self.locked.bbox_h * 0.92
-                )
-                aim_jump_up = new_t.centroid_y < self.locked.centroid_y - 16.0
-                weak_red = aim_jump_up and new_t.red_coverage < 0.06
-                adopt_iou = _bbox_iou(
-                    self.locked.bbox_x, self.locked.bbox_y,
-                    self.locked.bbox_w, self.locked.bbox_h,
-                    new_t.bbox_x, new_t.bbox_y, new_t.bbox_w, new_t.bbox_h,
-                )
-                sky_band = new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
-                clutter = target_is_background_clutter(new_t)
-                instant_ok = (
-                    bs_ratio_ok
-                    and bs_abs_ok
-                    and not upward
-                    and not weak_red
-                    and not clutter
-                    and adopt_iou >= 0.35
-                    and not sky_band
-                )
-                high_overlap = adopt_iou >= 0.45 and instant_ok
-                if instant_ok and (
-                    high_overlap or (drift < 25 and drift < fov_lim)
-                ):
-                    self.locked = new_t
-                    self.lost = 0
-                    self.switch_cand = None
-                    self.switch_frames = 0
-                    return self.locked, False
-
-                if self.lost == 0:
-                    self.switch_cand = None
-                    self.switch_frames = 0
-                    return self.locked, False
-
-                if clutter or adopt_iou < 0.18:
-                    self.switch_cand = None
-                    self.switch_frames = 0
-                    self.lost = max(1, self.lost)
-                    return self.locked, True
-
-                if (
-                    self.switch_cand is not None
-                    and math.hypot(
-                        new_t.centroid_x - self.switch_cand.centroid_x,
-                        new_t.centroid_y - self.switch_cand.centroid_y,
-                    ) < 30
-                ):
-                    self.switch_frames += 1
-                else:
-                    self.switch_cand = new_t
-                    self.switch_frames = 1
-
-                switch_ok = (
-                    new_t.body_shape_score >= self.locked.body_shape_score + 0.10
-                    and new_t.confidence >= self.locked.confidence * 0.90
-                    and new_t.red_coverage >= 0.05
-                    and not weak_red
-                    and not clutter
-                    and adopt_iou >= 0.28
-                )
-                if self.switch_frames >= 3 and switch_ok:
-                    self.locked = new_t
-                    self.lost = 0
-                    self.switch_cand = None
-                    self.switch_frames = 0
-                    return self.locked, False
-
-                self.lost = max(1, self.lost)
-                return self.locked, True
-
-            # New-lock path: sky-band + body floor + clutter
-            new_sky = new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
-            if (
-                new_t.body_shape_score < 0.55
-                or new_sky
-                or new_t.red_coverage < 0.04
-                or target_is_background_clutter(new_t)
-            ):
-                return None, False
-            self.locked = new_t
-            self.lost = 0
-            return self.locked, False
-
-        self.lost += 1
-        if self.lost >= lost_max:
-            self.locked = None
-            return None, False
-        if self.locked is not None:
-            return self.locked, True
-        return None, False
+def _Lock(cfg: dict, center_y: float = 360.0) -> TargetLockMachine:
+    """Production lock machine (``target_lock.apply_target_lock``)."""
+    return TargetLockMachine(cfg, center_y=center_y)
 
 
 # Apex enemy highlight red in BGR / HSV (from test_detector.py)

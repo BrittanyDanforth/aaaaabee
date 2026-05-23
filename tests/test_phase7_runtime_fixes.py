@@ -35,6 +35,7 @@ def _make_runtime():
     and _release_ads_inner without needing pynput/mss/tkinter."""
     from runtime import AssistRuntime
     from motion import TargetTracker
+    from target_lock import TargetLockState
     import threading
 
     cfg = {
@@ -58,10 +59,7 @@ def _make_runtime():
     runtime._lock = threading.RLock()
     runtime._aim_tracker = TargetTracker()
     runtime._last_motion = None
-    runtime._locked_target = None
-    runtime._target_lost_frames = 0
-    runtime._switch_candidate = None
-    runtime._switch_frames = 0
+    runtime._target_lock = TargetLockState()
     runtime._frame_cx = 400.0
     runtime._frame_cy = 225.0
     runtime._is_firing = False

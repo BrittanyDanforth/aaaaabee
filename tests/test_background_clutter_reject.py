@@ -157,11 +157,12 @@ class BackgroundClutterPipelineTests(unittest.TestCase):
         self.assertFalse(target_is_background_clutter(body))
 
     def test_runtime_uses_shared_helper(self) -> None:
-        text = Path(__file__).resolve().parents[1].joinpath("runtime.py").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("target_is_background_clutter", text)
-        self.assertNotIn("tiny_clutter_lock", text)
+        root = Path(__file__).resolve().parents[1]
+        lock_text = (root / "target_lock.py").read_text(encoding="utf-8")
+        self.assertIn("target_is_background_clutter", lock_text)
+        runtime_text = (root / "runtime.py").read_text(encoding="utf-8")
+        self.assertIn("apply_target_lock", runtime_text)
+        self.assertNotIn("tiny_clutter_lock", runtime_text)
 
 
 if __name__ == "__main__":
