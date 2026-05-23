@@ -389,6 +389,16 @@ class DetectionContext:
     motion_validate_threshold: float = 0.12
     _validated_bbox: tuple[int, int, int, int] | None = None
     _validated_credit: int = 0
+    # PHASE-6 AUDIT FIX (D-CRIT1): when the player pans the camera the
+    # inter-frame diff fires EVERYWHERE (sky/clouds/building edges all
+    # shift together). The motion_mask then floods the candidate pool with
+    # background pixels and the per-candidate motion_bonus rescues weak FPs.
+    # ``pan_detected`` is set True for one frame by build_detection_mask
+    # when motion_coverage > pan_coverage_threshold; while True we:
+    #   1. drop the motion mask out of the apex-mode fusion, AND
+    #   2. clear last_motion_mask so score_target's motion_bonus is zero.
+    pan_detected: bool = False
+    pan_coverage_threshold: float = 0.30
 
     def reset(self) -> None:
         self.prev_gray = None
@@ -396,6 +406,7 @@ class DetectionContext:
         self.last_motion_mask = None
         self._validated_bbox = None
         self._validated_credit = 0
+        self.pan_detected = False
 
     def update_prev(self, gray: np.ndarray) -> None:
         if self.prev_gray is None or self.prev_gray.shape != gray.shape:
@@ -509,10 +520,26 @@ def build_detection_mask(
     if mode != DETECTION_MODE_HSV and context is not None and context.motion_assist:
         if context.prev_gray is not None and context.prev_gray.shape == gray.shape:
             motion = build_motion_diff_mask(gray, context.prev_gray, threshold=context.motion_threshold)
-            shape_m = cv2.bitwise_or(shape_m, motion)
-            context.last_motion_mask = motion
+            # PHASE-6 AUDIT FIX (D-CRIT1): pan-detection guard. When the
+            # player whips the camera, frame-to-frame intensity differs
+            # everywhere → motion mask covers >30% of frame area → sky,
+            # clouds, building edges all flood the candidate pool and
+            # every candidate gets a large motion_bonus indiscriminately.
+            # If we detect a pan, do NOT fuse motion into shape_m for this
+            # frame AND clear last_motion_mask so score_target also skips
+            # the motion_bonus. The visible symptom of NOT having this
+            # guard is the dot snapping to sky/cloud edges during a pan.
+            mcov = float((motion > 0).sum()) / float(max(1, motion.size))
+            if mcov > float(context.pan_coverage_threshold):
+                context.pan_detected = True
+                context.last_motion_mask = None
+            else:
+                context.pan_detected = False
+                shape_m = cv2.bitwise_or(shape_m, motion)
+                context.last_motion_mask = motion
         else:
             context.last_motion_mask = None
+            context.pan_detected = False
         context.update_prev(gray)
 
     if mode == DETECTION_MODE_APEX:
@@ -590,8 +617,12 @@ def build_detection_mask(
                 local_chroma = cv2.bitwise_and(chroma_extra, halo)
                 result = cv2.bitwise_or(result, local_chroma)
 
+        # PHASE-6 AUDIT FIX (D-CRIT1): only fuse motion when NOT panning.
+        # last_motion_mask is set to None by the pan guard above; this just
+        # belt-and-braces the apex branch from accidental future regressions.
         if (
             context is not None
+            and not context.pan_detected
             and context.last_motion_mask is not None
             and context.last_motion_mask.shape == filled.shape
         ):
@@ -604,6 +635,7 @@ def build_detection_mask(
             fallback = filled.copy()
             if (
                 context is not None
+                and not context.pan_detected
                 and context.last_motion_mask is not None
                 and context.last_motion_mask.shape == filled.shape
             ):
@@ -2595,7 +2627,17 @@ def score_target(
     # Motion-overlap bonus rewards candidates whose bbox covers an inter-frame
     # diff region — these are confirmed *moving* silhouettes (real Apex enemies)
     # vs static red walls/panels whose shape may look humanoid by accident.
-    motion_bonus = min(1.0, max(0.0, motion_overlap)) * fov_radius * 0.55
+    #
+    # PHASE-6 AUDIT FIX (D-CRIT2): the motion_bonus is BOOSTING for real
+    # bodies but was previously also RESCUING weak candidates (sky, walls,
+    # HUD numerals). A cloud edge with body_shape_score=0.35 could overtake
+    # a body=0.70 real target purely on motion overlap. Gate the bonus on a
+    # body-score floor of 0.55 so motion only ever boosts a candidate that
+    # already independently looks like a body.
+    if target.body_shape_score < 0.55:
+        motion_bonus = 0.0
+    else:
+        motion_bonus = min(1.0, max(0.0, motion_overlap)) * fov_radius * 0.55
     # Red-coverage bonus: Apex enemies whose body is materially covered by
     # the red-enemy HSV mask are almost always real targets (the only
     # in-game source of that hue at that saturation is the enemy highlight).
