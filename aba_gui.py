@@ -81,6 +81,25 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "detection_motion_assist": True,
         "detection_motion_threshold": 9,
     },
+    # PHASE-5 AUDIT: "Tracking" preset sits between Responsive and Strong.
+    # Looser body-shape gate + tighter smoothing + slightly higher pull
+    # speed than Responsive, without arming Strong's recoil / jitter.
+    "Tracking": {
+        "body_shape_min_score": 0.42,
+        "target_stickiness_pixels": 70,
+        "smoothing_tau_still": 0.030,
+        "smoothing_tau_moving": 0.012,
+        "velocity_smoothing": 0.38,
+        "pull_strength": 0.95,
+        "max_pull_speed_pixels_per_frame": 32.0,
+        "torso_aim_fraction": 0.40,
+        "deadzone_pixels": 2,
+        "detection_mode": "apex",
+        "detection_motion_assist": True,
+        "detection_motion_threshold": 9,
+        "recoil_compensation_enabled": False,
+        "jitter_enabled": False,
+    },
     "Strong": {
         "pull_strength": 1.10,
         "smoothing_tau_still": 0.026,
