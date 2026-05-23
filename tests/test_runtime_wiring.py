@@ -12,6 +12,7 @@ from targeting_runtime import TargetingRuntime
 from tests.reference_body_frames import CX, CY, FRAME_H, FRAME_W, gen_firing_range_standing
 
 CONFIG = {
+    "new_lock_confirm_frames": 1,
     "detection_mode": "shape",
     "hsv_ranges": [
         {"lower": [0, 100, 100], "upper": [12, 255, 255]},

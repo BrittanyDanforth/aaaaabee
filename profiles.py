@@ -48,6 +48,7 @@ _APEX_TUNING: dict[str, Any] = {
     "jitter_frequency_hz": 6.0,
     "target_stickiness_pixels": 60,
     "target_lost_frames_before_unlock": 18,
+    "new_lock_confirm_frames": 2,
     "distance_score_weight": 2.6,
     "area_score_weight": 0.015,
     "min_target_area_pixels": 20,

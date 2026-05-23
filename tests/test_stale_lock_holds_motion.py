@@ -12,7 +12,7 @@ M1 (audit) fixes:
   short-circuits and returns ``_last_motion`` unchanged.
 * The runtime loop passes ``stale=stale_det`` to ``_smooth_aim`` so
   the smoother sees fresh observations only when detection is fresh.
-* The overlay dot is hidden after ``target_lost_frames >= 2`` so the
+* The overlay dot is hidden when detection is not fresh (``target_lost_frames >= 1``)
   user doesn't see the dot parked on the last-known position.
 
 This test drives ``_smooth_aim`` directly from a minimal runtime
@@ -22,7 +22,7 @@ fixture and verifies the contract:
 2. ``_smooth_aim(target, t, stale=True)`` returns ``_last_motion`` and
    does NOT call ``observe_target``.
 3. Source check: the runtime loop passes ``stale=stale_det`` and hides
-   the overlay when ``target_lost_frames >= 2``.
+   the overlay when detection is not fresh.
 """
 
 from __future__ import annotations
@@ -117,15 +117,17 @@ class StaleLockMotionHoldTests(unittest.TestCase):
             "runtime must call _smooth_aim with stale=stale_det (M1 audit fix)",
         )
 
-    def test_overlay_hides_after_stale_frames(self) -> None:
+    def test_overlay_hides_when_not_fresh(self) -> None:
         text = RUNTIME_PATH.read_text(encoding="utf-8")
-        # Overlay path must check target_lost_frames >= 2 and skip drawing
-        # the dot when stale. Pin the literal so the regression catches a
-        # drift back to the always-draw behaviour.
         self.assertIn(
-            "self._target_lost_frames >= 2",
+            "hide_overlay_not_fresh = not detection_fresh",
             text,
-            "overlay must hide the dot after 2+ stale frames (M1 audit fix)",
+            "overlay must hide dot unless detection is fresh",
+        )
+        self.assertIn(
+            "self._target_lost_frames >= 1",
+            text,
+            "overlay must hide dot during grace/stale lock",
         )
 
 

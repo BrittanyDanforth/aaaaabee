@@ -1215,21 +1215,14 @@ class AssistRuntime:
                         # last-known position when the target has moved.
                         hide_overlay_stale = (
                             target is not None
-                            and self._target_lost_frames >= 2
+                            and self._target_lost_frames >= 1
                         )
-                        # PHASE-7 AUDIT FIX (CRIT2 companion): the CRIT2
-                        # change keeps ``motion`` non-None after lock
-                        # expiry (so a new acquisition step-caps from
-                        # the frozen anchor rather than teleports). The
-                        # overlay must NOT render the frozen dot when
-                        # there is no longer a target — otherwise the
-                        # green ring would still display a ghost dot at
-                        # the last-known position. Hide whenever target
-                        # is None (no fresh lock and grace expired).
                         hide_overlay_no_target = target is None
+                        hide_overlay_not_fresh = not detection_fresh
                         if (
                             not hide_overlay_stale
                             and not hide_overlay_no_target
+                            and not hide_overlay_not_fresh
                             and motion is not None
                             and math.isfinite(motion.x) and math.isfinite(motion.y)
                         ):

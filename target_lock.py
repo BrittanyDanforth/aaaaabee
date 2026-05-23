@@ -28,15 +28,48 @@ from typing import Any, Callable
 from detector import DetectionResult, Target, _bbox_iou, target_is_background_clutter
 
 # IoU gates (documented in tests/test_detection_hardening.py).
-INSTANT_ADOPT_MIN_IOU = 0.35
+INSTANT_ADOPT_MIN_IOU = 0.32
 HIGH_OVERLAP_REFINE_IOU = 0.45
+HIGH_OVERLAP_MAX_DRIFT_PX = 36.0
+SOFT_REFINE_MIN_IOU = 0.26
 SWITCH_MIN_IOU = 0.28
 CLUTTER_REJECT_MAX_IOU = 0.18
+NEW_LOCK_CONFIRM_FRAMES = 2
+NEW_LOCK_MIN_BODY = 0.58
+NEW_LOCK_MIN_RED = 0.06
+NEW_LOCK_MIN_PARTS = 2
 
 
 def viewmodel_exclude_bottom(cfg: dict[str, Any]) -> float:
     """Bottom-of-frame mask fraction — must match production runtime."""
     return float(cfg.get("viewmodel_exclude_bottom_frac", 0.28))
+
+
+def _same_lock_identity(a: Target, b: Target) -> bool:
+    """True when two detections are likely the same blob (confirm new lock)."""
+    iou = _bbox_iou(
+        a.bbox_x, a.bbox_y, a.bbox_w, a.bbox_h,
+        b.bbox_x, b.bbox_y, b.bbox_w, b.bbox_h,
+    )
+    if iou >= 0.22:
+        return True
+    drift = math.hypot(a.centroid_x - b.centroid_x, a.centroid_y - b.centroid_y)
+    return drift < 32.0
+
+
+def _passes_new_lock_gates(target: Target, *, center_y: float) -> bool:
+    mid_y = target.bbox_y + target.bbox_h * 0.5
+    if target.body_shape_score < NEW_LOCK_MIN_BODY:
+        return False
+    if mid_y < center_y * 0.40:
+        return False
+    if target.red_coverage < NEW_LOCK_MIN_RED:
+        return False
+    if int(target.part_count) < NEW_LOCK_MIN_PARTS:
+        return False
+    if target_is_background_clutter(target):
+        return False
+    return True
 
 
 @dataclass
@@ -45,12 +78,16 @@ class TargetLockState:
     target_lost_frames: int = 0
     switch_candidate: Target | None = None
     switch_frames: int = 0
+    new_lock_candidate: Target | None = None
+    new_lock_frames: int = 0
 
     def reset(self) -> None:
         self.locked_target = None
         self.target_lost_frames = 0
         self.switch_candidate = None
         self.switch_frames = 0
+        self.new_lock_candidate = None
+        self.new_lock_frames = 0
 
 
 def detection_sticky_context(
@@ -123,9 +160,26 @@ def apply_target_lock(
                 and adopt_iou >= INSTANT_ADOPT_MIN_IOU
                 and not sky_band
             )
-            high_overlap_refine = adopt_iou >= HIGH_OVERLAP_REFINE_IOU and instant_adopt_ok
+            soft_refine_ok = (
+                adopt_iou >= SOFT_REFINE_MIN_IOU
+                and bs_ratio_ok
+                and new_t.body_shape_score >= 0.55
+                and not upward_fragment
+                and not weak_red_adopt
+                and not clutter_fp
+                and not sky_band
+                and drift < 28
+                and drift < fov_lim
+            )
+            high_overlap_refine = (
+                adopt_iou >= HIGH_OVERLAP_REFINE_IOU
+                and instant_adopt_ok
+                and drift <= HIGH_OVERLAP_MAX_DRIFT_PX
+            )
             if instant_adopt_ok and (
-                high_overlap_refine or (drift < 25 and drift < fov_lim)
+                high_overlap_refine
+                or soft_refine_ok
+                or (drift < 25 and drift < fov_lim)
             ):
                 state.locked_target = new_t
                 state.target_lost_frames = 0
@@ -190,23 +244,37 @@ def apply_target_lock(
                 is_stale,
             )
 
-        new_sky = new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
-        low_red_lock = new_t.red_coverage < 0.04
-        if (
-            new_t.body_shape_score < 0.55
-            or new_sky
-            or low_red_lock
-            or target_is_background_clutter(new_t)
-        ):
+        if not _passes_new_lock_gates(new_t, center_y=center_y):
+            state.new_lock_candidate = None
+            state.new_lock_frames = 0
             return DetectionResult(None, result.candidates, 0.0), False
 
-        state.locked_target = new_t
-        state.target_lost_frames = 0
-        state.switch_candidate = None
-        state.switch_frames = 0
-        return result, False
+        confirm_frames = int(cfg.get("new_lock_confirm_frames", NEW_LOCK_CONFIRM_FRAMES))
+        confirm_frames = max(1, min(4, confirm_frames))
+        if (
+            state.new_lock_candidate is not None
+            and _same_lock_identity(state.new_lock_candidate, new_t)
+        ):
+            state.new_lock_frames += 1
+        else:
+            state.new_lock_candidate = new_t
+            state.new_lock_frames = 1
+
+        if state.new_lock_frames >= confirm_frames:
+            state.locked_target = new_t
+            state.target_lost_frames = 0
+            state.switch_candidate = None
+            state.switch_frames = 0
+            state.new_lock_candidate = None
+            state.new_lock_frames = 0
+            return result, False
+
+        # Building lock — no dot until confirmed (stops ADS FP flash).
+        return DetectionResult(None, result.candidates, 0.0), False
 
     state.target_lost_frames += 1
+    state.new_lock_candidate = None
+    state.new_lock_frames = 0
     state.switch_candidate = None
     state.switch_frames = 0
     if state.target_lost_frames >= lost_max:

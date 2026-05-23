@@ -6,7 +6,7 @@ hardened code path is actually reachable and effective.
 
 Tested guards:
   1. Instant-adopt body floor (0.55 old → 0.60 new)
-  2. Instant-adopt IoU overlap (new ≥ 0.35 gate)
+  2. Instant-adopt IoU overlap (≥ 0.32 gate)
   3. Instant-adopt sky-band reject (bbox_mid_y < center_y * 0.40)
   4. New-lock sky-band reject (same formula)
   5. New-lock body floor (0.50 old → 0.55 new)

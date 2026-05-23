@@ -3178,7 +3178,8 @@ def find_best_target(
                 t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h,
             )
             dist = math.hypot(t.centroid_x - sticky_target.centroid_x, t.centroid_y - sticky_target.centroid_y)
-            if iou >= 0.20 or (dist <= stickiness_pixels and t.body_shape_score >= 0.45):
+            min_pool_body = 0.50 if currently_locked else 0.45
+            if iou >= 0.20 or (dist <= stickiness_pixels and t.body_shape_score >= min_pool_body):
                 pool.append(t)
         if pool:
             sticky_best = max(pool, key=rank)

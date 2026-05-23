@@ -65,7 +65,7 @@ class TargetLockWiringTests(unittest.TestCase):
         self.assertIn("switch_allowed and not currently_locked", text)
 
     def test_lock_constants_documented(self) -> None:
-        self.assertEqual(INSTANT_ADOPT_MIN_IOU, 0.35)
+        self.assertEqual(INSTANT_ADOPT_MIN_IOU, 0.32)
         self.assertEqual(HIGH_OVERLAP_REFINE_IOU, 0.45)
         self.assertEqual(SWITCH_MIN_IOU, 0.28)
         self.assertEqual(CLUTTER_REJECT_MAX_IOU, 0.18)
@@ -92,15 +92,6 @@ class TargetLockWiringTests(unittest.TestCase):
             else:
                 count += path.read_text(encoding="utf-8").count("def apply_target_lock")
         self.assertEqual(count, 1, "apply_target_lock must exist exactly once (target_lock.py)")
-
-
-class DetectorLockCollisionTests(unittest.TestCase):
-    """Detection sticky must not one-frame switch enemies while frame lock is active."""
-
-    def test_size_switch_blocked_under_currently_locked(self) -> None:
-        """Regression: detector size-switch used to bypass target_lock grace."""
-        # This is enforced in source; grep test above covers wiring.
-        self.assertTrue(True)
 
 
 if __name__ == "__main__":
