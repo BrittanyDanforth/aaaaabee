@@ -947,6 +947,55 @@ class AssistRuntime:
                     cfg = self.config
                     hsv_ranges = cfg.get("hsv_ranges", [])
                     show_debug = bool(cfg.get("show_debug_window", False))
+
+                    # PHASE-5 AUDIT FIX (D-LOW hot-reload): re-read
+                    # ``enable_overlay`` and ``trace_pull`` each frame so
+                    # the user's GUI toggle takes effect without
+                    # Stop → Start. ``enable_overlay`` starts or closes
+                    # the overlay thread on the flip; ``trace_pull``
+                    # lazily wires the pull-trace logger on first
+                    # enable.
+                    want_overlay = bool(cfg.get("enable_overlay", False))
+                    if want_overlay and self._overlay is None:
+                        self._start_overlay(
+                            mon["width"],
+                            mon["height"],
+                            int(mon["left"]),
+                            int(mon["top"]),
+                            center_x,
+                            center_y,
+                        )
+                    elif (
+                        not want_overlay
+                        and self._overlay is not None
+                    ):
+                        try:
+                            self._overlay.close()
+                        except Exception:
+                            logger.exception("hot-reload overlay close failed")
+                        if self._overlay_thread is not None:
+                            self._overlay_thread.join(timeout=1.5)
+                        self._overlay = None
+                        self._overlay_thread = None
+
+                    want_trace = bool(cfg.get("trace_pull", False))
+                    if want_trace and not self._trace_pull:
+                        from pull_trace import setup_trace_logging
+
+                        try:
+                            setup_trace_logging(
+                                cfg, app_root=self.config_path.parent
+                            )
+                            self._trace_pull = True
+                            print(
+                                f"[ABA] Pull trace hot-enabled -> "
+                                f"{cfg.get('trace_pull_log_file', 'logs/pull_trace.log')}"
+                            )
+                        except Exception:
+                            logger.exception("hot-reload trace_pull setup failed")
+                    elif not want_trace and self._trace_pull:
+                        self._trace_pull = False
+                        print("[ABA] Pull trace hot-disabled")
                     paused = self._update_target_pause(cfg)
                     if paused:
                         with self._lock:
