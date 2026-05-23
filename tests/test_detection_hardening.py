@@ -27,7 +27,13 @@ import numpy as np
 
 import detector
 import profiles
-from detector import Target, DetectionResult, _bbox_iou, score_target
+from detector import (
+    Target,
+    DetectionResult,
+    _bbox_iou,
+    score_target,
+    target_is_background_clutter,
+)
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -118,31 +124,47 @@ class _Lock:
                 )
                 bs_abs_ok = new_t.body_shape_score >= 0.60
                 upward = (
-                    new_t.bbox_y < self.locked.bbox_y - self.locked.bbox_h * 0.15
-                    and new_t.bbox_h < self.locked.bbox_h
+                    new_t.bbox_y < self.locked.bbox_y - self.locked.bbox_h * 0.12
+                    and new_t.bbox_h < self.locked.bbox_h * 0.92
                 )
+                aim_jump_up = new_t.centroid_y < self.locked.centroid_y - 16.0
+                weak_red = aim_jump_up and new_t.red_coverage < 0.06
                 adopt_iou = _bbox_iou(
                     self.locked.bbox_x, self.locked.bbox_y,
                     self.locked.bbox_w, self.locked.bbox_h,
                     new_t.bbox_x, new_t.bbox_y, new_t.bbox_w, new_t.bbox_h,
                 )
-                bbox_overlap_ok = adopt_iou >= 0.15
-                sky_band = (
-                    new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
-                )
+                sky_band = new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
+                clutter = target_is_background_clutter(new_t)
                 instant_ok = (
                     bs_ratio_ok
                     and bs_abs_ok
                     and not upward
-                    and bbox_overlap_ok
+                    and not weak_red
+                    and not clutter
+                    and adopt_iou >= 0.35
                     and not sky_band
                 )
-                if drift < 25 and drift < fov_lim and instant_ok:
+                high_overlap = adopt_iou >= 0.45 and instant_ok
+                if instant_ok and (
+                    high_overlap or (drift < 25 and drift < fov_lim)
+                ):
                     self.locked = new_t
                     self.lost = 0
                     self.switch_cand = None
                     self.switch_frames = 0
                     return self.locked, False
+
+                if self.lost == 0:
+                    self.switch_cand = None
+                    self.switch_frames = 0
+                    return self.locked, False
+
+                if clutter or adopt_iou < 0.18:
+                    self.switch_cand = None
+                    self.switch_frames = 0
+                    self.lost = max(1, self.lost)
+                    return self.locked, True
 
                 if (
                     self.switch_cand is not None
@@ -159,6 +181,10 @@ class _Lock:
                 switch_ok = (
                     new_t.body_shape_score >= self.locked.body_shape_score + 0.10
                     and new_t.confidence >= self.locked.confidence * 0.90
+                    and new_t.red_coverage >= 0.05
+                    and not weak_red
+                    and not clutter
+                    and adopt_iou >= 0.28
                 )
                 if self.switch_frames >= 3 and switch_ok:
                     self.locked = new_t
@@ -170,9 +196,14 @@ class _Lock:
                 self.lost = max(1, self.lost)
                 return self.locked, True
 
-            # New-lock path: sky-band + body floor
+            # New-lock path: sky-band + body floor + clutter
             new_sky = new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
-            if new_t.body_shape_score < 0.55 or new_sky:
+            if (
+                new_t.body_shape_score < 0.55
+                or new_sky
+                or new_t.red_coverage < 0.04
+                or target_is_background_clutter(new_t)
+            ):
                 return None, False
             self.locked = new_t
             self.lost = 0
@@ -256,18 +287,18 @@ class TestInstantAdoptBodyFloor(unittest.TestCase):
             effective, locked_t,
             "instant-adopt should be BLOCKED: body 0.59 < 0.60 floor",
         )
-        self.assertTrue(
+        self.assertFalse(
             is_stale,
-            "detection should be marked stale (switch hysteresis pending)",
+            "fresh lock should hold without marking stale (no switch chase)",
         )
+        self.assertEqual(lock.lost, 0)
 
 
 class TestInstantAdoptIoUCheck(unittest.TestCase):
-    """Test 2: candidate with drift < 25 but IoU < 0.15 is blocked.
+    """Test 2: candidate with drift < 25 but IoU < 0.35 is blocked.
 
-    OLD behaviour: instant-adopt gate was purely centroid-distance based.
-    The new code adds adopt_iou >= 0.15 so a non-overlapping bbox at a
-    similar centroid (but different size/position) cannot steal the lock.
+    Instant-adopt requires adopt_iou >= 0.35 so a non-overlapping bbox at a
+    similar centroid cannot steal the lock or flicker the dot upward.
     """
 
     def test_non_overlapping_bbox_blocked(self):
@@ -295,14 +326,45 @@ class TestInstantAdoptIoUCheck(unittest.TestCase):
         )
 
         iou = _bbox_iou(370, 200, 60, 120, 380, 80, 30, 40)
-        self.assertLess(iou, 0.15, "precondition: IoU must be < 0.15")
+        self.assertLess(iou, 0.35, "precondition: IoU must be < 0.35")
 
         effective, is_stale = lock.step(new_t)
         self.assertIs(
             effective, locked_t,
-            "instant-adopt should be BLOCKED: IoU < 0.15",
+            "instant-adopt should be BLOCKED: IoU < 0.35",
         )
-        self.assertTrue(is_stale)
+        self.assertFalse(is_stale, "fresh lock hold keeps detection active")
+        self.assertEqual(lock.lost, 0)
+
+
+class TestFreshLockIdentityHold(unittest.TestCase):
+    """While lost==0, a strong but non-overlapping FP must not steal the lock."""
+
+    def test_nearby_fp_keeps_fresh_lock_active(self):
+        cfg = _live_cfg()
+        lock = _Lock(cfg, center_y=360.0)
+        locked_t = _make_target(
+            cx=400.0, cy=300.0,
+            bbox_x=370, bbox_y=200, bbox_w=60, bbox_h=120,
+            body_shape_score=0.80, confidence=0.85, red_coverage=0.12,
+        )
+        lock.locked = locked_t
+        lock.lost = 0
+
+        # Strong scores, centroid within 25 px, but bbox does not overlap.
+        new_t = _make_target(
+            cx=410.0, cy=305.0,
+            bbox_x=500, bbox_y=80, bbox_w=40, bbox_h=50,
+            body_shape_score=0.85, confidence=0.90, red_coverage=0.10,
+        )
+        iou = _bbox_iou(370, 200, 60, 120, 500, 80, 40, 50)
+        self.assertLess(iou, 0.35)
+
+        effective, is_stale = lock.step(new_t)
+        self.assertIs(effective, locked_t)
+        self.assertFalse(is_stale)
+        self.assertEqual(lock.lost, 0)
+        self.assertIsNone(lock.switch_cand)
 
 
 class TestInstantAdoptSkyBand(unittest.TestCase):

@@ -777,7 +777,11 @@ class AssistRuntime:
                         self._locked_target.bbox_w, self._locked_target.bbox_h,
                         new_t.bbox_x, new_t.bbox_y, new_t.bbox_w, new_t.bbox_h,
                     )
-                    bbox_overlap_ok = adopt_iou >= 0.15
+                    # Lock-identity: 0.15 IoU let unrelated nearby FPs instant-adopt
+                    # and flicker the dot upward while the user still sees a lock.
+                    _INSTANT_ADOPT_MIN_IOU = 0.35
+                    _SWITCH_MIN_IOU = 0.28
+                    bbox_overlap_ok = adopt_iou >= _INSTANT_ADOPT_MIN_IOU
                     sky_band = (
                         new_t.bbox_y + new_t.bbox_h * 0.5
                         < center_y * 0.40
@@ -792,12 +796,40 @@ class AssistRuntime:
                         and bbox_overlap_ok
                         and not sky_band
                     )
-                    if drift < 25 and drift < fov_lim and instant_adopt_ok:
+                    high_overlap_refine = (
+                        adopt_iou >= 0.45 and instant_adopt_ok
+                    )
+                    if (
+                        instant_adopt_ok
+                        and (
+                            high_overlap_refine
+                            or (drift < 25 and drift < fov_lim)
+                        )
+                    ):
                         self._locked_target = new_t
                         self._target_lost_frames = 0
                         self._switch_candidate = None
                         self._switch_frames = 0
                         return result
+                    # Fresh lock: do not enter switch hysteresis or bump
+                    # lost when the detector hiccups on a nearby wall/sky FP.
+                    if self._target_lost_frames == 0:
+                        self._switch_candidate = None
+                        self._switch_frames = 0
+                        return DetectionResult(
+                            self._locked_target,
+                            result.candidates,
+                            self._locked_target.confidence,
+                        )
+                    if clutter_fp or adopt_iou < 0.18:
+                        self._switch_candidate = None
+                        self._switch_frames = 0
+                        self._target_lost_frames = max(1, self._target_lost_frames)
+                        return DetectionResult(
+                            self._locked_target,
+                            result.candidates,
+                            self._locked_target.confidence,
+                        )
                     if (
                         self._switch_candidate is not None
                         and _m.hypot(
@@ -829,6 +861,7 @@ class AssistRuntime:
                         and new_t.red_coverage >= 0.05
                         and not weak_red_adopt
                         and not target_is_background_clutter(new_t)
+                        and adopt_iou >= _SWITCH_MIN_IOU
                     )
                     if self._switch_frames >= 3 and switch_score_ok:
                         self._locked_target = new_t

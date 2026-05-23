@@ -69,7 +69,7 @@ class _Lock:
         self.switch_cand = None
         self.switch_frames = 0
 
-    def step(self, raw_target):
+    def step(self, raw_target, *, center_y: float = 360.0):
         cfg = self.cfg
         lost_max = int(cfg["target_lost_frames_before_unlock"])
         if raw_target is not None:
@@ -84,23 +84,44 @@ class _Lock:
                 bs_abs_ok = new_t.body_shape_score >= 0.60
                 upward = (
                     new_t.bbox_y
-                    < self.locked.bbox_y - self.locked.bbox_h * 0.15
-                    and new_t.bbox_h < self.locked.bbox_h
+                    < self.locked.bbox_y - self.locked.bbox_h * 0.12
+                    and new_t.bbox_h < self.locked.bbox_h * 0.92
                 )
-                from detector import _bbox_iou
+                aim_jump_up = new_t.centroid_y < self.locked.centroid_y - 16.0
+                weak_red = aim_jump_up and new_t.red_coverage < 0.06
+                from detector import _bbox_iou, target_is_background_clutter
                 adopt_iou = _bbox_iou(
                     self.locked.bbox_x, self.locked.bbox_y,
                     self.locked.bbox_w, self.locked.bbox_h,
                     new_t.bbox_x, new_t.bbox_y, new_t.bbox_w, new_t.bbox_h,
                 )
-                bbox_overlap_ok = adopt_iou >= 0.15
-                instant_ok = bs_ratio_ok and bs_abs_ok and not upward and bbox_overlap_ok
-                if drift < 25 and drift < fov_lim and instant_ok:
+                sky_band = new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
+                clutter = target_is_background_clutter(new_t)
+                instant_ok = (
+                    bs_ratio_ok
+                    and bs_abs_ok
+                    and not upward
+                    and not weak_red
+                    and not clutter
+                    and adopt_iou >= 0.35
+                    and not sky_band
+                )
+                high_overlap = adopt_iou >= 0.45 and instant_ok
+                if instant_ok and (high_overlap or (drift < 25 and drift < fov_lim)):
                     self.locked = new_t
                     self.lost = 0
                     self.switch_cand = None
                     self.switch_frames = 0
                     return self.locked, False
+                if self.lost == 0:
+                    self.switch_cand = None
+                    self.switch_frames = 0
+                    return self.locked, False
+                if clutter or adopt_iou < 0.18:
+                    self.switch_cand = None
+                    self.switch_frames = 0
+                    self.lost = max(1, self.lost)
+                    return self.locked, True
                 if (self.switch_cand is not None
                         and math.hypot(new_t.centroid_x - self.switch_cand.centroid_x,
                                        new_t.centroid_y - self.switch_cand.centroid_y) < 30):
@@ -111,6 +132,10 @@ class _Lock:
                 switch_ok = (
                     new_t.body_shape_score >= self.locked.body_shape_score + 0.10
                     and new_t.confidence >= self.locked.confidence * 0.90
+                    and new_t.red_coverage >= 0.05
+                    and not weak_red
+                    and not clutter
+                    and adopt_iou >= 0.28
                 )
                 if self.switch_frames >= 3 and switch_ok:
                     self.locked = new_t
@@ -120,7 +145,14 @@ class _Lock:
                     return self.locked, False
                 self.lost = max(1, self.lost)
                 return self.locked, True
-            if new_t.body_shape_score < 0.55:
+            from detector import target_is_background_clutter
+            new_sky = new_t.bbox_y + new_t.bbox_h * 0.5 < center_y * 0.40
+            if (
+                new_t.body_shape_score < 0.55
+                or new_sky
+                or new_t.red_coverage < 0.04
+                or target_is_background_clutter(new_t)
+            ):
                 return None, False
             self.locked = new_t
             self.lost = 0
@@ -185,7 +217,7 @@ class GifDriftRegressionTests(unittest.TestCase):
                 area_weight=float(cfg["area_score_weight"]),
                 currently_locked=currently_locked,
             )
-            effective, is_stale = lock.step(result.target)
+            effective, is_stale = lock.step(result.target, center_y=cy)
             active = effective is not None and not is_stale
             if active and effective is not None:
                 # (1) sky guard — bbox top below 5% line
