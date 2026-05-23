@@ -694,10 +694,12 @@ class AssistRuntime:
             self._ads_hold_frames = 0
         elif ads_for_assist:
             self._ads_hold_frames += 1
-            # Long ADS: decay stale motion-validation so ranking cannot drift to sky.
-            if self._ads_hold_frames in (1, 90, 180, 270):
+            # Long ADS: clear motion-validation memory ~every 1s so ranking cannot
+            # drift onto sky/HUD after minutes of held RMB (img7-class FPs).
+            if self._ads_hold_frames == 1 or self._ads_hold_frames % 60 == 0:
                 self._detect_ctx._validated_bbox = None
                 self._detect_ctx._validated_credit = 0
+                self._aim_tracker.reset_overlay_smoothing()
         self._prev_ads_for_assist = ads_for_assist
 
     def _start_overlay(
@@ -1136,9 +1138,16 @@ class AssistRuntime:
                     stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
                     with self._lock:
                         firing_now = self._is_firing
+                    show_for_pull = overlay_may_show_target(
+                        target,
+                        detection_fresh=detection_fresh,
+                        center_y=frame_cy,
+                        lock_state=self._target_lock,
+                    )
                     may_pull = (
                         pull_target is not None
                         and target is not None
+                        and show_for_pull
                         and may_assist_pull_target(
                             target,
                             detection_fresh=detection_fresh,

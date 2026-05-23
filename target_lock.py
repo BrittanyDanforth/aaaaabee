@@ -344,6 +344,18 @@ def apply_target_lock(
                 and drift < 28
                 and drift < fov_lim
             )
+            strafe_drift_lim = max(36.0, min(fov_lim, float(locked.bbox_w) * 2.0))
+            safe_track_ok = (
+                adopt_iou >= SOFT_REFINE_MIN_IOU
+                and bs_ratio_ok
+                and new_t.body_shape_score >= 0.55
+                and not upward_fragment
+                and not weak_red_adopt
+                and not clutter_fp
+                and not sky_band
+                and drift < strafe_drift_lim
+                and drift < fov_lim
+            )
             high_overlap_refine = (
                 adopt_iou >= HIGH_OVERLAP_REFINE_IOU
                 and instant_adopt_ok
@@ -365,7 +377,7 @@ def apply_target_lock(
                 state.switch_frames = 0
                 # Same guards as instant/soft refine — weak IoU-only adopt caused
                 # upward head/HUD fragments to steal the lock on moving enemies.
-                if soft_refine_ok:
+                if soft_refine_ok or safe_track_ok:
                     state.locked_target = new_t
                     return result, False
                 return (
@@ -471,6 +483,16 @@ def apply_target_lock(
     locked = state.locked_target
     if locked is not None:
         if _env_fp(locked):
+            state.reset()
+            if on_lock_expired is not None:
+                on_lock_expired()
+            return DetectionResult(None, result.candidates, 0.0), False
+        # Long ADS grace: drop a stale lock that has crept into sky / no red.
+        if (
+            state.target_lost_frames > 0
+            and bbox_mid_in_sky_band(locked.bbox_y, locked.bbox_h, center_y)
+            and float(locked.red_coverage) < NEW_LOCK_MIN_RED * 1.5
+        ):
             state.reset()
             if on_lock_expired is not None:
                 on_lock_expired()

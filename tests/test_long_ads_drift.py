@@ -65,6 +65,48 @@ class LongAdsDriftTests(unittest.TestCase):
         self.assertIs(effective.target, locked)
         self.assertEqual(state.locked_target, locked)
 
+    def test_safe_track_allows_strafe_past_soft_drift_cap(self) -> None:
+        state = TargetLockState()
+        cfg = _cfg()
+        cfg["_runtime_detect_fov"] = 200
+        locked = _body(centroid_x=640.0, centroid_y=420.0)
+        state.locked_target = locked
+        state.target_lost_frames = 0
+        shifted = _body(centroid_x=662.0, centroid_y=420.0, bbox_x=628, bbox_y=350)
+        effective, stale = apply_target_lock(
+            state,
+            DetectionResult(shifted, 1, shifted.confidence),
+            center_y=540.0,
+            cfg=cfg,
+            fov_cx=640.0,
+            fov_cy=540.0,
+            frame_size=(1280, 1080),
+        )
+        self.assertFalse(stale)
+        assert effective.target is not None
+        self.assertAlmostEqual(effective.target.centroid_x, 662.0, delta=0.5)
+
+    def test_stale_sky_lock_purged_during_grace(self) -> None:
+        state = TargetLockState()
+        cfg = _cfg()
+        locked = _body(
+            centroid_y=120.0,
+            bbox_y=40,
+            bbox_h=80,
+            red_coverage=0.02,
+        )
+        state.locked_target = locked
+        state.target_lost_frames = 3
+        effective, _ = apply_target_lock(
+            state,
+            DetectionResult(None, 0, 0.0),
+            center_y=540.0,
+            cfg=cfg,
+            frame_size=(1280, 1080),
+        )
+        self.assertIsNone(effective.target)
+        self.assertIsNone(state.locked_target)
+
     def test_overlay_confirm_resets_on_upward_sky_jump(self) -> None:
         from target_lock import overlay_may_show_target
 
