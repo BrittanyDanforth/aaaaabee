@@ -52,10 +52,19 @@ _APEX_TUNING: dict[str, Any] = {
     "distance_score_weight": 2.6,
     "area_score_weight": 0.015,
     "min_target_area_pixels": 20,
-    "humanoid_min_height_pixels": 16,
+    # PHASE-7 AUDIT FIX (HIGH5): bumped from 16 → 40 — the previous 16-px
+    # floor let sky/HUD 16-px fragments enter the candidate pool. The
+    # Tracking preset overlays 60 (more aggressive) but profile defaults
+    # need a sane mid-ground for users who never click the preset.
+    "humanoid_min_height_pixels": 40,
     "humanoid_min_aspect": 0.5,
     "humanoid_max_aspect": 5.5,
-    "humanoid_min_solidity": 0.15,
+    # PHASE-7 AUDIT FIX (HIGH6): lowered from 0.15 → 0.10. img2 in the
+    # static audit set has body=1.00 at solidity=0.14; 0.15 dropped a
+    # real body. The downstream ``_body_structure_reject`` and
+    # ``body_shape_min_score`` together already gate humanoid shape; we
+    # do not need this threshold to also be a brittle hard cutoff.
+    "humanoid_min_solidity": 0.10,
     "torso_aim_fraction": 0.40,
     "aim_body_y_min_fraction": 0.28,
     "aim_body_y_max_fraction": 0.52,
