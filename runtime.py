@@ -693,7 +693,21 @@ class AssistRuntime:
                         new_t.centroid_y - self._locked_target.centroid_y,
                     )
                     fov_lim = float(cfg.get("_runtime_detect_fov", 200) or 200) * 0.55
-                    if drift < 25 and drift < fov_lim:
+                    # PHASE-6 AUDIT FIX (D-CRIT4 instant-adopt guard):
+                    # the drift<25 branch used to overwrite the lock
+                    # whenever a candidate appeared within 25 px of the
+                    # last lock — no body-score check. A slightly
+                    # drifting weak FP (cloud edge, HUD pixel near a
+                    # real body) could instant-adopt against a strong
+                    # locked target. Require the new candidate to have
+                    # at least 85% of the locked target's body-shape
+                    # score before allowing the overwrite, otherwise
+                    # KEEP the existing lock and continue.
+                    instant_adopt_ok = (
+                        new_t.body_shape_score
+                        >= self._locked_target.body_shape_score * 0.85
+                    )
+                    if drift < 25 and drift < fov_lim and instant_adopt_ok:
                         self._locked_target = new_t
                         self._target_lost_frames = 0
                         self._switch_candidate = None
@@ -711,7 +725,24 @@ class AssistRuntime:
                     else:
                         self._switch_candidate = new_t
                         self._switch_frames = 1
-                    if self._switch_frames >= 3:
+                    # PHASE-6 AUDIT FIX (D-CRIT4 switch hysteresis):
+                    # 3-frame switch hysteresis was previously purely
+                    # spatial+temporal — a sky cloud FP at the same
+                    # position for 3 frames stole the lock from a real
+                    # target. Require the new candidate to materially
+                    # beat the locked target on BOTH body-shape and
+                    # confidence before accepting the switch. The
+                    # +0.10 body-score margin AND >=90% confidence
+                    # ratio together mean only a clearly stronger
+                    # alternative (a closer/better-framed real enemy)
+                    # can win the switch.
+                    switch_score_ok = (
+                        new_t.body_shape_score
+                        >= self._locked_target.body_shape_score + 0.10
+                        and new_t.confidence
+                        >= self._locked_target.confidence * 0.90
+                    )
+                    if self._switch_frames >= 3 and switch_score_ok:
                         self._locked_target = new_t
                         self._target_lost_frames = 0
                         self._switch_candidate = None
@@ -729,6 +760,16 @@ class AssistRuntime:
                         result.candidates,
                         self._locked_target.confidence,
                     )
+                # PHASE-6 AUDIT FIX (D-MED9 new-lock body-score floor):
+                # when transitioning from no lock to a new lock, require
+                # the detector's body_shape_score to be at least 0.50.
+                # This is defence-in-depth: even if the detector accepts
+                # a marginal FP, the runtime won't let it BECOME the
+                # lock without a real body score. Below the floor we
+                # report active=False so the dot does not chase a
+                # weak signal.
+                if new_t.body_shape_score < 0.50:
+                    return DetectionResult(None, result.candidates, 0.0)
                 self._locked_target = new_t
                 self._target_lost_frames = 0
                 self._switch_candidate = None
