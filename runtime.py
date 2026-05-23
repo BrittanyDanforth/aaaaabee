@@ -135,10 +135,28 @@ class AssistRuntime:
         frame and accumulate motion the user perceives as glitchy chase.
         Instead we hold ``_last_motion`` so the overlay/pull see a frozen
         anchor until detection refreshes or the lock expires.
+
+        PHASE-7 AUDIT FIX (CRIT2): when ``target`` is None we used to
+        immediately ``self._aim_tracker.reset()`` (HARD reset that
+        clears ``_smooth_x/y`` and ``_last_meas_x/y``). The runtime's
+        ``_select_target`` calls ``self._aim_tracker.soft_reset()``
+        right before returning None at the lock-expiry boundary —
+        carefully preserving the smoothed anchor — and then the very
+        next line of the main loop calls ``_smooth_aim(target=None)``
+        which would HARD reset and undo the soft_reset. The next
+        acquired target would teleport.
+
+        Fix: when we have a ``_last_motion`` cached (lock just
+        expired but the tracker still carries an anchor), return that
+        frozen anchor for one frame instead of hard-resetting. The
+        overlay logic already hides the dot after ``>=2`` stale frames
+        (``hide_overlay_stale``), and the next observed target will
+        step-cap from this anchor rather than teleport.
         """
         if target is None:
+            if self._last_motion is not None:
+                return self._last_motion
             self._aim_tracker.reset()
-            self._last_motion = None
             return None
 
         if stale:
@@ -1273,8 +1291,19 @@ class AssistRuntime:
                             target is not None
                             and self._target_lost_frames >= 2
                         )
+                        # PHASE-7 AUDIT FIX (CRIT2 companion): the CRIT2
+                        # change keeps ``motion`` non-None after lock
+                        # expiry (so a new acquisition step-caps from
+                        # the frozen anchor rather than teleports). The
+                        # overlay must NOT render the frozen dot when
+                        # there is no longer a target — otherwise the
+                        # green ring would still display a ghost dot at
+                        # the last-known position. Hide whenever target
+                        # is None (no fresh lock and grace expired).
+                        hide_overlay_no_target = target is None
                         if (
                             not hide_overlay_stale
+                            and not hide_overlay_no_target
                             and motion is not None
                             and math.isfinite(motion.x) and math.isfinite(motion.y)
                         ):
