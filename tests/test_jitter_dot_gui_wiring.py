@@ -15,6 +15,8 @@ class DotSmoothnessWiringTests(unittest.TestCase):
         text = Path("runtime.py").read_text(encoding="utf-8")
         self.assertIn("overlay_dot_smooth_alpha", text)
         self.assertIn("set_dot_glide_alpha", text)
+        self.assertIn("configure_overlay_dot_alpha", text)
+        self.assertIn("sync_overlay_follow_frame", text)
         self.assertIn("set_monitor_overlay_point", text)
         self.assertIn("overlay_motion.overlay_xy()", text)
         self.assertNotIn("set_dot_render_alpha", text)

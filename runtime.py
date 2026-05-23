@@ -21,7 +21,12 @@ from ban_safety import (
     live_assist_enabled,
     validate_runtime_policy,
 )
-from capture import build_capture_region, grab_bgr, to_monitor_coords
+from capture import (
+    build_capture_region,
+    frame_from_monitor,
+    grab_bgr,
+    to_monitor_coords,
+)
 from detector import (
     DetectionContext,
     DetectionResult,
@@ -214,9 +219,13 @@ class AssistRuntime:
         if stale:
             return self._last_motion
 
-        fov_r = float(self.config.get("_runtime_detect_fov", 0) or 0)
+        fov_r = float(self.config.get("_runtime_overlay_fov", 0) or 0)
+        if fov_r <= 0:
+            fov_r = float(self.config.get("_runtime_detect_fov", 0) or 0)
         if fov_r > 0 and hasattr(self, "_frame_cx"):
             self._aim_tracker.configure_fov_clamp(self._frame_cx, self._frame_cy, fov_r)
+        dot_alpha = float(self.config.get("overlay_dot_smooth_alpha", 0.52))
+        self._aim_tracker.configure_overlay_dot_alpha(dot_alpha)
         motion = self._aim_tracker.observe_target(
             target.centroid_x,
             target.centroid_y,
@@ -690,7 +699,6 @@ class AssistRuntime:
             self._ads_hold_frames = 0
             self._detect_ctx._validated_bbox = None
             self._detect_ctx._validated_credit = 0
-            self._aim_tracker.reset_overlay_smoothing()
             with self._lock:
                 self._target_lock.overlay_confirm_frames = 0
         if self._prev_ads_for_assist and not ads_for_assist:
@@ -1088,6 +1096,9 @@ class AssistRuntime:
 
                     display_fov = effective_fov_radius(cfg, ads_active=False)
                     detect_fov = effective_detection_fov_radius(cfg, ads_active=False)
+                    cfg["_runtime_overlay_fov"] = (
+                        min(float(detect_fov), float(display_fov)) * 0.96
+                    )
                     capture_fov = effective_capture_fov_radius(cfg, ads_active=False)
                     if cap_region is None or detect_fov != self._last_fov_radius:
                         cap_region = build_capture_region(
@@ -1102,6 +1113,9 @@ class AssistRuntime:
                         self._frame_cy = center_y - cap_region.offset_y
                         self._last_fov_radius = detect_fov
                         cfg["_runtime_detect_fov"] = detect_fov
+                        cfg["_runtime_overlay_fov"] = (
+                            min(float(detect_fov), float(display_fov)) * 0.96
+                        )
                         if self._pull is not None:
                             self._pull._tuning.fov_radius = float(detect_fov)
                     if self._overlay is not None and display_fov != self._last_display_fov:
@@ -1403,13 +1417,20 @@ class AssistRuntime:
                                 # at overlay_fps between capture updates — do NOT
                                 # stack a second EMA here (caused snap/lag feel).
                                 overlay_pt = (ox, oy)
-                                self._aim_tracker.set_monitor_overlay_point(
-                                    ox, oy
-                                )
+                                fx, fy = frame_from_monitor(ox, oy, cap_region)
+                                self._aim_tracker.sync_overlay_follow_frame(fx, fy)
+                                self._aim_tracker.set_monitor_overlay_point(ox, oy)
                                 self._overlay_miss_frames = 0
                         elif target is None or not detection_fresh:
                             self._overlay_miss_frames += 1
-                            if self._overlay_miss_frames >= 4:
+                            unlock_grace = int(
+                                cfg.get("target_lost_frames_before_unlock", 18)
+                            )
+                            locked_hold = (
+                                self._locked_target is not None
+                                and self._target_lost_frames < unlock_grace
+                            )
+                            if self._overlay_miss_frames >= 4 and not locked_hold:
                                 self._aim_tracker.reset_overlay_smoothing()
                         else:
                             self._overlay_miss_frames = 0

@@ -168,6 +168,7 @@ class TargetTracker:
         # Dedicated overlay drag — never deadband-frozen (pull uses _smooth_x/y).
         self._overlay_follow_x: float | None = None
         self._overlay_follow_y: float | None = None
+        self._overlay_dot_alpha: float = 0.52
         # M5 (audit): hysteresis state for the stationary jitter deadband.
         # Enter when meas_drift < 2.5 AND speed < 90; exit only when
         # meas_drift > 5.0 for 2 consecutive frames AND the instantaneous
@@ -214,7 +215,7 @@ class TargetTracker:
         dx = x - self._fov_cx
         dy = y - self._fov_cy
         dist = math.hypot(dx, dy)
-        r = self._fov_radius * 0.95
+        r = self._fov_radius * 0.96
         if dist <= r or dist <= 0.0:
             return x, y
         s = r / dist
@@ -224,6 +225,16 @@ class TargetTracker:
         global _tau_still, _tau_moving
         _tau_still = max(0.01, float(still))
         _tau_moving = max(0.005, min(_tau_still, float(moving)))
+
+    def configure_overlay_dot_alpha(self, alpha: float) -> None:
+        """Capture-frame overlay drag blend (GUI: Red dot smoothness)."""
+        self._overlay_dot_alpha = max(0.05, min(1.0, float(alpha)))
+
+    def sync_overlay_follow_frame(self, frame_x: float, frame_y: float) -> None:
+        """Align frame follow state with post-ring-clamp monitor→frame point."""
+        if math.isfinite(frame_x) and math.isfinite(frame_y):
+            self._overlay_follow_x = float(frame_x)
+            self._overlay_follow_y = float(frame_y)
 
     def _advance_overlay_follow(
         self,
@@ -242,7 +253,10 @@ class TargetTracker:
         tau_ov = _tau_moving if speed > 70.0 else _tau_still
         tau_ov = max(0.038, min(float(tau_ov) * 1.5, 0.11))
         oa = alpha_from_tau(dt, tau_ov)
-        oa = max(0.28, min(0.52, oa))
+        dot_a = self._overlay_dot_alpha
+        oa_lo = max(0.06, dot_a * 0.18)
+        oa_hi = max(oa_lo, min(0.90, dot_a))
+        oa = max(oa_lo, min(oa_hi, oa))
         fx = self._overlay_follow_x + oa * (aim_x - self._overlay_follow_x)
         fy = self._overlay_follow_y + oa * (aim_y - self._overlay_follow_y)
         if speed > 25.0:
@@ -319,9 +333,8 @@ class TargetTracker:
         return self._overlay_smooth
 
     def sync_overlay_display(self, x: float, y: float) -> None:
-        """Align drag state with the post-FOV-clamp point actually drawn."""
-        if self._overlay_smooth is not None and math.isfinite(x) and math.isfinite(y):
-            self._overlay_smooth = (float(x), float(y))
+        """Hold-last monitor coords (legacy alias for set_monitor_overlay_point)."""
+        self.set_monitor_overlay_point(x, y)
 
     def set_monitor_overlay_point(self, x: float, y: float) -> None:
         """Last monitor-space dot destination (for hold-last-dot during grace)."""
@@ -535,6 +548,7 @@ class TargetTracker:
                 col_y = by + bh * 0.38
                 x = 0.35 * x + 0.65 * col_x
                 y = 0.35 * y + 0.65 * col_y
+            overlay_follow_meas = (x, y)
             if self._last_meas_x is not None and self._last_meas_y is not None:
                 dt_cap = 1.0 / 60.0
                 if self._last_time is not None and time_sec > self._last_time:
@@ -553,6 +567,7 @@ class TargetTracker:
                     x, y = self._cap_measurement_step(
                         x, y, self._last_meas_x, self._last_meas_y, bh, dt_cap
                     )
+            return self.observe(x, y, time_sec, overlay_follow_meas=overlay_follow_meas)
         else:
             self._body_bbox = None
         return self.observe(x, y, time_sec)
@@ -618,7 +633,14 @@ class TargetTracker:
             out_x, out_y = px, py
         return self._clamp_aim_output(out_x, out_y)
 
-    def observe(self, x: float, y: float, time_sec: float) -> TargetMotion:
+    def observe(
+        self,
+        x: float,
+        y: float,
+        time_sec: float,
+        *,
+        overlay_follow_meas: tuple[float, float] | None = None,
+    ) -> TargetMotion:
         if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(time_sec)):
             if self._last is not None:
                 return self._last
@@ -638,7 +660,12 @@ class TargetTracker:
             self._last_meas_y = y
             self._last_time = time_sec
             if self._body_bbox is not None:
-                ox, oy = self._advance_overlay_follow(x, y, 1.0 / 60.0)
+                fx, fy = (
+                    overlay_follow_meas
+                    if overlay_follow_meas is not None
+                    else (x, y)
+                )
+                ox, oy = self._advance_overlay_follow(fx, fy, 1.0 / 60.0)
             else:
                 ox, oy = self._clamp_aim_output(self._smooth_x, self._smooth_y)
             self._last = TargetMotion(x, y, 0.0, 0.0, overlay_x=ox, overlay_y=oy)
@@ -749,7 +776,12 @@ class TargetTracker:
                 dt,
             )
         if self._body_bbox is not None:
-            overlay_x, overlay_y = self._advance_overlay_follow(x, y, dt)
+            fx, fy = (
+                overlay_follow_meas
+                if overlay_follow_meas is not None
+                else (x, y)
+            )
+            overlay_x, overlay_y = self._advance_overlay_follow(fx, fy, dt)
         else:
             overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
 

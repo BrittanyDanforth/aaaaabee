@@ -20,6 +20,8 @@ class OverlayDragIntegrationTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("_advance_overlay_follow", motion_src)
+        self.assertIn("configure_overlay_dot_alpha", motion_src)
+        self.assertIn("sync_overlay_follow_frame", text)
         self.assertIn("motion.overlay_xy()", text)
         self.assertNotIn("cap_frame_display_step", text)
 
@@ -45,18 +47,22 @@ class OverlayDragIntegrationTests(unittest.TestCase):
             "monitor drag must cap per-frame travel (no teleport/recreate)",
         )
 
-    def test_ring_reclamp_syncs_internal_state(self) -> None:
+    def test_ring_reclamp_syncs_follow_state(self) -> None:
         tracker = TargetTracker()
-        tracker.smooth_overlay_point(100.0, 100.0, alpha=0.4, bbox_h=100, dt=1.0 / 60.0)
-        tracker.sync_overlay_display(120.0, 100.0)
-        held = tracker.peek_overlay_smooth()
-        assert held is not None
-        self.assertAlmostEqual(held[0], 120.0, places=3)
-        x, _ = tracker.smooth_overlay_point(
-            125.0, 100.0, alpha=0.4, bbox_h=100, dt=1.0 / 60.0
+        tracker.observe_target(
+            100.0, 100.0, 0.0,
+            bbox_x=70, bbox_y=50, bbox_w=60, bbox_h=100,
+            aim_is_body_anchor=True,
         )
-        self.assertGreater(x, 120.0)
-        self.assertLess(x, 125.0)
+        tracker.sync_overlay_follow_frame(120.0, 100.0)
+        m = tracker.observe_target(
+            125.0, 100.0, 1.0 / 60.0,
+            bbox_x=70, bbox_y=50, bbox_w=60, bbox_h=100,
+            aim_is_body_anchor=True,
+        )
+        ox, _ = m.overlay_xy()
+        self.assertGreater(ox, 118.0)
+        self.assertLess(ox, 125.0)
 
     def test_hold_last_smooth_point_api(self) -> None:
         tracker = TargetTracker()

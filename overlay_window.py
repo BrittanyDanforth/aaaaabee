@@ -415,7 +415,7 @@ class OverlayWindow:
 
     def set_dot_glide_alpha(self, alpha: float) -> None:
         """Monitor-space glide between capture updates (Red dot smoothness slider)."""
-        a = max(0.12, min(0.72, float(alpha)))
+        a = max(0.05, min(1.0, float(alpha)))
         with self._lock:
             self._dot_glide_alpha = a
             self._dot_max_step_per_tick = max(6.0, min(18.0, 6.0 + a * 20.0))
