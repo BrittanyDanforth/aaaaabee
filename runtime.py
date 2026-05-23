@@ -22,7 +22,14 @@ from ban_safety import (
     validate_runtime_policy,
 )
 from capture import build_capture_region, grab_bgr, to_monitor_coords
-from detector import DetectionContext, DetectionResult, Target, draw_debug, find_best_target
+from detector import (
+    DetectionContext,
+    DetectionResult,
+    Target,
+    draw_debug,
+    find_best_target,
+    target_is_background_clutter,
+)
 from input_state import AdsInputState
 from motion import TargetMotion, TargetTracker
 from mouse_gate import MouseGateContext, MouseGateResult, evaluate_mouse_gate
@@ -775,11 +782,13 @@ class AssistRuntime:
                         new_t.bbox_y + new_t.bbox_h * 0.5
                         < center_y * 0.40
                     )
+                    clutter_fp = target_is_background_clutter(new_t)
                     instant_adopt_ok = (
                         bs_ratio_ok
                         and bs_abs_ok
                         and not upward_fragment
                         and not weak_red_adopt
+                        and not clutter_fp
                         and bbox_overlap_ok
                         and not sky_band
                     )
@@ -819,6 +828,7 @@ class AssistRuntime:
                         >= self._locked_target.confidence * 0.90
                         and new_t.red_coverage >= 0.05
                         and not weak_red_adopt
+                        and not target_is_background_clutter(new_t)
                     )
                     if self._switch_frames >= 3 and switch_score_ok:
                         self._locked_target = new_t
@@ -851,16 +861,11 @@ class AssistRuntime:
                     < center_y * 0.40
                 )
                 low_red_lock = new_t.red_coverage < 0.04
-                tiny_clutter_lock = (
-                    new_t.bbox_h < 58
-                    and new_t.red_coverage < 0.07
-                    and new_t.part_count <= 3
-                )
                 if (
                     new_t.body_shape_score < 0.55
                     or new_sky
                     or low_red_lock
-                    or tiny_clutter_lock
+                    or target_is_background_clutter(new_t)
                 ):
                     return DetectionResult(None, result.candidates, 0.0)
                 self._locked_target = new_t

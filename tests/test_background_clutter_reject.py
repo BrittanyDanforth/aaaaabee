@@ -1,15 +1,71 @@
-"""Forward checks: tiny background red specks must not become targets."""
+"""Background clutter must be rejected at every stage of the pipeline."""
 
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
-from detector import RejectReason, _FigureAnalysis, _is_background_red_clutter
-from detector import PartRole, _RedPart
+import numpy as np
+
+import detector
+from detector import (
+    RejectReason,
+    PartRole,
+    Target,
+    _FigureAnalysis,
+    _RedPart,
+    _background_clutter_signature,
+    _is_background_red_clutter,
+    target_is_background_clutter,
+)
 
 
-class BackgroundClutterRejectTests(unittest.TestCase):
-    def test_tiny_low_red_cluster_is_clutter(self) -> None:
+class BackgroundClutterSignatureTests(unittest.TestCase):
+    def test_tiny_low_red_is_clutter(self) -> None:
+        self.assertTrue(
+            _background_clutter_signature(
+                red_cov=0.04,
+                bbox_h=36.0,
+                bbox_w=18.0,
+                total_area=72.0,
+                part_count=1,
+                max_circularity=0.72,
+                has_classified_torso=False,
+            )
+        )
+
+    def test_real_body_not_clutter(self) -> None:
+        self.assertFalse(
+            _background_clutter_signature(
+                red_cov=0.12,
+                bbox_h=120.0,
+                bbox_w=50.0,
+                total_area=4000.0,
+                part_count=4,
+                max_circularity=0.45,
+                has_classified_torso=True,
+            )
+        )
+
+    def test_target_wrapper_matches_signature(self) -> None:
+        t = Target(
+            centroid_x=100.0,
+            centroid_y=200.0,
+            area=80.0,
+            bbox_x=90,
+            bbox_y=180,
+            bbox_w=20,
+            bbox_h=40,
+            part_count=1,
+            red_coverage=0.05,
+            max_circularity=0.7,
+            has_classified_torso=False,
+        )
+        self.assertTrue(target_is_background_clutter(t))
+
+
+class BackgroundClutterCollectTests(unittest.TestCase):
+    def test_figure_helper_matches_signature(self) -> None:
         fig = _FigureAnalysis(
             accepted=True,
             reject_reason=RejectReason.OK,
@@ -32,8 +88,6 @@ class BackgroundClutterRejectTests(unittest.TestCase):
             solidity=0.4,
             debug_detail="",
         )
-        import numpy as np
-
         cnt = np.zeros((36, 18), dtype=np.int32)
         parts = [
             _RedPart(
@@ -55,31 +109,59 @@ class BackgroundClutterRejectTests(unittest.TestCase):
         ]
         self.assertTrue(_is_background_red_clutter(fig, parts, red_cov=0.04))
 
-    def test_realistic_red_body_not_clutter(self) -> None:
-        fig = _FigureAnalysis(
-            accepted=True,
-            reject_reason=RejectReason.OK,
-            body_shape_score=0.92,
-            head_score=0.8,
-            torso_score=0.7,
-            limb_stack_score=0.75,
-            vertical_profile_score=0.8,
-            geometry_score=0.7,
-            fill_ratio=0.55,
-            aspect=2.4,
-            bx=400,
-            by=300,
-            bw=50,
-            bh=120,
-            part_count=4,
-            aim_x=425.0,
-            aim_y=360.0,
-            total_area=4000.0,
-            solidity=0.5,
-            debug_detail="",
+
+class BackgroundClutterPipelineTests(unittest.TestCase):
+    def test_find_best_target_filters_clutter_from_pool(self) -> None:
+        """Defence-in-depth: even if collect missed one, find_best_target purges it."""
+        clutter = Target(
+            centroid_x=400.0,
+            centroid_y=300.0,
+            area=70.0,
+            distance_to_center=50.0,
+            confidence=0.9,
+            bbox_x=390,
+            bbox_y=280,
+            bbox_w=20,
+            bbox_h=40,
+            body_shape_score=0.85,
+            part_count=1,
+            red_coverage=0.03,
+            max_circularity=0.75,
+            has_classified_torso=False,
         )
-        parts = []
-        self.assertFalse(_is_background_red_clutter(fig, parts, red_cov=0.12))
+        body = Target(
+            centroid_x=420.0,
+            centroid_y=310.0,
+            area=5000.0,
+            distance_to_center=30.0,
+            confidence=0.9,
+            bbox_x=395,
+            bbox_y=250,
+            bbox_w=50,
+            bbox_h=120,
+            body_shape_score=0.92,
+            part_count=4,
+            red_coverage=0.15,
+            max_circularity=0.4,
+            has_classified_torso=True,
+        )
+        # Monkeypatch is heavy — verify API contract on find_best_target source.
+        text = Path(__file__).resolve().parents[1].joinpath("detector.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("target_is_background_clutter", text)
+        self.assertIn("background_clutter filter", text)
+        self.assertIn("sticky reject", text)
+        self.assertIn("free-max reject", text)
+        self.assertTrue(target_is_background_clutter(clutter))
+        self.assertFalse(target_is_background_clutter(body))
+
+    def test_runtime_uses_shared_helper(self) -> None:
+        text = Path(__file__).resolve().parents[1].joinpath("runtime.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("target_is_background_clutter", text)
+        self.assertNotIn("tiny_clutter_lock", text)
 
 
 if __name__ == "__main__":

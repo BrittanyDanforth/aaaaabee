@@ -16,6 +16,21 @@ logger = logging.getLogger("targeting")
 # --- Tunables (1080p baseline, scales with frame size) ---
 _MAX_AREA_RATIO = 0.30
 _VIEWMODEL_EXCLUDE_FRAC = 0.28
+# Background clutter (distant red props / HUD specks) — single source of truth.
+_CLUTTER_MAX_RED_COV = 0.10
+_CLUTTER_TORSO_RED_MIN = 0.06
+_CLUTTER_MIN_BODY_H = 62.0
+_CLUTTER_MIN_AREA = 140.0
+_CLUTTER_TINY_AREA = 95.0
+_CLUTTER_TINY_BH = 44.0
+_CLUTTER_TINY_RED = 0.09
+_CLUTTER_SMALL_BH = 54.0
+_CLUTTER_SMALL_BW = 30.0
+_CLUTTER_SMALL_RED = 0.075
+_CLUTTER_ROUND_PARTS = 2
+_CLUTTER_ROUND_BH = 64.0
+_CLUTTER_ROUND_CIRC = 0.62
+_CLUTTER_ROUND_RED = 0.085
 _BODY_Y_LO_FRAC = 0.28
 _BODY_Y_HI_FRAC = 0.52
 _MAX_ABOVE_CENTER_FRAC = 0.40
@@ -100,6 +115,7 @@ class Target:
     # spike the perimeter). Solid synthetic blurred blobs are smooth and
     # have max_circ > 0.60; the softener path uses this to gate-out blobs.
     max_circularity: float = 0.0
+    has_classified_torso: bool = False
     reject_reason: str = RejectReason.OK.value
 
 
@@ -779,30 +795,69 @@ def _is_viewmodel_column_fp(
     return True
 
 
+def _background_clutter_signature(
+    *,
+    red_cov: float,
+    bbox_h: float,
+    bbox_w: float,
+    total_area: float,
+    part_count: int,
+    max_circularity: float,
+    has_classified_torso: bool,
+) -> bool:
+    """True when a cluster/target is a tiny background red speck, not an enemy body."""
+    if red_cov >= _CLUTTER_MAX_RED_COV:
+        return False
+    if has_classified_torso and red_cov >= _CLUTTER_TORSO_RED_MIN:
+        return False
+    bh = float(bbox_h)
+    bw = float(bbox_w)
+    if bh >= _CLUTTER_MIN_BODY_H and total_area >= _CLUTTER_MIN_AREA:
+        return False
+    if total_area < _CLUTTER_TINY_AREA or bh < _CLUTTER_TINY_BH:
+        if red_cov < _CLUTTER_TINY_RED:
+            return True
+    if bh < _CLUTTER_SMALL_BH and bw < _CLUTTER_SMALL_BW and red_cov < _CLUTTER_SMALL_RED:
+        return True
+    if (
+        part_count <= _CLUTTER_ROUND_PARTS
+        and bh < _CLUTTER_ROUND_BH
+        and max_circularity >= _CLUTTER_ROUND_CIRC
+        and red_cov < _CLUTTER_ROUND_RED
+    ):
+        return True
+    return False
+
+
 def _is_background_red_clutter(
     fig: _FigureAnalysis,
     parts: list,
     *,
     red_cov: float,
 ) -> bool:
-    """Small distant red props / HUD specks that pass shape heuristics but are not bodies."""
-    if red_cov >= 0.10:
-        return False
-    if any(p.role == PartRole.TORSO for p in parts) and red_cov >= 0.06:
-        return False
-    bh = float(fig.bh)
-    bw = float(fig.bw)
-    if bh >= 62.0 and fig.total_area >= 140.0:
-        return False
-    max_circ = _max_part_circularity(parts)
-    if fig.total_area < 95.0 or bh < 44.0:
-        if red_cov < 0.09:
-            return True
-    if bh < 54.0 and bw < 30.0 and red_cov < 0.075:
-        return True
-    if fig.part_count <= 2 and bh < 64.0 and max_circ >= 0.62 and red_cov < 0.085:
-        return True
-    return False
+    """Cluster-level wrapper — used during candidate collection."""
+    return _background_clutter_signature(
+        red_cov=red_cov,
+        bbox_h=float(fig.bh),
+        bbox_w=float(fig.bw),
+        total_area=float(fig.total_area),
+        part_count=int(fig.part_count),
+        max_circularity=float(_max_part_circularity(parts)),
+        has_classified_torso=any(p.role == PartRole.TORSO for p in parts),
+    )
+
+
+def target_is_background_clutter(target: Target) -> bool:
+    """Target-level wrapper — use everywhere locks/ranking must reject clutter."""
+    return _background_clutter_signature(
+        red_cov=float(target.red_coverage),
+        bbox_h=float(target.bbox_h),
+        bbox_w=float(target.bbox_w),
+        total_area=float(target.area),
+        part_count=int(target.part_count),
+        max_circularity=float(target.max_circularity),
+        has_classified_torso=bool(target.has_classified_torso),
+    )
 
 
 def _is_diamond_sign(part: _RedPart, scale: float) -> bool:
@@ -2767,6 +2822,7 @@ def _collect_candidates(
                 red_coverage=red_cov,
                 fill_ratio=float(fig.fill_ratio),
                 max_circularity=float(_max_part_circularity(body_parts)),
+                has_classified_torso=has_torso_part,
                 reject_reason=fig.reject_reason.value,
             )
         )
@@ -2972,12 +3028,8 @@ def score_target(
     # (still tall + multi-part) are unaffected.
     if target.bbox_w < 14 and target.part_count <= 2:
         penalty += fov_radius * 1.2
-    if (
-        target.bbox_h < 58
-        and target.red_coverage < 0.08
-        and target.part_count <= 3
-    ):
-        penalty += fov_radius * 1.4
+    if target_is_background_clutter(target):
+        penalty += fov_radius * 2.0
     # The body<0.48 penalty is normally a strong rejection of marginal
     # silhouettes — but when motion or red coverage independently confirm
     # a tall humanoid bbox, we trust the geometric / chromatic evidence
@@ -3066,6 +3118,12 @@ def find_best_target(
         candidates = [t for t in candidates if t.bbox_h >= min_height_px]
         if len(candidates) < before:
             dbg.append(f"min_height filter: {before} -> {len(candidates)} (min_h={min_height_px})")
+    before_clutter = len(candidates)
+    candidates = [t for t in candidates if not target_is_background_clutter(t)]
+    if len(candidates) < before_clutter:
+        dbg.append(
+            f"background_clutter filter: {before_clutter} -> {len(candidates)}"
+        )
     if not candidates:
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
 
@@ -3113,6 +3171,8 @@ def find_best_target(
     if sticky_target is not None and stickiness_pixels > 0:
         pool = []
         for t in candidates:
+            if target_is_background_clutter(t):
+                continue
             iou = _bbox_iou(
                 sticky_target.bbox_x, sticky_target.bbox_y, sticky_target.bbox_w, sticky_target.bbox_h,
                 t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h,
@@ -3151,6 +3211,12 @@ def find_best_target(
             # already softens transient dips, but a hard floor here prevents
             # one bad detection from breaking the lock and causing a re-acquire
             # flicker visible to the user as a "glitching" dot.
+            if target_is_background_clutter(chosen):
+                dbg.append(
+                    f"sticky reject {RejectReason.BACKGROUND_CLUTTER.value} "
+                    f"red={chosen.red_coverage:.3f} h={chosen.bbox_h}"
+                )
+                return DetectionResult(None, len(candidates), chosen.confidence, debug_lines=dbg, active=False)
             chosen_mid_y = chosen.bbox_y + chosen.bbox_h * 0.5
             if chosen_mid_y < cy * 0.35 and chosen.body_shape_score < 0.70:
                 dbg.append(
@@ -3200,6 +3266,12 @@ def find_best_target(
             )
 
     best = finalize(max(candidates, key=rank))
+    if target_is_background_clutter(best):
+        dbg.append(
+            f"free-max reject {RejectReason.BACKGROUND_CLUTTER.value} "
+            f"red={best.red_coverage:.3f} h={best.bbox_h}"
+        )
+        return DetectionResult(None, len(candidates), best.confidence, debug_lines=dbg, active=False)
     if best.confidence < min_confidence:
         dbg.append(f"selected reject low_conf={best.confidence:.2f}")
         return DetectionResult(None, len(candidates), best.confidence, debug_lines=dbg, active=False)

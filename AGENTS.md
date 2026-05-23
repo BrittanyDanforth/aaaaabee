@@ -57,6 +57,8 @@ The GUI (`aba_gui.py`) uses Basic/Advanced mode split:
 
 **False detection guards**: `viewmodel_exclude_bottom_frac` (default 0.28) masks the gun HUD. Low `red_coverage` + sparse fill + viewmodel-column geometry reject scope/gun FPs (img7). Pan motion fusion disables above 18% frame coverage.
 
+**Background clutter** (`target_is_background_clutter`): single signature used at candidate collect, `find_best_target` pool/free-max/sticky, scoring penalty, and runtime new-lock/adopt/switch — not only in `_collect_candidates`.
+
 ### Pull tuning hot-reload
 
 `PullController.update_tuning()` allows changing `pull_strength`, `deadzone`, `max_speed`, `magnetism_radius`, `velocity_smoothing` while runtime is active (no Stop→Start needed). This is wired through `RuntimeController.apply_config_patch()`.
