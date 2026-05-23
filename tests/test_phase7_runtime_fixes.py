@@ -240,6 +240,89 @@ class VerboseLoggingHotReloadTests(unittest.TestCase):
         self.assertEqual(logging.getLogger().level, logging.INFO)
 
 
+
+
+class ConfigPatchValidationTests(unittest.TestCase):
+    def test_invalid_patch_is_rejected_and_not_persisted(self) -> None:
+        ctrl = RuntimeController({"profile": "apex_style_dry_run"}, Path("/tmp/x.json"))
+        before = dict(ctrl._config)
+        with patch.object(ctrl, "save_config") as save_mock:
+            with self.assertRaises(Exception):
+                ctrl.apply_config_patch({"pull_strength": -1.0})
+        self.assertEqual(ctrl._config, before)
+        save_mock.assert_not_called()
+
+
+class RuntimeFovUpdateApiTests(unittest.TestCase):
+    def test_runtime_uses_pull_api_not_private_tuning_write(self) -> None:
+        text = (Path(__file__).resolve().parents[1] / "runtime.py").read_text(encoding="utf-8")
+        self.assertIn("set_runtime_fov_radius", text)
+        self.assertNotIn("_pull._tuning.fov_radius", text)
+
+
+
+class StaleTargetSafetyTests(unittest.TestCase):
+    def test_smooth_aim_none_returns_last_motion_once(self) -> None:
+        rt = _make_runtime()
+        from detector import Target
+        t = Target(centroid_x=400, centroid_y=230, area=200, bbox_x=380, bbox_y=190, bbox_w=40, bbox_h=70, body_shape_score=0.9)
+        m1 = rt._smooth_aim(t, 0.0, stale=False)
+        self.assertIsNotNone(m1)
+        m2 = rt._smooth_aim(None, 0.033, stale=False)
+        self.assertIsNotNone(m2)
+        m3 = rt._smooth_aim(None, 0.066, stale=False)
+        self.assertIsNone(m3)
+
+    def test_runtime_disables_pull_after_second_stale_frame(self) -> None:
+        text = (Path(__file__).resolve().parents[1] / "runtime.py").read_text(encoding="utf-8")
+        self.assertIn("if stale_det and self._target_lost_frames >= 2", text)
+        self.assertIn("pull_target = None", text)
+
+
+
+class PullTargetSafetyGateTests(unittest.TestCase):
+    def test_blocks_large_jump_without_body_upgrade(self) -> None:
+        rt = _make_runtime()
+        from detector import Target
+        rt.config["_runtime_detect_fov"] = 200
+        rt._frame_cy = 225
+        a = Target(centroid_x=400, centroid_y=230, area=200, bbox_x=380, bbox_y=190, bbox_w=40, bbox_h=70, body_shape_score=0.90)
+        b = Target(centroid_x=480, centroid_y=120, area=120, bbox_x=460, bbox_y=80, bbox_w=30, bbox_h=40, body_shape_score=0.92)
+        self.assertTrue(rt._allow_pull_target(a, stale_det=False))
+        self.assertFalse(rt._allow_pull_target(b, stale_det=False))
+
+    def test_blocks_stale_after_first_lost_frame(self) -> None:
+        rt = _make_runtime()
+        from detector import Target
+        rt._frame_cy = 225
+        t = Target(centroid_x=400, centroid_y=230, area=200, bbox_x=380, bbox_y=190, bbox_w=40, bbox_h=70, body_shape_score=0.90)
+        rt._target_lost_frames = 1
+        self.assertFalse(rt._allow_pull_target(t, stale_det=True))
+
+
+    def test_large_jump_requires_two_stable_frames(self) -> None:
+        rt = _make_runtime()
+        from detector import Target
+        rt.config["_runtime_detect_fov"] = 200
+        rt._frame_cy = 225
+        a = Target(centroid_x=400, centroid_y=230, area=200, bbox_x=380, bbox_y=190, bbox_w=40, bbox_h=70, body_shape_score=0.90)
+        j1 = Target(centroid_x=470, centroid_y=220, area=220, bbox_x=450, bbox_y=185, bbox_w=44, bbox_h=72, body_shape_score=1.00)
+        j2 = Target(centroid_x=472, centroid_y=221, area=222, bbox_x=452, bbox_y=186, bbox_w=43, bbox_h=71, body_shape_score=1.00)
+        self.assertTrue(rt._allow_pull_target(a, stale_det=False))
+        self.assertFalse(rt._allow_pull_target(j1, stale_det=False))
+        self.assertTrue(rt._allow_pull_target(j2, stale_det=False))
+
+    def test_large_jump_with_overlap_is_allowed_immediately(self) -> None:
+        rt = _make_runtime()
+        from detector import Target
+        rt.config["_runtime_detect_fov"] = 200
+        rt._frame_cy = 225
+        a = Target(centroid_x=400, centroid_y=230, area=220, bbox_x=370, bbox_y=185, bbox_w=60, bbox_h=80, body_shape_score=0.88)
+        # Centroid jump > threshold but bbox still overlaps prior torso heavily.
+        j = Target(centroid_x=458, centroid_y=228, area=228, bbox_x=392, bbox_y=186, bbox_w=62, bbox_h=80, body_shape_score=0.90)
+        self.assertTrue(rt._allow_pull_target(a, stale_det=False))
+        self.assertTrue(rt._allow_pull_target(j, stale_det=False))
+
 # --- Dead code removal (MED7) -------------------------------------------
 
 

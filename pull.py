@@ -136,6 +136,13 @@ class PullController:
         if recoil_keys.intersection(kwargs):
             self._recoil = self._build_recoil(self._tuning)
 
+    def set_runtime_fov_radius(self, radius: float) -> None:
+        """Update runtime-computed detection FOV radius safely."""
+        r = float(radius)
+        if not math.isfinite(r) or r <= 0.0:
+            return
+        object.__setattr__(self._tuning, "fov_radius", r)
+
     def reset(self) -> None:
         self._vel_x = 0.0
         self._vel_y = 0.0

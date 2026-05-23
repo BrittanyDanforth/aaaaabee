@@ -10,6 +10,7 @@ from typing import Any
 
 from aba_status import RuntimeSnapshot
 from assist import load_config
+from config_validation import ConfigError
 from process_presence import ProcessPresenceDebouncer
 
 logger = logging.getLogger("aba.controller")
@@ -58,8 +59,9 @@ class RuntimeController:
             from profiles import apply_profile
 
             merged = validate_config(apply_profile(merged))
-        except Exception:
-            pass
+        except ConfigError as exc:
+            logger.warning("Rejected invalid config patch keys=%s error=%s", sorted(patch.keys()), exc)
+            raise
         with self._lock:
             self._config = merged
         if persist:
