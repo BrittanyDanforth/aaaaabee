@@ -116,6 +116,7 @@ class AssistRuntime:
         self._stopping = False
         self._process_debounce = process_debounce or ProcessPresenceDebouncer()
         self._frame_has_target = False
+        self._prev_ads_for_assist = False
         self._trace_frame = 0
         self._trace_pull = False
         self._last_debug: dict[str, float | int | str | bool] = {}
@@ -262,7 +263,11 @@ class AssistRuntime:
             active = self.running and self._mouse_enabled and not self._stopping
             ads_live = self._ads.is_ads_active() if active else False
             paused = self._paused
-            locked = self._locked_target is not None
+            locked = (
+                self._locked_target is not None
+                and ads_live
+                and not paused
+            )
             stats = self._stats.last if self._stats and self._stats.total_frames > 0 else None
             stats_valid = bool(
                 stats is not None and self.running and not self._stopping and active
@@ -280,7 +285,7 @@ class AssistRuntime:
                 "ads": ads_ui,
                 "has_target": has_target,
                 "frame_has_target": frame_has,
-                "locked": locked and not paused and active,
+                "locked": locked and active,
                 "stats_valid": stats_valid,
                 "live_input_enabled": self._live and active,
                 "mouse_armed": self._live and active and not self._dry,
@@ -673,6 +678,12 @@ class AssistRuntime:
         with self._lock:
             self._release_ads_inner()
 
+    def _sync_ads_assist_state(self, ads_for_assist: bool) -> None:
+        """Clear lock/pull when ADS ends (win32 poll path, not only pynput edge)."""
+        if self._prev_ads_for_assist and not ads_for_assist:
+            self._release_ads_inner()
+        self._prev_ads_for_assist = ads_for_assist
+
     def _start_overlay(
         self,
         width: int,
@@ -1021,6 +1032,7 @@ class AssistRuntime:
 
                     ads_live = self._ads.is_ads_active()
                     ads_for_assist = ads_live if self._live else (self._force_detect or ads_live)
+                    self._sync_ads_assist_state(ads_for_assist)
 
                     display_fov = effective_fov_radius(cfg, ads_active=False)
                     detect_fov = effective_detection_fov_radius(cfg, ads_active=False)
@@ -1096,11 +1108,23 @@ class AssistRuntime:
 
                     pull_px = 0.0
                     pull_strength = 0.0
+                    may_pull = (
+                        pull_target is not None
+                        and target is not None
+                        and (
+                            stale_det
+                            or overlay_may_show_target(
+                                target,
+                                detection_fresh=detection_fresh,
+                                center_y=frame_cy,
+                            )
+                        )
+                    )
                     if (
                         not paused
                         and self._should_run()
                         and ads_for_assist
-                        and pull_target is not None
+                        and may_pull
                         and self._pull is not None
                     ):
                         with self._lock:
@@ -1184,6 +1208,9 @@ class AssistRuntime:
 
                     elif (not ads_for_assist or paused or target is None) and self._pull is not None:
                         self._pull.reset()
+                        with self._lock:
+                            self._last_pull_dx = 0
+                            self._last_pull_dy = 0
 
                     with self._lock:
                         elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -1206,7 +1233,10 @@ class AssistRuntime:
                                 confidence=pull_target.confidence if pull_target else 0.0,
                                 pull_px=pull_px,
                                 pull_strength=pull_strength,
-                                locked=self._locked_target is not None,
+                                locked=(
+                                    self._locked_target is not None
+                                    and ads_for_assist
+                                ),
                                 has_target=detection_fresh,
                                 mouse_backend=self._mouse.name,
                                 candidates=det.candidates,
