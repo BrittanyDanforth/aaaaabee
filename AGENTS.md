@@ -14,7 +14,7 @@ ABA (OverlayAssist) is a Python desktop application for real-time aim-assist ove
 python3 -m pytest tests/ -v
 ```
 
-All 127 tests use synthetic frames and mocks — no display or game required.
+All 267 tests use synthetic frames and mocks — no display or game required.
 
 ### Running the application
 
@@ -60,6 +60,7 @@ The GUI (`aba_gui.py`) uses Basic/Advanced mode split:
 ### Key wiring notes for future changes
 
 - `_runtime_detect_fov` is set in `runtime.py` main loop and enables `TargetTracker.configure_fov_clamp` in `motion.py`
+- Overlay ring always uses hip-fire FOV radius (`ads_active=False`); ADS only changes the ring color (green glow). Detection FOV still scales with ADS internally.
 - Overlay dot is FOV-clamped to 96% of display FOV radius in `runtime.py`
 - `debug_show_*` config flags exist in validation/profiles but are NOT read by `draw_debug()` — they are placeholder UI only
 - Prediction sliders are inert when `aim_is_body_anchor=True` (the default) — noted in Advanced tab

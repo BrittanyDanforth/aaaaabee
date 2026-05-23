@@ -1106,7 +1106,7 @@ class AssistRuntime:
                     ads_live = self._ads.is_ads_active()
                     ads_for_assist = ads_live if self._live else (self._force_detect or ads_live)
 
-                    display_fov = effective_fov_radius(cfg, ads_active=ads_for_assist)
+                    display_fov = effective_fov_radius(cfg, ads_active=False)
                     detect_fov = effective_detection_fov_radius(cfg, ads_active=ads_for_assist)
                     capture_fov = effective_capture_fov_radius(cfg, ads_active=ads_for_assist)
                     if cap_region is None or detect_fov != self._last_fov_radius:
