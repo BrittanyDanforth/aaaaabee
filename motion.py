@@ -246,6 +246,15 @@ class TargetTracker:
     def reset_overlay_smoothing(self) -> None:
         self._overlay_smooth = None
 
+    def peek_overlay_smooth(self) -> tuple[float, float] | None:
+        """Last dragged overlay position in monitor/capture space (for hold-last-dot)."""
+        return self._overlay_smooth
+
+    def sync_overlay_display(self, x: float, y: float) -> None:
+        """Align drag state with the post-FOV-clamp point actually drawn."""
+        if self._overlay_smooth is not None and math.isfinite(x) and math.isfinite(y):
+            self._overlay_smooth = (float(x), float(y))
+
     def reset(self) -> None:
         self._last = None
         self._last_time = None

@@ -3331,6 +3331,8 @@ def find_best_target(
         for t in candidates:
             if target_is_background_clutter(t):
                 continue
+            if target_is_range_board_fp(t, motion_overlap=_live_motion(t)):
+                continue
             iou = _bbox_iou(
                 sticky_target.bbox_x, sticky_target.bbox_y, sticky_target.bbox_w, sticky_target.bbox_h,
                 t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h,

@@ -15,7 +15,10 @@ class DotSmoothnessWiringTests(unittest.TestCase):
         text = Path("runtime.py").read_text(encoding="utf-8")
         self.assertIn("overlay_dot_smooth_alpha", text)
         self.assertIn("smooth_overlay_point", text)
+        self.assertIn("sync_overlay_display", text)
+        self.assertIn("bbox_h=bbox_h", text)
         self.assertNotIn("set_dot_render_alpha", text)
+        self.assertNotIn("cap_frame_display_step", text)
 
     def test_recoil_jitter_never_touches_overlay(self) -> None:
         overlay = Path("overlay_window.py").read_text(encoding="utf-8")

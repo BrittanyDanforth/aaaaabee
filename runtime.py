@@ -1407,6 +1407,7 @@ class AssistRuntime:
                                     scale_r = fov_limit / sodist
                                     sx = fov_cx_mon + sodx * scale_r
                                     sy = fov_cy_mon + sody * scale_r
+                                self._aim_tracker.sync_overlay_display(sx, sy)
                                 overlay_pt = (sx, sy)
                                 self._overlay_miss_frames = 0
                         elif target is None or not detection_fresh:
@@ -1415,6 +1416,16 @@ class AssistRuntime:
                                 self._aim_tracker.reset_overlay_smoothing()
                         else:
                             self._overlay_miss_frames = 0
+                        if overlay_pt is None and ads_for_assist:
+                            held = self._aim_tracker.peek_overlay_smooth()
+                            locked = self._locked_target
+                            if (
+                                held is not None
+                                and locked is not None
+                                and self._target_lost_frames
+                                < int(cfg.get("target_lost_frames_before_unlock", 18))
+                            ):
+                                overlay_pt = held
                         self._overlay.set_state(ads_for_assist, overlay_pt)
 
                     frame_i += 1

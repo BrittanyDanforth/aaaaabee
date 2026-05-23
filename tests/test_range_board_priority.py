@@ -82,6 +82,40 @@ class RangeBoardPriorityTests(unittest.TestCase):
         )
         self.assertGreaterEqual(int(r.target.part_count), 2)
 
+    def test_sticky_locked_on_dummy_resists_center_board(self) -> None:
+        frame1 = np.zeros((H, W, 3), dtype=np.uint8)
+        _apex_dummy(frame1, CX + 165, CY + 110, scale=1.25)
+        r1 = detector.find_best_target(
+            frame1,
+            HSV_RED,
+            FOV,
+            MIN_AREA,
+            float(CX),
+            float(CY),
+            detection_mode="apex",
+        )
+        self.assertTrue(r1.active)
+        sticky = r1.target
+        assert sticky is not None
+        frame2 = np.zeros((H, W, 3), dtype=np.uint8)
+        _range_board(frame2, CX, CY - 40, h=210, w=72)
+        _apex_dummy(frame2, CX + 165, CY + 110, scale=1.25)
+        r2 = detector.find_best_target(
+            frame2,
+            HSV_RED,
+            FOV,
+            MIN_AREA,
+            float(CX),
+            float(CY),
+            sticky_target=sticky,
+            stickiness_pixels=90.0,
+            currently_locked=True,
+            detection_mode="apex",
+        )
+        self.assertTrue(r2.active)
+        assert r2.target is not None
+        self.assertGreater(r2.target.centroid_x, CX + 80)
+
     def test_range_board_fp_classifier(self) -> None:
         from detector import Target
 
