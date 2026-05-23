@@ -19,9 +19,12 @@ class JitterMouseOnlyTests(unittest.TestCase):
             jitter_frequency_hz=8.0,
         )
         self.assertTrue(rc.active)
-        bx, by = rc.compute_bias(is_firing=True, dt=1.0 / 60.0)
+        bx, by = rc.compute_bias(is_firing=True, dt=1.0 / 60.0, err_x=15.0)
         self.assertEqual(by, 0.0)
+        self.assertGreater(bx, 0.0)
         self.assertLessEqual(abs(bx), 2.0)
+        bx0, _ = rc.compute_bias(is_firing=True, dt=1.0 / 60.0, err_x=0.0)
+        self.assertEqual(bx0, 0.0)
 
     def test_jitter_enable_produces_mouse_dx_over_time(self) -> None:
         ctrl = PullController(

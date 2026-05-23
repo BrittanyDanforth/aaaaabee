@@ -85,9 +85,10 @@ class DotSmoothnessWiringTests(unittest.TestCase):
         )
         deltas: list[int] = []
         t = 0.0
+        # Off-center so err_x drives lateral hold (on-target err_x=0 stays quiet).
         for _ in range(40):
             pr = ctrl.compute_delta(
-                _on_target_tgt(200.0, 200.0),
+                _on_target_tgt(240.0, 200.0),
                 200.0,
                 200.0,
                 time_sec=t,

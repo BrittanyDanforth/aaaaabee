@@ -694,23 +694,28 @@ class HumanizedMotion:
         return out_x, out_y
 
 
+_RECOIL_RAMP_TAU_S = 0.22
+
+
 class RecoilCompensator:
     """
     Engagement-gated recoil-helper bias.
 
     While the caller signals ``is_firing=True``:
-      * a steady downward Y bias is added (``pull_down_px_per_s``)
-      * a band-limited sinusoidal horizontal jitter is added
-        (``jitter_amplitude_px`` × sin(2π · jitter_frequency_hz · t)).
+      * a ramped downward Y bias (``pull_down_px_per_s``) eases in over
+        ~``_RECOIL_RAMP_TAU_S`` so sustained fire feels smooth, not a snap
+      * horizontal ``jitter_*`` keys drive lateral *stabilization*: an extra
+        pull toward reducing ``err_x`` (passed from ``PullController``),
+        capped by ``jitter_amplitude_px`` and scaled by ``jitter_frequency_hz``
+        as response rate — not a sinusoidal shake
 
     Bias is *additive* on top of the pull velocity — it is NOT fed back into
     the velocity smoother. That's important: it would otherwise leak into the
     EMA state and the cursor would keep drifting downward for several frames
     after the user stops firing.
 
-    When ``is_firing=False`` the compensator returns the input unchanged and
-    its phase is reset, so the next trigger-pull starts cleanly at phase 0
-    instead of resuming a random offset.
+    When ``is_firing=False`` the ramp and firing timer reset so the next burst
+    starts from zero pull-down and zero lateral correction (on-target err_x=0).
     """
 
     def __init__(
@@ -727,7 +732,7 @@ class RecoilCompensator:
         self._jitter_enabled = bool(jitter_enabled)
         self._jitter_amp = max(0.0, min(_finite(jitter_amplitude_px, 0.0), 6.0))
         self._jitter_hz = max(0.0, min(_finite(jitter_frequency_hz, 6.0), 20.0))
-        self._phase = 0.0
+        self._fire_duration = 0.0
         self._was_firing = False
 
     @property
@@ -738,20 +743,27 @@ class RecoilCompensator:
         return recoil_on or jitter_on
 
     def reset(self) -> None:
-        self._phase = 0.0
+        self._fire_duration = 0.0
         self._was_firing = False
 
-    def compute_bias(self, *, is_firing: bool, dt: float) -> tuple[float, float]:
+    def compute_bias(
+        self,
+        *,
+        is_firing: bool,
+        dt: float,
+        err_x: float = 0.0,
+    ) -> tuple[float, float]:
         """
         Returns (bias_x, bias_y) in pixels for this frame.
 
         - bias_y is positive-down (matches the screen-coordinate convention
-          used by `compute_delta`).
-        - bias_x is the horizontal jitter sample for this frame.
+          used by ``compute_delta``).
+        - bias_x stabilizes lateral aim by correcting toward ``err_x → 0``;
+          on-target (``err_x ≈ 0``) produces no horizontal bias.
         """
         if not is_firing:
             if self._was_firing:
-                self._phase = 0.0
+                self._fire_duration = 0.0
             self._was_firing = False
             return 0.0, 0.0
 
@@ -759,22 +771,20 @@ class RecoilCompensator:
         if dt <= 0.0 or dt > 0.5:
             dt = 1.0 / 60.0
         self._was_firing = True
+        self._fire_duration += dt
 
         bias_y = 0.0
         if self._recoil_enabled and self._pull_down > 0.0:
-            bias_y = self._pull_down * dt
+            ramp = 1.0 - math.exp(-self._fire_duration / _RECOIL_RAMP_TAU_S)
+            bias_y = self._pull_down * dt * ramp
 
         bias_x = 0.0
         if self._jitter_enabled and self._jitter_amp > 0.0 and self._jitter_hz > 0.0:
-            # Sample BEFORE advancing the phase. The first firing frame after
-            # reset/release therefore emits sin(0)=0, ensuring an engagement
-            # starts with no horizontal kick — important so the integer-truncation
-            # path doesn't immediately pop a 1-px sideways step the user would
-            # perceive as input lag.
-            bias_x = self._jitter_amp * math.sin(self._phase)
-            self._phase += 2.0 * math.pi * self._jitter_hz * dt
-            if self._phase > 1e6:
-                self._phase = math.fmod(self._phase, 2.0 * math.pi)
+            ex = _finite(err_x, 0.0)
+            # Higher jitter_frequency_hz → snappier lateral hold (legacy key).
+            alpha = 1.0 - math.exp(-self._jitter_hz * dt * 0.35)
+            correct = ex * alpha
+            bias_x = max(-self._jitter_amp, min(self._jitter_amp, correct))
 
         if not (math.isfinite(bias_x) and math.isfinite(bias_y)):
             return 0.0, 0.0
