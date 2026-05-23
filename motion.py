@@ -668,6 +668,19 @@ class TargetTracker:
         self._last_pre_predict = (pre_pull_x, pre_pull_y)
 
         pull_x, pull_y = self._finalize_pull_point(pre_pull_x, pre_pull_y, dt, in_deadband)
+        if (
+            self._pull_x is not None
+            and self._pull_y is not None
+            and self._body_bbox is not None
+        ):
+            pull_x, pull_y = self._cap_measurement_step(
+                pull_x,
+                pull_y,
+                self._pull_x,
+                self._pull_y,
+                self._body_bbox[3],
+                dt,
+            )
         overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
 
         self._last_meas_x = x

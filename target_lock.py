@@ -46,11 +46,44 @@ NEW_LOCK_MIN_BODY = 0.58
 NEW_LOCK_MIN_RED = 0.04
 NEW_LOCK_MIN_PARTS = 2
 OVERLAY_CONFIRM_FRAMES = 2
+# Max centroid rise (screen y decreases) from the anchor set at lock-on.
+MAX_LOCK_UPWARD_DRIFT_PX = 28.0
 
 
 def viewmodel_exclude_bottom(cfg: dict[str, Any]) -> float:
     """Bottom-of-frame mask fraction — must match production runtime."""
     return float(cfg.get("viewmodel_exclude_bottom_frac", 0.28))
+
+
+def _lock_upward_within_anchor(
+    state: TargetLockState,
+    new_t: Target,
+    locked: Target,
+    *,
+    center_y: float,
+) -> bool:
+    """Block slow sky creep: refinements may not float far above lock anchor."""
+    anchor_cy = state._lock_anchor_cy
+    if anchor_cy is None:
+        return True
+    if new_t.centroid_y >= anchor_cy - MAX_LOCK_UPWARD_DRIFT_PX:
+        return True
+    if bbox_mid_in_sky_band(new_t.bbox_y, new_t.bbox_h, center_y):
+        return False
+    # No weak-red bypass for large upward centroid jumps — that was the ~3s sky creep.
+    return False
+
+
+def _commit_locked_target(
+    state: TargetLockState,
+    target: Target,
+    *,
+    is_new_lock: bool,
+) -> None:
+    state.locked_target = target
+    if is_new_lock or state._lock_anchor_cy is None:
+        state._lock_anchor_cy = float(target.centroid_y)
+        state._lock_anchor_bbox_y = int(target.bbox_y)
 
 
 def _same_lock_identity(a: Target, b: Target) -> bool:
@@ -225,6 +258,8 @@ class TargetLockState:
     new_lock_frames: int = 0
     overlay_confirm_frames: int = 0
     _overlay_last_cy: float | None = None
+    _lock_anchor_cy: float | None = None
+    _lock_anchor_bbox_y: int | None = None
 
     def reset(self) -> None:
         self.locked_target = None
@@ -235,6 +270,27 @@ class TargetLockState:
         self.new_lock_frames = 0
         self.overlay_confirm_frames = 0
         self._overlay_last_cy = None
+        self._lock_anchor_cy = None
+        self._lock_anchor_bbox_y = None
+
+
+def locked_target_may_refresh_motion_memory(
+    locked: Target,
+    lock_state: TargetLockState,
+    *,
+    center_y: float,
+) -> bool:
+    """Only extend motion-validated memory for plausible locked bodies."""
+    if bbox_mid_in_sky_band(locked.bbox_y, locked.bbox_h, center_y):
+        return False
+    anchor_cy = lock_state._lock_anchor_cy
+    if anchor_cy is not None and locked.centroid_y < anchor_cy - 20.0:
+        return False
+    if float(locked.red_coverage) < NEW_LOCK_MIN_RED:
+        return False
+    if float(locked.body_shape_score) < 0.55:
+        return False
+    return True
 
 
 def detection_sticky_context(
@@ -379,7 +435,16 @@ def apply_target_lock(
                 or soft_refine_ok
                 or (drift < 25 and drift < fov_lim)
             ):
-                state.locked_target = new_t
+                if not _lock_upward_within_anchor(
+                    state, new_t, locked, center_y=center_y
+                ):
+                    return (
+                        DetectionResult(
+                            locked, result.candidates, locked.confidence
+                        ),
+                        False,
+                    )
+                _commit_locked_target(state, new_t, is_new_lock=False)
                 state.target_lost_frames = 0
                 state.switch_candidate = None
                 state.switch_frames = 0
@@ -391,7 +456,16 @@ def apply_target_lock(
                 # Same guards as instant/soft refine — weak IoU-only adopt caused
                 # upward head/HUD fragments to steal the lock on moving enemies.
                 if soft_refine_ok or identity_track_ok:
-                    state.locked_target = new_t
+                    if not _lock_upward_within_anchor(
+                        state, new_t, locked, center_y=center_y
+                    ):
+                        return (
+                            DetectionResult(
+                                locked, result.candidates, locked.confidence
+                            ),
+                            False,
+                        )
+                    _commit_locked_target(state, new_t, is_new_lock=False)
                     return result, False
                 return (
                     DetectionResult(
@@ -436,7 +510,7 @@ def apply_target_lock(
                 and adopt_iou >= SWITCH_MIN_IOU
             )
             if state.switch_frames >= 3 and switch_score_ok:
-                state.locked_target = new_t
+                _commit_locked_target(state, new_t, is_new_lock=True)
                 state.target_lost_frames = 0
                 state.switch_candidate = None
                 state.switch_frames = 0
@@ -471,7 +545,7 @@ def apply_target_lock(
             state.new_lock_frames = 1
 
         if state.new_lock_frames >= confirm_frames:
-            state.locked_target = new_t
+            _commit_locked_target(state, new_t, is_new_lock=True)
             state.target_lost_frames = 0
             state.switch_candidate = None
             state.switch_frames = 0

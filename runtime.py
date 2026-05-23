@@ -33,6 +33,7 @@ from target_lock import (
     TargetLockState,
     apply_target_lock,
     detection_sticky_context,
+    locked_target_may_refresh_motion_memory,
     may_assist_pull_target,
     overlay_may_show_target,
     viewmodel_exclude_bottom,
@@ -695,22 +696,6 @@ class AssistRuntime:
             self._ads_hold_frames = 0
         elif ads_for_assist:
             self._ads_hold_frames += 1
-            # Long ADS: decay motion memory slowly — full clears every 60 frames
-            # caused find_best_target to re-pick random clutter for ~1 frame.
-            if self._ads_hold_frames in (90, 180, 270, 360):
-                self._detect_ctx._validated_credit = max(
-                    0, int(self._detect_ctx._validated_credit) - 4
-                )
-            locked = self._locked_target
-            if (
-                self._ads_hold_frames in (90, 180, 270)
-                and locked is not None
-                and float(locked.red_coverage) >= 0.04
-                and float(locked.body_shape_score) >= 0.55
-            ):
-                self._detect_ctx.note_motion_validated(
-                    locked.bbox_x, locked.bbox_y, locked.bbox_w, locked.bbox_h
-                )
         self._prev_ads_for_assist = ads_for_assist
 
     def _start_overlay(
@@ -804,6 +789,23 @@ class AssistRuntime:
                 fov_cy=center_y,
                 frame_size=(fw, fh),
             )
+            locked = self._target_lock.locked_target
+            if (
+                locked is not None
+                and result.target is not None
+                and self._target_lock.target_lost_frames == 0
+                and locked_target_may_refresh_motion_memory(
+                    locked,
+                    self._target_lock,
+                    center_y=center_y,
+                )
+            ):
+                self._detect_ctx.note_motion_validated(
+                    locked.bbox_x,
+                    locked.bbox_y,
+                    locked.bbox_w,
+                    locked.bbox_h,
+                )
             return result
 
     def _teardown(

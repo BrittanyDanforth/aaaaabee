@@ -14,9 +14,11 @@ class PullOverlayGateTests(unittest.TestCase):
         self.assertIn("show_for_pull = overlay_may_show_target", text)
         self.assertIn("and show_for_pull", text)
 
-    def test_runtime_ads_validation_decays_not_nukes(self) -> None:
+    def test_runtime_refreshes_motion_memory_while_locked(self) -> None:
         text = RUNTIME.read_text(encoding="utf-8")
+        self.assertIn("locked_target_may_refresh_motion_memory", text)
         self.assertIn("note_motion_validated", text)
+        self.assertNotIn("_validated_credit) - 4", text)
         self.assertNotIn("_ads_hold_frames % 60 == 0", text)
 
 
