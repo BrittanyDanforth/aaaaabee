@@ -99,6 +99,15 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "detection_motion_threshold": 9,
         "recoil_compensation_enabled": False,
         "jitter_enabled": False,
+        # PHASE-6 AUDIT FIX (D-MED10): the apex profile defaults
+        # ``humanoid_min_height_pixels=16`` which lets tiny HUD numerals
+        # (ammo "6", health pips), distant sky tiles and 20x20 cloud
+        # edges pass the height gate. Real Apex enemies on screen are
+        # always >= 60 px tall (close-ADS easily 200+ px; medium-range
+        # 100-150; long-range still ~60). The Tracking preset is the
+        # "real Apex" preset (per AGENTS.md) so it locks the floor at
+        # 60 to keep the dot off tiny FPs.
+        "humanoid_min_height_pixels": 60,
     },
     "Strong": {
         "pull_strength": 1.10,
