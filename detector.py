@@ -429,7 +429,7 @@ class DetectionContext:
     # shift together). The motion_mask then floods the candidate pool with
     # background pixels and the per-candidate motion_bonus rescues weak FPs.
     # ``pan_detected`` is set True for one frame by build_detection_mask
-    # when motion_coverage > pan_coverage_threshold; while True we:
+    # when motion_coverage > pan_coverage_threshold (default 18%); while True we:
     #   1. drop the motion mask out of the apex-mode fusion, AND
     #   2. clear last_motion_mask so score_target's motion_bonus is zero.
     pan_detected: bool = False
@@ -777,6 +777,49 @@ def _is_scope_reticle(
     return False
 
 
+def target_is_viewmodel_column_fp(
+    target: Target,
+    *,
+    frame_w: int,
+    frame_h: int,
+    fov_cx: float,
+    fov_cy: float,
+) -> bool:
+    """True for gun/scope column FPs (img7: torso~0.64, red~0.011).
+
+    Misclassified ``TORSO`` parts and high ``torso_score`` cannot exempt
+    a sub-5% red fill — real enemies at this range always show more red.
+    """
+    red_cov = float(target.red_coverage)
+    if red_cov >= 0.05:
+        return False
+    if (
+        float(target.fill_ratio) > 0.65
+        and target.body_shape_score >= 0.75
+    ):
+        return False
+    bh = float(target.bbox_h)
+    bw = max(1.0, float(target.bbox_w))
+    if int(target.part_count) < 4 or bh < frame_h * 0.12:
+        return False
+    if bh / bw < 1.35:
+        return False
+    bx = float(target.bbox_x)
+    by = float(target.bbox_y)
+    bcx = bx + bw * 0.5
+    bcy = by + bh * 0.5
+    if abs(bcx - fov_cx) > frame_w * 0.14:
+        return False
+    cross_in = bx <= fov_cx <= bx + bw and by <= fov_cy <= by + bh
+    cent_near = math.hypot(target.centroid_x - fov_cx, target.centroid_y - fov_cy) <= max(
+        bw, bh
+    ) * 0.65
+    col_near = math.hypot(bcx - fov_cx, bcy - fov_cy) <= max(bw, bh) * 0.62
+    if not cross_in and not cent_near and not col_near:
+        return False
+    return True
+
+
 def _is_viewmodel_column_fp(
     parts: list,
     *,
@@ -793,30 +836,24 @@ def _is_viewmodel_column_fp(
     part_count: int,
     torso_score: float = 0.0,
 ) -> bool:
-    """Reject the player's scope/gun column (img7-class false lock).
-
-    Signature: crosshair inside a tall centered stack, no classified torso,
-    almost no enemy-red fill, poor vertical column alignment.
-    """
+    """Collection-time viewmodel veto — delegates to :func:`target_is_viewmodel_column_fp`."""
     if fov_cx is None or fov_cy is None:
         return False
-    if red_cov >= 0.05:
-        return False
-    if has_enemy_red_torso_evidence(parts, torso_score=torso_score, red_cov=red_cov):
-        return False
-    if part_count < 4 or bh < frame_h * 0.12:
-        return False
-    aspect = bh / max(float(bw), 1.0)
-    if aspect < 1.35:
-        return False
-    if not (bx <= fov_cx <= bx + bw and by <= fov_cy <= by + bh):
-        return False
-    bcx = bx + bw * 0.5
-    if abs(bcx - fov_cx) > frame_w * 0.14:
-        return False
-    if align_s >= 0.40:
-        return False
-    return True
+    stub = Target(
+        centroid_x=bx + bw * 0.5,
+        centroid_y=by + bh * 0.5,
+        area=float(bw * bh),
+        bbox_x=int(bx),
+        bbox_y=int(by),
+        bbox_w=int(bw),
+        bbox_h=int(bh),
+        part_count=int(part_count),
+        torso_score=float(torso_score),
+        red_coverage=float(red_cov),
+    )
+    return target_is_viewmodel_column_fp(
+        stub, frame_w=frame_w, frame_h=frame_h, fov_cx=float(fov_cx), fov_cy=float(fov_cy)
+    )
 
 
 def _background_clutter_signature(
@@ -3167,9 +3204,27 @@ def find_best_target(
     if not candidates:
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
 
+    before_vm = len(candidates)
+    candidates = [
+        t
+        for t in candidates
+        if not target_is_viewmodel_column_fp(
+            t, frame_w=w, frame_h=h, fov_cx=float(cx), fov_cy=float(cy)
+        )
+    ]
+    if len(candidates) < before_vm:
+        dbg.append(f"viewmodel_column filter: {before_vm} -> {len(candidates)}")
+    if not candidates:
+        return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
+
     def _motion_overlap(t: Target) -> float:
         if context is None:
             return 0.0
+        live = context.motion_coverage_ratio(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+        # Do not let motion memory inflate ranking for sub-threshold red FPs
+        # (collection already used live ratio; memory-only boost caused img7 wins).
+        if float(t.red_coverage) < MIN_ENEMY_RED_COVERAGE:
+            return live
         return context.motion_coverage_with_memory(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
 
     def rank(t: Target) -> float:
@@ -3347,6 +3402,7 @@ def draw_debug(
     display_fov_radius: int | None = None,
     debug_show_detect_ring: bool = False,
     detection_mode: str | None = None,
+    exclude_bottom_frac: float = _VIEWMODEL_EXCLUDE_FRAC,
 ) -> np.ndarray:
     """Render the OpenCV debug-window frame.
 
@@ -3375,7 +3431,7 @@ def draw_debug(
     dbg_mode = detection_mode if detection_mode is not None else DETECTION_MODE_SHAPE
     mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=dbg_mode)
     fov = _build_fov_mask(h, w, cx_f, cy_f, fov_radius)
-    vm = _build_viewmodel_exclude_mask(h, w, _VIEWMODEL_EXCLUDE_FRAC)
+    vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
     mask = cv2.bitwise_and(mask, mask, mask=vm)
     tint = np.zeros_like(out)

@@ -764,12 +764,16 @@ class AssistRuntime:
                     self._pull.reset()
                 self._aim_tracker.soft_reset()
 
+            fh, fw = frame_bgr.shape[0], frame_bgr.shape[1]
             result, _is_stale = apply_target_lock(
                 self._target_lock,
                 result,
                 center_y=center_y,
                 cfg=cfg,
                 on_lock_expired=_on_lock_expired,
+                fov_cx=center_x,
+                fov_cy=center_y,
+                frame_size=(fw, fh),
             )
             return result
 
@@ -1352,6 +1356,7 @@ class AssistRuntime:
                             # detection mode so the debug viewer's tint
                             # mask matches what the runtime sees.
                             detection_mode=str(cfg.get("detection_mode", "apex")),
+                            exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
                         )
                         if motion is not None:
                             cv2.drawMarker(

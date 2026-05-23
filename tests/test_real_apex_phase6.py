@@ -46,6 +46,7 @@ import pytest
 
 import detector
 import profiles
+from target_lock import TargetLockState, apply_target_lock, overlay_may_show_target
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -303,6 +304,8 @@ def test_img7_does_not_lock_on_sky(
     # diff fires the way it does during a camera pan in live play. This
     # is the exact scenario where the bug manifests — without this seed
     # the audit silently masks the bug (the old harness used to do this).
+    # Do not inherit motion-memory validation from img1–img6 on the shared ctx.
+    shared_ctx.reset()
     panned_prev = cv2.cvtColor(_shift(img, 6), cv2.COLOR_BGR2GRAY)
     shared_ctx.prev_gray = panned_prev
     shared_ctx.prev_size = (w, h)
@@ -310,27 +313,42 @@ def test_img7_does_not_lock_on_sky(
     shared_ctx.pan_detected = False
 
     fov_r = _fov_radius(cfg, ads=False)
+    lock_state = TargetLockState()
 
-    pass1 = _find_best(
-        img, cfg, fov_r, cx, cy,
-        ctx=shared_ctx, sticky=None,
-        currently_locked=False, exclude_bottom=0.30,
-    )
-
-    sticky = pass1.target if pass1.active and pass1.target is not None else None
-    pass2 = _find_best(
-        img, cfg, fov_r, cx, cy,
-        ctx=shared_ctx, sticky=sticky,
-        currently_locked=bool(sticky is not None),
-        exclude_bottom=0.30,
-    )
-
-    for name, r in (("pass1", pass1), ("pass2", pass2)):
-        assert not r.active or r.target is None, (
-            f"img7/{name}: must not lock — no enemy in frame "
-            f"(active={r.active} body={getattr(r.target, 'body_shape_score', 0):.2f} "
-            f"red={getattr(r.target, 'red_coverage', 0):.3f})"
+    for pass_idx in range(2):
+        sticky, currently_locked, _ = __import__(
+            "target_lock", fromlist=["detection_sticky_context"]
+        ).detection_sticky_context(lock_state, cfg)
+        det = _find_best(
+            img, cfg, fov_r, cx, cy,
+            ctx=shared_ctx, sticky=sticky,
+            currently_locked=currently_locked,
+            exclude_bottom=0.30,
         )
+        det, _stale = apply_target_lock(
+            lock_state,
+            det,
+            center_y=cy,
+            cfg=cfg,
+            fov_cx=cx,
+            fov_cy=cy,
+            frame_size=(w, h),
+        )
+        fresh = det.target is not None and lock_state.target_lost_frames == 0
+        show_dot = overlay_may_show_target(
+            det.target,
+            detection_fresh=fresh,
+            center_y=cy,
+            lock_state=lock_state,
+        )
+        assert not det.active or det.target is None, (
+            f"img7/pass{pass_idx + 1}: detector must not lock "
+            f"(active={det.active} red={getattr(det.target, 'red_coverage', 0):.3f})"
+        )
+        assert lock_state.locked_target is None, (
+            f"img7/pass{pass_idx + 1}: frame lock must stay empty"
+        )
+        assert not show_dot, f"img7/pass{pass_idx + 1}: overlay dot must stay hidden"
 
 
 def test_pan_detection_fires_on_synthetic_pan() -> None:

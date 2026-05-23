@@ -31,6 +31,7 @@ from detector import (
     _bbox_iou,
     bbox_mid_in_sky_band,
     target_is_background_clutter,
+    target_is_viewmodel_column_fp,
 )
 
 # IoU gates (documented in tests/test_detection_hardening.py).
@@ -105,11 +106,33 @@ def _passes_instant_refine_gates(target: Target) -> bool:
     return True
 
 
-def _locked_is_environment_fp(target: Target, *, center_y: float) -> bool:
-    """True when an existing lock is clearly a crate/HUD blob (not mild occlusion)."""
+def _locked_is_environment_fp(
+    target: Target,
+    *,
+    center_y: float,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
+    frame_w: int = 0,
+    frame_h: int = 0,
+) -> bool:
+    """True when an existing lock is clearly a crate/HUD/sky/viewmodel FP."""
     if target_is_background_clutter(target):
         return True
     if bbox_mid_in_sky_band(target.bbox_y, target.bbox_h, center_y):
+        return True
+    if (
+        fov_cx is not None
+        and fov_cy is not None
+        and frame_w > 0
+        and frame_h > 0
+        and target_is_viewmodel_column_fp(
+            target,
+            frame_w=frame_w,
+            frame_h=frame_h,
+            fov_cx=float(fov_cx),
+            fov_cy=float(fov_cy),
+        )
+    ):
         return True
     if (
         target.red_coverage < NEW_LOCK_MIN_RED
@@ -197,6 +220,9 @@ def apply_target_lock(
     center_y: float,
     cfg: dict[str, Any],
     on_lock_expired: Callable[[], None] | None = None,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
+    frame_size: tuple[int, int] | None = None,
 ) -> tuple[DetectionResult, bool]:
     """Merge a detector result with sticky lock state.
 
@@ -206,11 +232,25 @@ def apply_target_lock(
     """
     lost_max = int(cfg["target_lost_frames_before_unlock"])
     is_stale = False
+    fw, fh = (0, 0)
+    if frame_size is not None and len(frame_size) >= 2:
+        fw, fh = int(frame_size[0]), int(frame_size[1])
+
+    def _env_fp(t: Target) -> bool:
+        return _locked_is_environment_fp(
+            t,
+            center_y=center_y,
+            fov_cx=fov_cx,
+            fov_cy=fov_cy,
+            frame_w=fw,
+            frame_h=fh,
+        )
 
     if result.target is not None:
         new_t = result.target
+        new_is_env = _env_fp(new_t)
         locked = state.locked_target
-        if locked is not None and _locked_is_environment_fp(locked, center_y=center_y):
+        if locked is not None and _env_fp(locked):
             state.reset()
             if on_lock_expired is not None:
                 on_lock_expired()
@@ -240,7 +280,7 @@ def apply_target_lock(
                 new_t.bbox_h,
             )
             sky_band = bbox_mid_in_sky_band(new_t.bbox_y, new_t.bbox_h, center_y)
-            clutter_fp = target_is_background_clutter(new_t)
+            clutter_fp = target_is_background_clutter(new_t) or new_is_env
             instant_adopt_ok = (
                 bs_ratio_ok
                 and bs_abs_ok
@@ -335,9 +375,14 @@ def apply_target_lock(
                 is_stale,
             )
 
-        if not _passes_new_lock_gates(new_t, center_y=center_y):
+        if not _passes_new_lock_gates(new_t, center_y=center_y) or new_is_env:
             state.new_lock_candidate = None
             state.new_lock_frames = 0
+            if locked is not None and state.target_lost_frames == 0:
+                return (
+                    DetectionResult(locked, result.candidates, locked.confidence),
+                    False,
+                )
             return DetectionResult(None, result.candidates, 0.0), False
 
         confirm_frames = int(cfg.get("new_lock_confirm_frames", NEW_LOCK_CONFIRM_FRAMES))
@@ -376,7 +421,7 @@ def apply_target_lock(
 
     locked = state.locked_target
     if locked is not None:
-        if _locked_is_environment_fp(locked, center_y=center_y):
+        if _env_fp(locked):
             state.reset()
             if on_lock_expired is not None:
                 on_lock_expired()

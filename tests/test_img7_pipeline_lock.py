@@ -164,6 +164,34 @@ def test_gun_column_fp_never_confirms_lock() -> None:
         assert not show
 
 
+def test_artifact_img7_gun_column_is_viewmodel_fp() -> None:
+    """Regression: audit img7 cand[2] (torso 0.64, red 0.011) is viewmodel FP."""
+    h, w = 736, 1193
+    cx, cy = w / 2.0, h / 2.0
+    gun = detector.Target(
+        centroid_x=535.525,
+        centroid_y=369.077,
+        area=3216.0,
+        distance_to_center=61.0,
+        confidence=0.85,
+        bbox_x=485,
+        bbox_y=269,
+        bbox_w=106,
+        bbox_h=246,
+        body_shape_score=1.0,
+        head_score=0.87,
+        torso_score=0.64,
+        limb_stack_score=1.0,
+        part_count=14,
+        red_coverage=0.011,
+        fill_ratio=0.24,
+        max_circularity=0.61,
+    )
+    assert detector.target_is_viewmodel_column_fp(
+        gun, frame_w=w, frame_h=h, fov_cx=cx, fov_cy=cy
+    )
+
+
 def test_stale_low_red_lock_purged_on_grace() -> None:
     """Grace hold must drop when locked blob has no enemy-red (sky/HUD drift)."""
     cfg = _live_cfg()
@@ -192,6 +220,9 @@ def test_stale_low_red_lock_purged_on_grace() -> None:
         DetectionResult(None, 0, 0.0),
         center_y=center_y,
         cfg=cfg,
+        fov_cx=400.0,
+        fov_cy=center_y,
+        frame_size=(1280, 720),
     )
     assert state.locked_target is None
     assert det.target is None
