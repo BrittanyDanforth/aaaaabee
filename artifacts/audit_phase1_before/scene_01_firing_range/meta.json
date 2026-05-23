@@ -1,0 +1,36 @@
+{
+  "scene": "scene_01_firing_range",
+  "description": "red apex char centre + two target boards",
+  "active": true,
+  "candidates": 1,
+  "best_score": 0.37236170333304197,
+  "fov_radius": 220,
+  "fov_center": [
+    640,
+    360
+  ],
+  "red_mask_pixels": 11627,
+  "red_mask_pct": 0.012616102430555555,
+  "target": {
+    "centroid_x": 640.2,
+    "centroid_y": 355.5565909090909,
+    "bbox": [
+      591,
+      285,
+      99,
+      184
+    ],
+    "confidence": 0.37236170333304197,
+    "body_shape_score": 0.5066211756993007,
+    "red_coverage": 0.5275032938076416,
+    "fill_ratio": 0.0,
+    "max_circularity": 0.0,
+    "part_count": 1,
+    "area": 10939.5,
+    "distance_to_center": 4.447907862037334
+  },
+  "tracker_output": {
+    "x": 640.2,
+    "y": 355.5565909090909
+  }
+}

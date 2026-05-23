@@ -1,0 +1,36 @@
+{
+  "scene": "scene_02_near_far",
+  "description": "near (right) + far (left) red apex chars",
+  "active": true,
+  "candidates": 1,
+  "best_score": 0.374615285497484,
+  "fov_radius": 220,
+  "fov_center": [
+    640,
+    360
+  ],
+  "red_mask_pixels": 16640,
+  "red_mask_pct": 0.018055555555555554,
+  "target": {
+    "centroid_x": 791.0,
+    "centroid_y": 357.1215374643506,
+    "bbox": [
+      761,
+      271,
+      100,
+      219
+    ],
+    "confidence": 0.374615285497484,
+    "body_shape_score": 0.6108895769230769,
+    "red_coverage": 0.5876255707762557,
+    "fill_ratio": 0.990867555141449,
+    "max_circularity": 0.47158429527049095,
+    "part_count": 1,
+    "area": 13376.0,
+    "distance_to_center": 151.02743309269724
+  },
+  "tracker_output": {
+    "x": 791.0,
+    "y": 357.1215374643506
+  }
+}
