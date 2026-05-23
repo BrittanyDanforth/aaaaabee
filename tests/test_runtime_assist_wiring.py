@@ -35,12 +35,16 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         """Overlay handoff must skip non-finite motion coords or the Tk
         renderer crashes inside int(round(NaN)) (uncaught ValueError)."""
         text = RUNTIME_PATH.read_text(encoding="utf-8")
-        # The overlay write must check finiteness of motion.x / motion.y
-        # before passing the coordinates to to_monitor_coords + Tk overlay.
+        # The overlay write must check finiteness of overlay_motion coords
+        # before passing them to to_monitor_coords + Tk overlay.
         self.assertIn(
-            "math.isfinite(motion.x) and math.isfinite(motion.y)",
+            "math.isfinite(overlay_motion.x)",
             text,
             "overlay dot must guard against non-finite motion coords",
+        )
+        self.assertIn(
+            "math.isfinite(overlay_motion.y)",
+            text,
         )
         # O2 (audit): clamp the overlay dot to the SMALLER of the
         # display ring and the detection ring so the dot always stays

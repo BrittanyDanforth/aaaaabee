@@ -3030,6 +3030,13 @@ def score_target(
         penalty += fov_radius * 1.2
     if target_is_background_clutter(target):
         penalty += fov_radius * 2.0
+  # Wide solid props (crates, panels) in the firing range — not humanoid columns.
+    if (
+        target.fill_ratio > 0.82
+        and target.part_count <= 2
+        and target.bbox_h < target.bbox_w * 1.10
+    ):
+        penalty += fov_radius * 1.6
     # The body<0.48 penalty is normally a strong rejection of marginal
     # silhouettes — but when motion or red coverage independently confirm
     # a tall humanoid bbox, we trust the geometric / chromatic evidence

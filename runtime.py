@@ -33,6 +33,7 @@ from target_lock import (
     TargetLockState,
     apply_target_lock,
     detection_sticky_context,
+    overlay_may_show_target,
     viewmodel_exclude_bottom,
 )
 from input_state import AdsInputState
@@ -165,6 +166,7 @@ class AssistRuntime:
         time_sec: float,
         *,
         stale: bool = False,
+        keep_motion_anchor: bool = False,
     ) -> TargetMotion | None:
         """
         Upper-chest body column via observe_target(bbox_*).
@@ -196,7 +198,9 @@ class AssistRuntime:
         step-cap from this anchor rather than teleport.
         """
         if target is None:
-            if self._last_motion is not None:
+            # CRIT2 pull anchor only — never feed a ghost dot when detection
+            # is empty (firing-range crates/HUD were showing _last_motion).
+            if keep_motion_anchor and self._last_motion is not None:
                 return self._last_motion
             self._aim_tracker.reset()
             return None
@@ -1076,7 +1080,14 @@ class AssistRuntime:
                     with self._lock:
                         self._frame_has_target = detection_fresh
 
-                    motion = self._smooth_aim(target, t0, stale=stale_det)
+                    motion = self._smooth_aim(
+                        target,
+                        t0,
+                        stale=stale_det,
+                        keep_motion_anchor=(
+                            target is None and self._last_motion is not None
+                        ),
+                    )
                     pull_target = (
                         self._target_for_pull(target, motion)
                         if target is not None and motion is not None
@@ -1213,20 +1224,24 @@ class AssistRuntime:
                         # M1 (audit): hide the overlay dot after >=2 stale
                         # frames so the user does not see it parked on the
                         # last-known position when the target has moved.
-                        hide_overlay_stale = (
-                            target is not None
-                            and self._target_lost_frames >= 1
+                        show_overlay_dot = overlay_may_show_target(
+                            target,
+                            detection_fresh=detection_fresh,
+                            center_y=frame_cy,
                         )
-                        hide_overlay_no_target = target is None
-                        hide_overlay_not_fresh = not detection_fresh
+                        overlay_motion = (
+                            motion
+                            if show_overlay_dot
+                            else None
+                        )
                         if (
-                            not hide_overlay_stale
-                            and not hide_overlay_no_target
-                            and not hide_overlay_not_fresh
-                            and motion is not None
-                            and math.isfinite(motion.x) and math.isfinite(motion.y)
+                            overlay_motion is not None
+                            and math.isfinite(overlay_motion.x)
+                            and math.isfinite(overlay_motion.y)
                         ):
-                            ox, oy = to_monitor_coords(motion.x, motion.y, cap_region)
+                            ox, oy = to_monitor_coords(
+                                overlay_motion.x, overlay_motion.y, cap_region
+                            )
                             fov_cx_mon = float(center_x)
                             fov_cy_mon = float(center_y)
                             odx = ox - fov_cx_mon

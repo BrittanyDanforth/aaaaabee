@@ -111,23 +111,15 @@ class StaleLockMotionHoldTests(unittest.TestCase):
         text = RUNTIME_PATH.read_text(encoding="utf-8")
         # The runtime loop must pass stale=stale_det to _smooth_aim so the
         # smoother sees fresh-vs-stale state.
-        self.assertIn(
-            "_smooth_aim(target, t0, stale=stale_det)",
-            text,
-            "runtime must call _smooth_aim with stale=stale_det (M1 audit fix)",
-        )
+        self.assertIn("stale=stale_det", text)
+        self.assertIn("_smooth_aim(", text)
 
-    def test_overlay_hides_when_not_fresh(self) -> None:
+    def test_overlay_uses_humanoid_gate(self) -> None:
         text = RUNTIME_PATH.read_text(encoding="utf-8")
         self.assertIn(
-            "hide_overlay_not_fresh = not detection_fresh",
+            "overlay_may_show_target",
             text,
-            "overlay must hide dot unless detection is fresh",
-        )
-        self.assertIn(
-            "self._target_lost_frames >= 1",
-            text,
-            "overlay must hide dot during grace/stale lock",
+            "overlay dot must pass humanoid silhouette gate",
         )
 
 

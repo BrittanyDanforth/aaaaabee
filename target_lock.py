@@ -36,7 +36,7 @@ SWITCH_MIN_IOU = 0.28
 CLUTTER_REJECT_MAX_IOU = 0.18
 NEW_LOCK_CONFIRM_FRAMES = 2
 NEW_LOCK_MIN_BODY = 0.58
-NEW_LOCK_MIN_RED = 0.06
+NEW_LOCK_MIN_RED = 0.08
 NEW_LOCK_MIN_PARTS = 2
 
 
@@ -58,6 +58,7 @@ def _same_lock_identity(a: Target, b: Target) -> bool:
 
 
 def _passes_new_lock_gates(target: Target, *, center_y: float) -> bool:
+    """Reject crates, panels, and scope/HUD blobs before a lock can confirm."""
     mid_y = target.bbox_y + target.bbox_h * 0.5
     if target.body_shape_score < NEW_LOCK_MIN_BODY:
         return False
@@ -69,7 +70,50 @@ def _passes_new_lock_gates(target: Target, *, center_y: float) -> bool:
         return False
     if target_is_background_clutter(target):
         return False
+    # Solid wide props (loot crates, floor panels) often score body>0.55 with
+    # one blob — require torso structure or a real head+torso stack.
+    if not target.has_classified_torso:
+        if target.torso_score < 0.32 or target.head_score < 0.22:
+            return False
+    if target.fill_ratio > 0.82 and int(target.part_count) <= 2:
+        return False
+    if target.max_circularity > 0.62 and int(target.part_count) <= 2:
+        return False
+    bw = max(1, int(target.bbox_w))
+    bh = max(1, int(target.bbox_h))
+    if bh < bw * 1.08:
+        return False
     return True
+
+
+def _locked_is_environment_fp(target: Target, *, center_y: float) -> bool:
+    """True when an existing lock is clearly a crate/HUD blob (not mild occlusion)."""
+    if target_is_background_clutter(target):
+        return True
+    mid_y = target.bbox_y + target.bbox_h * 0.5
+    if mid_y < center_y * 0.40:
+        return True
+    if target.fill_ratio > 0.82 and int(target.part_count) <= 2:
+        return True
+    if target.max_circularity > 0.62 and int(target.part_count) <= 2:
+        return True
+    bw = max(1, int(target.bbox_w))
+    bh = max(1, int(target.bbox_h))
+    if bh < bw * 1.08 and target.fill_ratio > 0.5:
+        return True
+    return False
+
+
+def overlay_may_show_target(
+    target: Target | None,
+    *,
+    detection_fresh: bool,
+    center_y: float,
+) -> bool:
+    """Single gate for whether the red overlay dot may render."""
+    if not detection_fresh or target is None:
+        return False
+    return _passes_new_lock_gates(target, center_y=center_y)
 
 
 @dataclass
@@ -125,6 +169,11 @@ def apply_target_lock(
     if result.target is not None:
         new_t = result.target
         locked = state.locked_target
+        if locked is not None and _locked_is_environment_fp(locked, center_y=center_y):
+            state.reset()
+            if on_lock_expired is not None:
+                on_lock_expired()
+            locked = None
         if locked is not None:
             drift = math.hypot(
                 new_t.centroid_x - locked.centroid_x,
@@ -285,6 +334,11 @@ def apply_target_lock(
 
     locked = state.locked_target
     if locked is not None:
+        if _locked_is_environment_fp(locked, center_y=center_y):
+            state.reset()
+            if on_lock_expired is not None:
+                on_lock_expired()
+            return DetectionResult(None, result.candidates, 0.0), False
         is_stale = True
         return (
             DetectionResult(locked, result.candidates, locked.confidence),

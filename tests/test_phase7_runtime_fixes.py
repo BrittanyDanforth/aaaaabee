@@ -80,13 +80,18 @@ class SmoothAimNoneAnchorTests(unittest.TestCase):
                    bbox_y=190, bbox_w=40, bbox_h=70, body_shape_score=0.9)
         motion = rt._smooth_aim(t, 0.0, stale=False)
         self.assertIsNotNone(motion)
-        # Now call with target=None — should NOT hard-reset; should
-        # return the cached _last_motion.
-        result = rt._smooth_aim(None, 0.033, stale=False)
+        # Now call with target=None — CRIT2 pull anchor only when explicitly
+        # requested (overlay must not reuse _last_motion on empty detection).
+        result = rt._smooth_aim(None, 0.033, stale=False, keep_motion_anchor=True)
         self.assertIs(result, motion)
         # Tracker still has the smoothed anchor preserved (CRIT2).
         self.assertIsNotNone(rt._aim_tracker._smooth_x)
         self.assertIsNotNone(rt._aim_tracker._smooth_y)
+
+        # Without keep_motion_anchor, empty detection must hard-reset (no ghost dot).
+        rt2 = _make_runtime()
+        rt2._last_motion = motion
+        self.assertIsNone(rt2._smooth_aim(None, 0.033, stale=False))
 
     def test_smooth_aim_none_with_no_prior_motion_hard_resets(self) -> None:
         rt = _make_runtime()

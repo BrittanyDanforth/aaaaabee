@@ -47,7 +47,14 @@ class NewLockConfirmTests(unittest.TestCase):
     def test_single_frame_fp_does_not_acquire(self) -> None:
         state = TargetLockState()
         cfg = _cfg()
-        fp = _make_target(body_shape_score=NEW_LOCK_MIN_BODY + 0.02)
+        fp = _make_target(
+            body_shape_score=NEW_LOCK_MIN_BODY + 0.02,
+            has_classified_torso=True,
+            torso_score=0.5,
+            head_score=0.4,
+            fill_ratio=0.5,
+            max_circularity=0.45,
+        )
         r1, stale1 = apply_target_lock(
             state,
             DetectionResult(fp, 1, fp.confidence),
@@ -62,7 +69,13 @@ class NewLockConfirmTests(unittest.TestCase):
     def test_two_matching_frames_acquire(self) -> None:
         state = TargetLockState()
         cfg = _cfg()
-        fp = _make_target()
+        fp = _make_target(
+            has_classified_torso=True,
+            torso_score=0.5,
+            head_score=0.4,
+            fill_ratio=0.5,
+            max_circularity=0.45,
+        )
         apply_target_lock(
             state,
             DetectionResult(fp, 1, fp.confidence),
