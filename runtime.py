@@ -33,6 +33,7 @@ from target_lock import (
     TargetLockState,
     apply_target_lock,
     detection_sticky_context,
+    may_assist_pull_target,
     overlay_may_show_target,
     viewmodel_exclude_bottom,
 )
@@ -1128,14 +1129,16 @@ class AssistRuntime:
 
                     pull_px = 0.0
                     pull_strength = 0.0
+                    stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
                     may_pull = (
                         pull_target is not None
                         and target is not None
-                        and overlay_may_show_target(
+                        and may_assist_pull_target(
                             target,
                             detection_fresh=detection_fresh,
                             center_y=frame_cy,
-                            lock_state=self._target_lock,
+                            target_lost_frames=self._target_lost_frames,
+                            stale_grace_frames=stale_grace,
                         )
                     )
                     if (

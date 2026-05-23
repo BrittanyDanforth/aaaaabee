@@ -307,7 +307,9 @@ class PullController:
             self._recoil.reset()
             return PullResult(0, 0, 0.0, 0.0, dist)
 
-        if dist <= self._tuning.deadzone:
+        dead = max(0.0, float(self._tuning.deadzone))
+        in_deadzone = dead > 0.0 and dist <= dead
+        if in_deadzone and not self._tuning.aim_pre_smoothed:
             decay = apply_smoothing_curve(
                 self._tuning.velocity_smoothing,
                 self._tuning.smoothing_curve,
@@ -348,6 +350,40 @@ class PullController:
             self._recoil.compute_bias(is_firing=False, dt=dt)
             return PullResult(0, 0, 0.0, 0.0, dist)
 
+        deadzone_scale = 1.0
+        if in_deadzone and self._tuning.aim_pre_smoothed:
+            if dist <= 0.5:
+                deadzone_scale = 0.0
+            else:
+                ramp = (dist - 0.5) / max(dead - 0.5, 1.0)
+                deadzone_scale = max(0.20, min(1.0, ramp))
+            if deadzone_scale <= 0.0 and is_firing and self._recoil.active:
+                bias_x, bias_y = self._recoil.compute_bias(is_firing=True, dt=dt)
+                self._residual_x += bias_x
+                self._residual_y += bias_y
+                move_x = int(self._residual_x)
+                move_y = int(self._residual_y)
+                self._residual_x -= move_x
+                self._residual_y -= move_y
+                if move_x == 0 and abs(self._residual_x) >= 0.55:
+                    move_x = 1 if self._residual_x > 0 else -1
+                    self._residual_x -= move_x
+                if move_y == 0 and abs(self._residual_y) >= 0.55:
+                    move_y = 1 if self._residual_y > 0 else -1
+                    self._residual_y -= move_y
+                return PullResult(
+                    move_x,
+                    move_y,
+                    math.hypot(move_x, move_y),
+                    0.0,
+                    dist,
+                )
+            if deadzone_scale <= 0.0:
+                self._residual_x = 0.0
+                self._residual_y = 0.0
+                self._recoil.compute_bias(is_firing=False, dt=dt)
+                return PullResult(0, 0, 0.0, 0.0, dist)
+
         magnet = self._magnetism_scale(dist)
         fov_scale = pull_fov_distance_scale(
             dist,
@@ -358,6 +394,7 @@ class PullController:
             self._tuning.pull_strength
             * magnet
             * fov_scale
+            * deadzone_scale
             * self._effective_strength_multiplier()
         )
         desired_x = err_x * strength
@@ -374,8 +411,11 @@ class PullController:
         alpha = max(alpha, alpha_from_tau(dt, tau))
         # Closing-distance engagement: when the cursor is meaningfully off-anchor,
         # tighten the velocity filter so the gap closes within a couple frames.
-        if self._tuning.aim_pre_smoothed and dist > 14.0:
-            alpha = max(alpha, alpha_from_tau(dt, 0.006) * min(1.0, dist / 40.0))
+        if self._tuning.aim_pre_smoothed and dist > 4.0:
+            alpha = max(
+                alpha,
+                alpha_from_tau(dt, 0.006) * min(1.0, max(0.35, dist / 28.0)),
+            )
 
         if not self._tuning.aim_pre_smoothed:
             vel_mag = math.hypot(self._vel_x, self._vel_y)

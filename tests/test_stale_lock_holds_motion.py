@@ -121,6 +121,11 @@ class StaleLockMotionHoldTests(unittest.TestCase):
             text,
             "overlay dot must pass humanoid silhouette gate",
         )
+        self.assertIn(
+            "may_assist_pull_target",
+            text,
+            "pull must use dedicated gate — not overlay confirm frames",
+        )
 
 
 if __name__ == "__main__":

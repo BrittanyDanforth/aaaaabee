@@ -151,6 +151,30 @@ def _locked_is_environment_fp(
     return False
 
 
+def may_assist_pull_target(
+    target: Target | None,
+    *,
+    detection_fresh: bool,
+    center_y: float,
+    target_lost_frames: int = 0,
+    stale_grace_frames: int = 12,
+) -> bool:
+    """Whether mouse pull may run — separate from overlay dot confirm frames.
+
+    Pull should stay engaged during brief detection gaps (grace) and while
+    the aim anchor tracks small motion. Overlay uses stricter 2-frame confirm.
+    """
+    if target is None:
+        return False
+    if not _passes_new_lock_gates(target, center_y=center_y):
+        return False
+    if detection_fresh:
+        return True
+    if stale_grace_frames > 0 and target_lost_frames <= stale_grace_frames:
+        return True
+    return False
+
+
 def overlay_may_show_target(
     target: Target | None,
     *,
@@ -335,6 +359,14 @@ def apply_target_lock(
             if state.target_lost_frames == 0:
                 state.switch_candidate = None
                 state.switch_frames = 0
+                if (
+                    adopt_iou >= SOFT_REFINE_MIN_IOU
+                    and not clutter_fp
+                    and not new_is_env
+                    and _passes_instant_refine_gates(new_t)
+                ):
+                    state.locked_target = new_t
+                    return result, False
                 return (
                     DetectionResult(
                         locked,

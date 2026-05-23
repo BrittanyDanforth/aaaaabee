@@ -539,6 +539,13 @@ class TargetTracker:
         if not in_deadband:
             self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
             self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
+        elif self._aim_is_body_anchor and self._body_bbox is not None:
+            # Pull must follow steady tracking: deadband freezes overlay jitter
+            # but the assist anchor still creeps toward the live measurement.
+            if meas_drift > 0.4:
+                track_alpha = max(alpha * 0.55, alpha_from_tau(dt, 0.028))
+                self._smooth_x = self._smooth_x + track_alpha * (x - self._smooth_x)
+                self._smooth_y = self._smooth_y + track_alpha * (y - self._smooth_y)
 
         pre_x, pre_y = self._smooth_x, self._smooth_y
         self._last_pre_predict = (pre_x, pre_y)
