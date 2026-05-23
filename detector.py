@@ -3069,6 +3069,19 @@ def find_best_target(
             )
             return DetectionResult(chosen, len(candidates), chosen.confidence, debug_lines=dbg, active=True)
         dbg.append("sticky lost lock (no overlapping candidate)")
+        # PHASE-6 AUDIT FIX (D-HIGH6): when the runtime tells us we are
+        # currently_locked but the sticky pool is empty (no candidate
+        # overlaps the previous lock), do NOT fall through to a global
+        # free-max selection. That free-max was picking up unrelated
+        # junk (sky pixels, HUD numerals, the player's scope) and
+        # silently breaking the lock onto a FP. Returning None instead
+        # lets the runtime's grace period (target_lost_frames_before_unlock)
+        # hold the previous lock and the motion-validated memory keeps
+        # the dot anchored until the real body reappears.
+        if currently_locked:
+            return DetectionResult(
+                None, len(candidates), 0.0, debug_lines=dbg, active=False,
+            )
 
     best = finalize(max(candidates, key=rank))
     if best.confidence < min_confidence:
