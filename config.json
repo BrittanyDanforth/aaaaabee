@@ -26,5 +26,7 @@
   "trace_pull": true,
   "detection_mode": "apex",
   "detection_motion_assist": true,
-  "detection_motion_threshold": 9
+  "detection_motion_threshold": 9,
+  "fov_radius_pixels": 140,
+  "fov_radius_ads_pixels": 185
 }

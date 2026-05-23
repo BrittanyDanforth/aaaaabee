@@ -101,6 +101,50 @@ class SmoothAimNoneAnchorTests(unittest.TestCase):
         self.assertIsNone(rt._aim_tracker._smooth_x)
 
 
+# --- ADS sync -------------------------------------------------------------
+
+
+class AdsAssistSyncTests(unittest.TestCase):
+    def test_ads_falling_edge_clears_lock(self) -> None:
+        from detector import Target
+
+        rt = _make_runtime()
+        rt._prev_ads_for_assist = True
+        rt._locked_target = Target(
+            centroid_x=400.0,
+            centroid_y=225.0,
+            area=200.0,
+            bbox_x=380,
+            bbox_y=190,
+            bbox_w=40,
+            bbox_h=70,
+            body_shape_score=0.9,
+        )
+        rt._sync_ads_assist_state(False)
+        self.assertIsNone(rt._locked_target)
+        self.assertFalse(rt._prev_ads_for_assist)
+
+    def test_ads_rising_edge_does_not_clear_lock(self) -> None:
+        from detector import Target
+
+        rt = _make_runtime()
+        t = Target(
+            centroid_x=400.0,
+            centroid_y=225.0,
+            area=200.0,
+            bbox_x=380,
+            bbox_y=190,
+            bbox_w=40,
+            bbox_h=70,
+            body_shape_score=0.9,
+        )
+        rt._locked_target = t
+        rt._prev_ads_for_assist = False
+        rt._sync_ads_assist_state(True)
+        self.assertIs(rt._locked_target, t)
+        self.assertTrue(rt._prev_ads_for_assist)
+
+
 # --- HIGH4 ---------------------------------------------------------------
 
 

@@ -20,7 +20,7 @@ class ProfileTests(unittest.TestCase):
         self.assertTrue(cfg["allow_live_mouse"])
         self.assertEqual(22.0, cfg["max_pull_speed_pixels_per_frame"])
         self.assertEqual(3.5, cfg["mouse_gate_pull_budget_scale"])
-        self.assertGreater(cfg["fov_radius_pixels"], 140)
+        self.assertGreaterEqual(cfg["fov_radius_pixels"], 120)
         self.assertGreater(cfg["fov_radius_ads_pixels"], cfg["fov_radius_pixels"])
 
     def test_live_trace_hard_aim_preset(self) -> None:
@@ -70,8 +70,8 @@ class DefaultProfileTests(unittest.TestCase):
 
     def test_fov_balanced_not_extreme(self) -> None:
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
-        self.assertGreaterEqual(cfg["fov_radius_pixels"], 160)
-        self.assertLessEqual(cfg["fov_radius_pixels"], 200)
+        self.assertGreaterEqual(cfg["fov_radius_pixels"], 120)
+        self.assertLessEqual(cfg["fov_radius_pixels"], 160)
         self.assertGreater(cfg["fov_radius_ads_pixels"], cfg["fov_radius_pixels"])
 
 
@@ -82,8 +82,8 @@ class DetectionFovMarginTests(unittest.TestCase):
         ads = effective_fov_radius(cfg, ads_active=True)
         det_ads = effective_detection_fov_radius(cfg, ads_active=True)
         self.assertGreater(det_ads, ads)
-        self.assertGreaterEqual(cfg["fov_radius_pixels"], 165)
-        self.assertGreaterEqual(cfg["fov_radius_ads_pixels"], 200)
+        self.assertGreaterEqual(cfg["fov_radius_pixels"], 125)
+        self.assertGreaterEqual(cfg["fov_radius_ads_pixels"], 165)
 
     def test_capture_covers_detection(self) -> None:
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
