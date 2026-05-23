@@ -230,6 +230,17 @@ def overlay_may_show_target(
             lock_state.overlay_confirm_frames = 0
             lock_state._overlay_last_cy = None
             return False
+        locked = lock_state.locked_target
+        if (
+            locked is not None
+            and lock_state.target_lost_frames == 0
+            and _same_lock_identity(locked, target)
+        ):
+            lock_state._overlay_last_cy = float(target.centroid_y)
+            lock_state.overlay_confirm_frames = max(
+                lock_state.overlay_confirm_frames, OVERLAY_CONFIRM_FRAMES
+            )
+            return True
         last_cy = getattr(lock_state, "_overlay_last_cy", None)
         upward_snap = (
             last_cy is not None

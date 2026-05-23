@@ -2905,6 +2905,38 @@ def _collect_candidates(
     return targets, lines
 
 
+def target_is_range_board_fp(
+    target: Target,
+    *,
+    motion_overlap: float = 0.0,
+) -> bool:
+    """Firing-range hazard boards: saturated static red columns, not humanoids."""
+    if target.has_classified_torso and int(target.part_count) >= 3:
+        return False
+    if (
+        target.body_shape_score >= 0.78
+        and target.head_score >= 0.30
+        and int(target.part_count) >= 2
+    ):
+        return False
+    red = float(target.red_coverage)
+    if red < 0.18:
+        return False
+    bh = float(target.bbox_h)
+    bw = max(1.0, float(target.bbox_w))
+    if bh < bw * 1.12:
+        return False
+    if float(target.fill_ratio) < 0.40 and red < 0.30:
+        return False
+    if motion_overlap >= 0.07:
+        return False
+    if int(target.part_count) <= 2 and (
+        not target.has_classified_torso or float(target.torso_score) < 0.32
+    ):
+        return red >= 0.20
+    return False
+
+
 def _closeness_bonus(target: Target, fov_radius: float) -> float:
     """Closer-enemy preference: bigger bbox height = closer enemy.
 
@@ -2916,7 +2948,10 @@ def _closeness_bonus(target: Target, fov_radius: float) -> float:
     """
     bbox_h_eff = max(0.0, float(target.bbox_h))
     closeness_unit = min(bbox_h_eff, fov_radius * 1.5) / max(fov_radius, 1.0)
-    return closeness_unit * fov_radius * 0.42
+    center_w = max(0.0, 1.0 - target.distance_to_center / max(fov_radius, 1.0))
+    # Tall blobs at the FOV rim (background boards) must not beat a nearer
+    # humanoid just because bbox_h is large — weight by crosshair proximity.
+    return closeness_unit * fov_radius * 0.42 * (0.30 + 0.70 * center_w * center_w)
 
 
 def score_target(
@@ -2963,6 +2998,16 @@ def score_target(
     red_humanoid_height = target.bbox_h >= 60.0 and target.bbox_h >= target.bbox_w * 1.55
     red_bonus = red_cov * fov_radius * 0.15 if red_humanoid_height else 0.0
     penalty = 0.0
+    rim_frac = target.distance_to_center / max(fov_radius, 1.0)
+    if rim_frac > 0.68:
+        penalty += fov_radius * 0.50 * ((rim_frac - 0.68) / 0.32) ** 1.4
+    if target_is_range_board_fp(target, motion_overlap=motion_overlap):
+        penalty += fov_radius * 1.35
+    if motion_overlap < 0.04 and red_cov >= 0.24 and int(target.part_count) <= 2:
+        if not target.has_classified_torso or float(target.torso_score) < 0.34:
+            penalty += fov_radius * 0.75
+    if int(target.part_count) >= 3 and target.has_classified_torso:
+        penalty -= fov_radius * 0.12
     if center_y is not None:
         # REAL-FRAME AUDIT FIX: the previous flat "centroid_y < center_y"
         # penalty (*2.8 per pixel) preferred small clusters BELOW the
@@ -3203,6 +3248,18 @@ def find_best_target(
         dbg.append(
             f"background_clutter filter: {before_clutter} -> {len(candidates)}"
         )
+    before_board = len(candidates)
+
+    def _live_motion(t: Target) -> float:
+        if context is None:
+            return 0.0
+        return context.motion_coverage_ratio(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+
+    candidates = [
+        t for t in candidates if not target_is_range_board_fp(t, motion_overlap=_live_motion(t))
+    ]
+    if len(candidates) < before_board:
+        dbg.append(f"range_board filter: {before_board} -> {len(candidates)}")
     if not candidates:
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
 

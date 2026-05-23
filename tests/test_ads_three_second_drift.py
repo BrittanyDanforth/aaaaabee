@@ -155,6 +155,7 @@ class AdsThreeSecondDriftTests(unittest.TestCase):
         self.assertIn("locked_target_may_refresh_motion_memory", text)
         self.assertNotIn("_validated_credit) - 4", text)
         self.assertNotIn("_ads_hold_frames in (90, 180, 270, 360)", text)
+        self.assertNotIn("cap_frame_display_step", text)
 
 
 if __name__ == "__main__":

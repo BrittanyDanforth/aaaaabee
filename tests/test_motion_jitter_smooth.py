@@ -61,9 +61,9 @@ class OverlayEMATests(unittest.TestCase):
         self.assertEqual(first, (100.0, 100.0), "first sample should pass through")
         # Apply a 50 px jump.
         second = tracker.smooth_overlay_point(150.0, 100.0)
-        # With alpha=0.45 default, the dampened sample is 100 + 0.45*50 ≈ 122.5.
-        self.assertGreater(second[0], 110.0)
-        self.assertLess(second[0], 135.0)
+        # Step-cap + EMA drag — must move toward 150 but not snap.
+        self.assertGreater(second[0], 102.0)
+        self.assertLess(second[0], 130.0)
 
     def test_overlay_smoother_reset_clears_state(self) -> None:
         tracker = TargetTracker()
@@ -82,17 +82,21 @@ class OverlayEMATests(unittest.TestCase):
 
 
 class OverlayDisplayCapTests(unittest.TestCase):
-    def test_cap_blocks_sky_teleport(self) -> None:
+    def test_drag_smooth_blocks_sky_teleport(self) -> None:
         tracker = TargetTracker()
-        tracker.cap_frame_display_step(400.0, 500.0, 140, dt=1.0 / 60.0)
-        x, y = tracker.cap_frame_display_step(400.0, 420.0, 140, dt=1.0 / 60.0)
-        self.assertGreater(y, 500.0 - 6.0, "upward step must be capped per body height")
+        tracker.smooth_overlay_point(400.0, 500.0, alpha=0.4, bbox_h=140, dt=1.0 / 60.0)
+        _, y = tracker.smooth_overlay_point(
+            400.0, 420.0, alpha=0.4, bbox_h=140, dt=1.0 / 60.0
+        )
+        self.assertGreater(y, 500.0 - 8.0, "upward drag step must be capped per body height")
 
-    def test_cap_allows_lateral_strafe(self) -> None:
+    def test_drag_smooth_allows_lateral_strafe(self) -> None:
         tracker = TargetTracker()
-        tracker.cap_frame_display_step(400.0, 500.0, 120, dt=1.0 / 60.0)
-        x, _ = tracker.cap_frame_display_step(430.0, 502.0, 120, dt=1.0 / 60.0)
-        self.assertGreater(x, 410.0)
+        tracker.smooth_overlay_point(400.0, 500.0, alpha=0.4, bbox_h=120, dt=1.0 / 60.0)
+        x, _ = tracker.smooth_overlay_point(
+            430.0, 502.0, alpha=0.4, bbox_h=120, dt=1.0 / 60.0
+        )
+        self.assertGreater(x, 403.0)
 
 
 if __name__ == "__main__":

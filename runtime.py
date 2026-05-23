@@ -132,6 +132,7 @@ class AssistRuntime:
         # the pynput mouse listener under _lock; read by the runtime loop.
         self._is_firing = False
         self._prev_loop_t: float | None = None
+        self._overlay_miss_frames: int = 0
 
     @property
     def _locked_target(self) -> Target | None:
@@ -1385,20 +1386,15 @@ class AssistRuntime:
                                 bbox_h = 80
                                 if target is not None and int(target.bbox_h) > 0:
                                     bbox_h = int(target.bbox_h)
-                                ox, oy = self._aim_tracker.cap_frame_display_step(
-                                    ox,
-                                    oy,
-                                    bbox_h,
-                                    dt=dt_frame,
-                                )
-                                # Mild EMA on the overlay-clamped point so the
-                                # dot does not flicker in/out when the centroid
-                                # oscillates across the FOV ring boundary.
                                 dot_alpha = float(
-                                    cfg.get("overlay_dot_smooth_alpha", 0.62)
+                                    cfg.get("overlay_dot_smooth_alpha", 0.40)
                                 )
                                 sx, sy = self._aim_tracker.smooth_overlay_point(
-                                    ox, oy, alpha=dot_alpha
+                                    ox,
+                                    oy,
+                                    alpha=dot_alpha,
+                                    bbox_h=bbox_h,
+                                    dt=dt_frame,
                                 )
                                 # O3 (audit): re-clamp AFTER the EMA so
                                 # boundary-motion drift can't drag the
@@ -1412,9 +1408,13 @@ class AssistRuntime:
                                     sx = fov_cx_mon + sodx * scale_r
                                     sy = fov_cy_mon + sody * scale_r
                                 overlay_pt = (sx, sy)
+                                self._overlay_miss_frames = 0
                         elif target is None or not detection_fresh:
-                            # Keep EMA warm during 2-frame confirm; clear only on real loss.
-                            self._aim_tracker.reset_overlay_smoothing()
+                            self._overlay_miss_frames += 1
+                            if self._overlay_miss_frames >= 4:
+                                self._aim_tracker.reset_overlay_smoothing()
+                        else:
+                            self._overlay_miss_frames = 0
                         self._overlay.set_state(ads_for_assist, overlay_pt)
 
                     frame_i += 1

@@ -167,7 +167,7 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         _require_number(cfg, "overlay_fps", default=90.0, minimum=30, maximum=144)
     )
     cfg["overlay_dot_smooth_alpha"] = _require_number(
-        cfg, "overlay_dot_smooth_alpha", default=0.62, minimum=0.05, maximum=1.0
+        cfg, "overlay_dot_smooth_alpha", default=0.40, minimum=0.05, maximum=1.0
     )
     cfg["viewmodel_exclude_bottom_frac"] = _require_number(
         cfg, "viewmodel_exclude_bottom_frac", default=0.28, minimum=0.05, maximum=0.45
