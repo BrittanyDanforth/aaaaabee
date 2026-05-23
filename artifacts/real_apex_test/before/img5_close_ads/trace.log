@@ -1,0 +1,12 @@
+INPUT img5_close_ads.webp  size=468x427  ads_hint=True
+FOV center=(234,214) radius=179  min_area=40.0
+MASK_PX red_enemy=20943  shape=85773  chroma=12600  motion=44203  fused=88839
+PARTS=3  CLUSTERS=3
+  cand[0] accepted=False reject=too_small bbox=(0,0,0x0) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=0.00 fill=0.00 circ=0.00 aspect=0.00 parts=1 area=23 dist=0 | area=23 < min=40.0
+  cand[1] accepted=False reject=horizontal_stripe bbox=(343,208,28x7) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=0.00 fill=0.00 circ=0.34 aspect=0.25 parts=1 area=104 dist=123 | horizontal_stripe
+  cand[2] accepted=False reject=floating_cluster bbox=(386,132,18x27) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=1.00 fill=0.26 circ=0.06 aspect=1.50 parts=1 area=46 dist=176 | floating_cluster
+SELECTED active=False  reason=NO_TARGET
+  DBG cand[0] skip area=23
+  DBG cand[1] reject=horizontal_stripe body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=0.25 fill=0.00 circ=0.34 bbox=(343,208,28x7) area=104 dist=123 parts=1 | horizontal_stripe
+  DBG cand[2] reject=floating_cluster body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=1.50 fill=0.26 circ=0.06 bbox=(386,132,18x27) area=46 dist=176 parts=1 | floating_cluster
+  DBG accepted=0 from 3 clusters / 3 parts

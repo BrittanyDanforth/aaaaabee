@@ -1,0 +1,27 @@
+{
+  "input": "/workspace/artifacts/real_apex_test/_inputs/img2_shooting_26.png",
+  "frame_size": [
+    576,
+    493
+  ],
+  "fov_center": [
+    288.0,
+    246.5
+  ],
+  "fov_radius": 177,
+  "min_area_floor": 40.0,
+  "ads_hint": false,
+  "mask_pixels": {
+    "red_enemy": 32286,
+    "shape": 123307,
+    "chroma": 29334,
+    "motion": 69331,
+    "fused": 126720
+  },
+  "parts": 0,
+  "cluster_count": 0,
+  "active": false,
+  "best_score": 0.0,
+  "selected": null,
+  "candidates": []
+}
