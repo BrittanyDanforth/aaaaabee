@@ -147,6 +147,41 @@ class PullController:
         self._humanize.reset()
         self._recoil.reset()
 
+    def reset_assist_velocity(self) -> None:
+        """Clear aim-pull smoothing only — preserve recoil ramp across brief target gaps."""
+        self._vel_x = 0.0
+        self._vel_y = 0.0
+        self._residual_x = 0.0
+        self._residual_y = 0.0
+        self._stale_count = 0
+
+    def recoil_pull_down_active(self) -> bool:
+        return (
+            self._tuning.recoil_compensation_enabled
+            and self._tuning.recoil_pull_down_pixels_per_second > 0.0
+        )
+
+    def compute_recoil_only(
+        self,
+        *,
+        time_sec: float | None = None,
+        is_firing: bool = False,
+        err_x: float = 0.0,
+    ) -> PullResult:
+        """Engagement recoil cancel without a lock — pull-down always fires when armed."""
+        now = time.perf_counter() if time_sec is None else time_sec
+        if not math.isfinite(now):
+            now = time.perf_counter()
+        dt = self._frame_dt(now)
+        self._last_time = now
+        if not is_firing or not self._recoil.active:
+            self._recoil_bias(is_firing=False, dt=dt, err_x=0.0)
+            return PullResult(0, 0, 0.0, 0.0, 0.0)
+        bias_x, bias_y = self._recoil_bias(is_firing=True, dt=dt, err_x=err_x)
+        move_x, move_y = self._emit_integer_delta(bias_x, bias_y)
+        mag = math.hypot(move_x, move_y)
+        return PullResult(move_x, move_y, mag, 0.0, 0.0)
+
     def _magnetism_scale(self, dist: float) -> float:
         radius = self._tuning.magnetism_radius
         floor = self._tuning.magnetism_min_scale
@@ -229,6 +264,33 @@ class PullController:
             move_y = 1 if self._residual_y > 0 else -1
             self._residual_y -= move_y
         return move_x, move_y
+
+    def _recoil_bias(self, *, is_firing: bool, dt: float, err_x: float) -> tuple[float, float]:
+        """Engagement-gated recoil cancel; resets compensator state when not firing."""
+        if is_firing and self._recoil.active:
+            return self._recoil.compute_bias(is_firing=True, dt=dt, err_x=err_x)
+        if not is_firing:
+            self._recoil.compute_bias(is_firing=False, dt=dt, err_x=0.0)
+        return 0.0, 0.0
+
+    def _pull_result_from_bias_only(
+        self,
+        *,
+        is_firing: bool,
+        dt: float,
+        err_x: float,
+        dist: float,
+    ) -> PullResult:
+        """Deadzone path: emit recoil cancel without aim-pull velocity."""
+        bias_x, bias_y = self._recoil_bias(is_firing=is_firing, dt=dt, err_x=err_x)
+        move_x, move_y = self._emit_integer_delta(bias_x, bias_y)
+        return PullResult(
+            move_x,
+            move_y,
+            math.hypot(move_x, move_y),
+            0.0,
+            dist,
+        )
 
     def compute_delta(
         self,
@@ -319,35 +381,16 @@ class PullController:
             self._vel_y *= 1.0 - decay
             # Recoil compensation is engagement-gated, not aim-gated: when the
             # user is firing at a centred (in-deadzone) target the gun is still
-            # recoiling, so the pull-down / horizontal-jitter biases must still
-            # emit. They are applied as a separate additive integer delta,
-            # bypassing the velocity smoother and the residual accumulator
-            # (otherwise the bias would bleed into _vel_y and the cursor would
-            # keep drifting downward for several frames after release).
+            # recoiling, so pull-down / lateral-hold biases must still emit.
+            # Applied as additive float bias through the residual accumulator,
+            # bypassing the velocity smoother (otherwise bias bleeds into _vel_*).
             if is_firing and self._recoil.active:
-                bias_x, bias_y = self._recoil.compute_bias(is_firing=True, dt=dt)
-                self._residual_x += bias_x
-                self._residual_y += bias_y
-                move_x = int(self._residual_x)
-                move_y = int(self._residual_y)
-                self._residual_x -= move_x
-                self._residual_y -= move_y
-                if move_x == 0 and abs(self._residual_x) >= 0.55:
-                    move_x = 1 if self._residual_x > 0 else -1
-                    self._residual_x -= move_x
-                if move_y == 0 and abs(self._residual_y) >= 0.55:
-                    move_y = 1 if self._residual_y > 0 else -1
-                    self._residual_y -= move_y
-                return PullResult(
-                    move_x,
-                    move_y,
-                    math.hypot(move_x, move_y),
-                    0.0,
-                    dist,
+                return self._pull_result_from_bias_only(
+                    is_firing=True, dt=dt, err_x=err_x, dist=dist
                 )
             self._residual_x = 0.0
             self._residual_y = 0.0
-            self._recoil.compute_bias(is_firing=False, dt=dt)
+            self._recoil.compute_bias(is_firing=False, dt=dt, err_x=0.0)
             return PullResult(0, 0, 0.0, 0.0, dist)
 
         deadzone_scale = 1.0
@@ -358,30 +401,13 @@ class PullController:
                 ramp = (dist - 0.5) / max(dead - 0.5, 1.0)
                 deadzone_scale = max(0.20, min(1.0, ramp))
             if deadzone_scale <= 0.0 and is_firing and self._recoil.active:
-                bias_x, bias_y = self._recoil.compute_bias(is_firing=True, dt=dt)
-                self._residual_x += bias_x
-                self._residual_y += bias_y
-                move_x = int(self._residual_x)
-                move_y = int(self._residual_y)
-                self._residual_x -= move_x
-                self._residual_y -= move_y
-                if move_x == 0 and abs(self._residual_x) >= 0.55:
-                    move_x = 1 if self._residual_x > 0 else -1
-                    self._residual_x -= move_x
-                if move_y == 0 and abs(self._residual_y) >= 0.55:
-                    move_y = 1 if self._residual_y > 0 else -1
-                    self._residual_y -= move_y
-                return PullResult(
-                    move_x,
-                    move_y,
-                    math.hypot(move_x, move_y),
-                    0.0,
-                    dist,
+                return self._pull_result_from_bias_only(
+                    is_firing=True, dt=dt, err_x=err_x, dist=dist
                 )
             if deadzone_scale <= 0.0:
                 self._residual_x = 0.0
                 self._residual_y = 0.0
-                self._recoil.compute_bias(is_firing=False, dt=dt)
+                self._recoil.compute_bias(is_firing=False, dt=dt, err_x=0.0)
                 return PullResult(0, 0, 0.0, 0.0, dist)
 
         magnet = self._magnetism_scale(dist)
@@ -437,16 +463,11 @@ class PullController:
         if self._tuning.humanize_enabled:
             out_x, out_y = self._humanize.apply(out_x, out_y)
 
-        # Recoil + jitter bias is added AFTER the velocity smoother (so it
-        # doesn't bleed into _vel_x/_vel_y and cause oscillation post-fire)
-        # but BEFORE integer truncation (so the fractional pixel residual
-        # accumulator drains the bias correctly across frames).
-        if is_firing and self._recoil.active:
-            bias_x, bias_y = self._recoil.compute_bias(is_firing=True, dt=dt)
-            out_x += bias_x
-            out_y += bias_y
-        elif not is_firing:
-            self._recoil.compute_bias(is_firing=False, dt=dt)
+        # Recoil cancel is added AFTER the velocity smoother (no _vel_* bleed)
+        # but BEFORE integer truncation (residual drains sub-pixel bias).
+        bias_x, bias_y = self._recoil_bias(is_firing=is_firing, dt=dt, err_x=err_x)
+        out_x += bias_x
+        out_y += bias_y
 
         move_x, move_y = self._emit_integer_delta(out_x, out_y)
         mag = math.hypot(move_x, move_y)

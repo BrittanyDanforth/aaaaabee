@@ -38,12 +38,17 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         # The overlay write must check finiteness of overlay_motion coords
         # before passing them to to_monitor_coords + Tk overlay.
         self.assertIn(
-            "math.isfinite(overlay_motion.x)",
+            "overlay_motion.overlay_xy()",
+            text,
+            "overlay dot must use split overlay anchor",
+        )
+        self.assertIn(
+            "math.isfinite(ov_x)",
             text,
             "overlay dot must guard against non-finite motion coords",
         )
         self.assertIn(
-            "math.isfinite(overlay_motion.y)",
+            "math.isfinite(ov_y)",
             text,
         )
         # O2 (audit): clamp the overlay dot to the SMALLER of the

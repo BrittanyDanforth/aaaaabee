@@ -28,7 +28,7 @@ class StationaryDeadbandTests(unittest.TestCase):
             jitter_x = 500.0 + (1.0 if i % 2 == 0 else -1.0)
             jitter_y = 400.0 + (1.0 if i % 3 == 0 else -1.0)
             m = tracker.observe(jitter_x, jitter_y, i * dt)
-            positions.append((m.x, m.y))
+            positions.append(m.overlay_xy())
         xs = [p[0] for p in positions]
         ys = [p[1] for p in positions]
         # Deadband should keep the smoothed point pinned at the seed (500,400).

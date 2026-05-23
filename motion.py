@@ -63,10 +63,19 @@ def fov_distance_scale(dist: float, fov_radius: float, edge_min_scale: float) ->
 
 @dataclass
 class TargetMotion:
+    """Pull assist uses ``x``/``y``; overlay dot uses ``overlay_xy()`` when set."""
+
     x: float
     y: float
     vx: float = 0.0
     vy: float = 0.0
+    overlay_x: float | None = None
+    overlay_y: float | None = None
+
+    def overlay_xy(self) -> tuple[float, float]:
+        if self.overlay_x is not None and self.overlay_y is not None:
+            return self.overlay_x, self.overlay_y
+        return self.x, self.y
 
     def predict(
         self,
@@ -105,6 +114,8 @@ class TargetTracker:
         self._last_time: float | None = None
         self._smooth_x: float | None = None
         self._smooth_y: float | None = None
+        self._pull_x: float | None = None
+        self._pull_y: float | None = None
         self._last_meas_x: float | None = None
         self._last_meas_y: float | None = None
         self._vx: float = 0.0
@@ -225,6 +236,8 @@ class TargetTracker:
         self._last_time = None
         self._smooth_x = None
         self._smooth_y = None
+        self._pull_x = None
+        self._pull_y = None
         self._last_meas_x = None
         self._last_meas_y = None
         self._vx = 0.0
@@ -261,7 +274,7 @@ class TargetTracker:
         """
         self._last = None
         self._last_time = None
-        # Keep: _smooth_x/y, _last_meas_x/y
+        # Keep: _smooth_x/y, _pull_x/y, _last_meas_x/y
         self._vx = 0.0
         self._vy = 0.0
         self._body_bbox = None
@@ -453,6 +466,59 @@ class TargetTracker:
     def last_pre_predict_point(self) -> tuple[float, float] | None:
         return self._last_pre_predict
 
+    def _clamp_aim_output(self, x: float, y: float) -> tuple[float, float]:
+        if self._body_bbox is not None:
+            bx, by, bw, bh = self._body_bbox
+            x, y = self._clamp_to_body_bbox(x, y, bx, by, bw, bh)
+        if self._fov_radius is not None and self._fov_cx is not None and self._fov_cy is not None:
+            x, y = self._clamp_to_fov(x, y)
+            if self._body_bbox is not None:
+                bx, by, bw, bh = self._body_bbox
+                x, y = self._clamp_to_body_bbox(x, y, bx, by, bw, bh)
+        return x, y
+
+    def _finalize_pull_point(
+        self,
+        pre_x: float,
+        pre_y: float,
+        dt: float,
+        in_deadband: bool,
+    ) -> tuple[float, float]:
+        use_inline_lead = (
+            self._prediction_enabled
+            and not (self._aim_is_body_anchor and self._body_bbox is not None)
+            and not in_deadband
+        )
+        if use_inline_lead:
+            lead_dt = min(dt, _MAX_PRED_LEAD_S)
+            pred_x = pre_x + self._vx * lead_dt
+            pred_y = pre_y + self._vy * lead_dt
+            if pred_y < pre_y:
+                pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
+            if self._body_bbox is not None:
+                bx, by, bw, bh = self._body_bbox
+                mx = bw * _BODY_X_MARGIN_FRAC
+                pred_x = max(bx + mx, min(bx + bw - mx, pred_x))
+            pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
+            out_x = pre_x + pa * (pred_x - pre_x)
+            out_y = pre_y + pa * (pred_y - pre_y)
+        else:
+            out_x = pre_x
+            out_y = pre_y
+
+        motion = TargetMotion(out_x, out_y, self._vx, self._vy)
+        use_second_predict = (
+            self._prediction_enabled
+            and self._prediction_lead_s > 0.0
+            and self._prediction_max_px > 0.0
+            and not (self._aim_is_body_anchor and self._body_bbox is not None)
+            and not in_deadband
+        )
+        if use_second_predict:
+            px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
+            out_x, out_y = px, py
+        return self._clamp_aim_output(out_x, out_y)
+
     def observe(self, x: float, y: float, time_sec: float) -> TargetMotion:
         if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(time_sec)):
             if self._last is not None:
@@ -467,10 +533,13 @@ class TargetTracker:
         if self._smooth_x is None or self._smooth_y is None:
             self._smooth_x = x
             self._smooth_y = y
+            self._pull_x = x
+            self._pull_y = y
             self._last_meas_x = x
             self._last_meas_y = y
             self._last_time = time_sec
-            self._last = TargetMotion(x, y, 0.0, 0.0)
+            ox, oy = self._clamp_aim_output(x, y)
+            self._last = TargetMotion(x, y, 0.0, 0.0, overlay_x=ox, overlay_y=oy)
             return self._last
 
         if self._last_time is None:
@@ -536,77 +605,48 @@ class TargetTracker:
                 self._in_deadband = True
                 self._deadband_exit_frames = 0
         in_deadband = self._in_deadband
+        if self._pull_x is None or self._pull_y is None:
+            self._pull_x = self._smooth_x
+            self._pull_y = self._smooth_y
         if not in_deadband:
             self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
             self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
-        elif self._aim_is_body_anchor and self._body_bbox is not None:
-            # Pull must follow steady tracking: deadband freezes overlay jitter
-            # but the assist anchor still creeps toward the live measurement.
+            self._pull_x = self._pull_x + alpha * (x - self._pull_x)
+            self._pull_y = self._pull_y + alpha * (y - self._pull_y)
+        else:
+            # Overlay: gentle follow in deadband so Basic "Smoothness" (tau_still)
+            # still damps detector 1–3 px noise without freeing the pull anchor.
+            ov_cap = max(0.025, min(0.085, 0.12 - (_tau_still - 0.02) * 1.2))
+            ov_alpha = min(alpha_from_tau(dt, max(_tau_still * 2.2, 0.036)), ov_cap)
+            nx = self._smooth_x + ov_alpha * (x - self._smooth_x)
+            ny = self._smooth_y + ov_alpha * (y - self._smooth_y)
+            # Do not creep the overlay anchor upward on fragment hits (sky steal).
+            if y < self._smooth_y - 6.0:
+                ny = self._smooth_y
+            self._smooth_x, self._smooth_y = nx, ny
             if meas_drift > 0.4:
                 track_alpha = max(alpha * 0.55, alpha_from_tau(dt, 0.028))
-                self._smooth_x = self._smooth_x + track_alpha * (x - self._smooth_x)
-                self._smooth_y = self._smooth_y + track_alpha * (y - self._smooth_y)
+                self._pull_x = self._pull_x + track_alpha * (x - self._pull_x)
+                self._pull_y = self._pull_y + track_alpha * (y - self._pull_y)
 
-        pre_x, pre_y = self._smooth_x, self._smooth_y
-        self._last_pre_predict = (pre_x, pre_y)
+        pre_pull_x, pre_pull_y = self._pull_x, self._pull_y
+        self._last_pre_predict = (pre_pull_x, pre_pull_y)
 
-        use_inline_lead = (
-            self._prediction_enabled
-            and not (self._aim_is_body_anchor and self._body_bbox is not None)
-            and not in_deadband
-        )
-        if use_inline_lead:
-            lead_dt = min(dt, _MAX_PRED_LEAD_S)
-            pred_x = pre_x + self._vx * lead_dt
-            pred_y = pre_y + self._vy * lead_dt
-            if pred_y < pre_y:
-                pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
-            if self._body_bbox is not None:
-                bx, by, bw, bh = self._body_bbox
-                mx = bw * _BODY_X_MARGIN_FRAC
-                pred_x = max(bx + mx, min(bx + bw - mx, pred_x))
-            pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
-            out_x = pre_x + pa * (pred_x - pre_x)
-            out_y = pre_y + pa * (pred_y - pre_y)
-        else:
-            out_x = pre_x
-            out_y = pre_y
+        pull_x, pull_y = self._finalize_pull_point(pre_pull_x, pre_pull_y, dt, in_deadband)
+        overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
 
         self._last_meas_x = x
         self._last_meas_y = y
         self._last_time = time_sec
-        motion = TargetMotion(out_x, out_y, self._vx, self._vy)
-
-        use_second_predict = (
-            self._prediction_enabled
-            and self._prediction_lead_s > 0.0
-            and self._prediction_max_px > 0.0
-            and not (self._aim_is_body_anchor and self._body_bbox is not None)
-            and not in_deadband
+        self._last_pred_offset = (pull_x - pre_pull_x, pull_y - pre_pull_y)
+        self._last = TargetMotion(
+            pull_x,
+            pull_y,
+            self._vx,
+            self._vy,
+            overlay_x=overlay_x,
+            overlay_y=overlay_y,
         )
-        if use_second_predict:
-            px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
-            motion = TargetMotion(px, py, self._vx, self._vy)
-
-        if self._body_bbox is not None:
-            bx, by, bw, bh = self._body_bbox
-            clamped_x, clamped_y = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
-            motion = TargetMotion(clamped_x, clamped_y, motion.vx, motion.vy)
-
-        if self._fov_radius is not None and self._fov_cx is not None and self._fov_cy is not None:
-            fx, fy = self._clamp_to_fov(motion.x, motion.y)
-            motion = TargetMotion(fx, fy, motion.vx, motion.vy)
-            # M4 (audit): re-apply body-bbox clamp AFTER the FOV clamp so
-            # a radial FOV pull cannot push Y above the chest band. Order
-            # used to be body -> FOV; FOV could drag Y up onto the head
-            # plate or even out of the bbox at extreme edge positions.
-            if self._body_bbox is not None:
-                bx, by, bw, bh = self._body_bbox
-                cbx, cby = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
-                motion = TargetMotion(cbx, cby, motion.vx, motion.vy)
-
-        self._last_pred_offset = (motion.x - pre_x, motion.y - pre_y)
-        self._last = motion
         return self._last
 
 
@@ -658,23 +698,28 @@ class HumanizedMotion:
         return out_x, out_y
 
 
+_RECOIL_RAMP_TAU_S = 0.22
+
+
 class RecoilCompensator:
     """
     Engagement-gated recoil-helper bias.
 
     While the caller signals ``is_firing=True``:
-      * a steady downward Y bias is added (``pull_down_px_per_s``)
-      * a band-limited sinusoidal horizontal jitter is added
-        (``jitter_amplitude_px`` × sin(2π · jitter_frequency_hz · t)).
+      * a ramped downward Y bias (``pull_down_px_per_s``) eases in over
+        ~``_RECOIL_RAMP_TAU_S`` so sustained fire feels smooth, not a snap
+      * horizontal ``jitter_*`` keys drive lateral *stabilization*: an extra
+        pull toward reducing ``err_x`` (passed from ``PullController``),
+        capped by ``jitter_amplitude_px`` and scaled by ``jitter_frequency_hz``
+        as response rate — not a sinusoidal shake
 
     Bias is *additive* on top of the pull velocity — it is NOT fed back into
     the velocity smoother. That's important: it would otherwise leak into the
     EMA state and the cursor would keep drifting downward for several frames
     after the user stops firing.
 
-    When ``is_firing=False`` the compensator returns the input unchanged and
-    its phase is reset, so the next trigger-pull starts cleanly at phase 0
-    instead of resuming a random offset.
+    When ``is_firing=False`` the ramp and firing timer reset so the next burst
+    starts from zero pull-down and zero lateral correction (on-target err_x=0).
     """
 
     def __init__(
@@ -691,7 +736,7 @@ class RecoilCompensator:
         self._jitter_enabled = bool(jitter_enabled)
         self._jitter_amp = max(0.0, min(_finite(jitter_amplitude_px, 0.0), 6.0))
         self._jitter_hz = max(0.0, min(_finite(jitter_frequency_hz, 6.0), 20.0))
-        self._phase = 0.0
+        self._fire_duration = 0.0
         self._was_firing = False
 
     @property
@@ -702,20 +747,27 @@ class RecoilCompensator:
         return recoil_on or jitter_on
 
     def reset(self) -> None:
-        self._phase = 0.0
+        self._fire_duration = 0.0
         self._was_firing = False
 
-    def compute_bias(self, *, is_firing: bool, dt: float) -> tuple[float, float]:
+    def compute_bias(
+        self,
+        *,
+        is_firing: bool,
+        dt: float,
+        err_x: float = 0.0,
+    ) -> tuple[float, float]:
         """
         Returns (bias_x, bias_y) in pixels for this frame.
 
         - bias_y is positive-down (matches the screen-coordinate convention
-          used by `compute_delta`).
-        - bias_x is the horizontal jitter sample for this frame.
+          used by ``compute_delta``).
+        - bias_x stabilizes lateral aim by correcting toward ``err_x → 0``;
+          on-target (``err_x ≈ 0``) produces no horizontal bias.
         """
         if not is_firing:
             if self._was_firing:
-                self._phase = 0.0
+                self._fire_duration = 0.0
             self._was_firing = False
             return 0.0, 0.0
 
@@ -723,22 +775,20 @@ class RecoilCompensator:
         if dt <= 0.0 or dt > 0.5:
             dt = 1.0 / 60.0
         self._was_firing = True
+        self._fire_duration += dt
 
         bias_y = 0.0
         if self._recoil_enabled and self._pull_down > 0.0:
-            bias_y = self._pull_down * dt
+            ramp = 1.0 - math.exp(-self._fire_duration / _RECOIL_RAMP_TAU_S)
+            bias_y = self._pull_down * dt * ramp
 
         bias_x = 0.0
         if self._jitter_enabled and self._jitter_amp > 0.0 and self._jitter_hz > 0.0:
-            # Sample BEFORE advancing the phase. The first firing frame after
-            # reset/release therefore emits sin(0)=0, ensuring an engagement
-            # starts with no horizontal kick — important so the integer-truncation
-            # path doesn't immediately pop a 1-px sideways step the user would
-            # perceive as input lag.
-            bias_x = self._jitter_amp * math.sin(self._phase)
-            self._phase += 2.0 * math.pi * self._jitter_hz * dt
-            if self._phase > 1e6:
-                self._phase = math.fmod(self._phase, 2.0 * math.pi)
+            ex = _finite(err_x, 0.0)
+            # Higher jitter_frequency_hz → snappier lateral hold (legacy key).
+            alpha = 1.0 - math.exp(-self._jitter_hz * dt * 0.35)
+            correct = ex * alpha
+            bias_x = max(-self._jitter_amp, min(self._jitter_amp, correct))
 
         if not (math.isfinite(bias_x) and math.isfinite(bias_y)):
             return 0.0, 0.0

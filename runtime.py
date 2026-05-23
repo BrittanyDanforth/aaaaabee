@@ -686,6 +686,7 @@ class AssistRuntime:
             self._ads_hold_frames = 0
             self._detect_ctx._validated_bbox = None
             self._detect_ctx._validated_credit = 0
+            self._aim_tracker.reset_overlay_smoothing()
             with self._lock:
                 self._target_lock.overlay_confirm_frames = 0
         if self._prev_ads_for_assist and not ads_for_assist:
@@ -1046,6 +1047,9 @@ class AssistRuntime:
                             self._pull.reset()
                         self._aim_tracker.reset()
                         self._detect_ctx.reset()
+                        if self._overlay is not None:
+                            self._aim_tracker.reset_overlay_smoothing()
+                            self._overlay.set_state(False, None)
                         sleep_time = frame_interval - (time.perf_counter() - t0)
                         self._sleep_interruptible(sleep_time)
                         continue
@@ -1130,6 +1134,8 @@ class AssistRuntime:
                     pull_px = 0.0
                     pull_strength = 0.0
                     stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
+                    with self._lock:
+                        firing_now = self._is_firing
                     may_pull = (
                         pull_target is not None
                         and target is not None
@@ -1148,8 +1154,6 @@ class AssistRuntime:
                         and may_pull
                         and self._pull is not None
                     ):
-                        with self._lock:
-                            firing_now = self._is_firing
                         pr = self._pull.compute_delta(
                             pull_target,
                             frame_cx,
@@ -1200,6 +1204,31 @@ class AssistRuntime:
                                 achieved_fps=ach_fps,
                             )
 
+                    elif (
+                        not paused
+                        and self._should_run()
+                        and ads_for_assist
+                        and firing_now
+                        and self._pull is not None
+                        and self._pull.recoil_pull_down_active()
+                    ):
+                        # Recoil cancel is NOT gated on detection — always pull down
+                        # while ADS+LMB even if lock glitches or target is centered.
+                        err_x = 0.0
+                        if pull_target is not None:
+                            err_x = pull_target.centroid_x - frame_cx
+                        pr = self._pull.compute_recoil_only(
+                            time_sec=t0,
+                            is_firing=True,
+                            err_x=err_x,
+                        )
+                        pull_px = pr.magnitude
+                        with self._lock:
+                            self._last_pull_dx = pr.dx
+                            self._last_pull_dy = pr.dy
+                        if (pr.dx != 0 or pr.dy != 0) and self._should_run():
+                            self._safe_mouse_move(pr.dx, pr.dy)
+
                     elif ads_for_assist and self._trace_pull and pull_target is None:
                         gate_result = MouseGateResult(True, "")
                         loop_ms = (time.perf_counter() - t0) * 1000.0
@@ -1227,11 +1256,19 @@ class AssistRuntime:
                             achieved_fps=ach_fps,
                         )
 
-                    elif (not ads_for_assist or paused or target is None) and self._pull is not None:
-                        self._pull.reset()
-                        with self._lock:
-                            self._last_pull_dx = 0
-                            self._last_pull_dy = 0
+                    elif self._pull is not None:
+                        if not ads_for_assist or paused:
+                            self._pull.reset()
+                            with self._lock:
+                                self._last_pull_dx = 0
+                                self._last_pull_dy = 0
+                        elif target is None and not firing_now:
+                            self._pull.reset()
+                            with self._lock:
+                                self._last_pull_dx = 0
+                                self._last_pull_dy = 0
+                        elif target is None and firing_now:
+                            self._pull.reset_assist_velocity()
 
                     with self._lock:
                         elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -1286,14 +1323,16 @@ class AssistRuntime:
                             if show_overlay_dot
                             else None
                         )
+                        if overlay_motion is not None:
+                            ov_x, ov_y = overlay_motion.overlay_xy()
+                        else:
+                            ov_x, ov_y = float("nan"), float("nan")
                         if (
                             overlay_motion is not None
-                            and math.isfinite(overlay_motion.x)
-                            and math.isfinite(overlay_motion.y)
+                            and math.isfinite(ov_x)
+                            and math.isfinite(ov_y)
                         ):
-                            ox, oy = to_monitor_coords(
-                                overlay_motion.x, overlay_motion.y, cap_region
-                            )
+                            ox, oy = to_monitor_coords(ov_x, ov_y, cap_region)
                             fov_cx_mon = float(center_x)
                             fov_cy_mon = float(center_y)
                             odx = ox - fov_cx_mon
@@ -1337,7 +1376,8 @@ class AssistRuntime:
                                     sx = fov_cx_mon + sodx * scale_r
                                     sy = fov_cy_mon + sody * scale_r
                                 overlay_pt = (sx, sy)
-                        else:
+                        elif target is None or not detection_fresh:
+                            # Keep EMA warm during 2-frame confirm; clear only on real loss.
                             self._aim_tracker.reset_overlay_smoothing()
                         self._overlay.set_state(ads_for_assist, overlay_pt)
 

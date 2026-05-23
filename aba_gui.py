@@ -569,6 +569,24 @@ class AbaApplication:
 
     def _on_bool_change(self, key: str) -> None:
         patch = {key: bool(self._bool_vars[key].get())}
+        if key == "jitter_enabled" and patch[key]:
+            amp_key = "jitter_amplitude_pixels"
+            amp = float(self.config.get(amp_key, 0.0))
+            if amp < 0.1 and amp_key in self._sliders:
+                amp = 1.5
+                self._sliders[amp_key].set(amp)
+                patch[amp_key] = amp
+            # Recoil cancel works best with pull-down — arm a sane default if off.
+            if not bool(self.config.get("recoil_compensation_enabled", False)):
+                patch["recoil_compensation_enabled"] = True
+                if "recoil_compensation_enabled" in self._bool_vars:
+                    self._bool_vars["recoil_compensation_enabled"].set(True)
+            pull_key = "recoil_pull_down_pixels_per_second"
+            pull = float(self.config.get(pull_key, 0.0))
+            if pull < 1.0 and pull_key in self._sliders:
+                pull = 25.0
+                self._sliders[pull_key].set(pull)
+                patch[pull_key] = pull
         try:
             self.config = self._controller.apply_config_patch(patch, persist=False)
         except Exception as exc:
@@ -666,7 +684,12 @@ class AbaApplication:
         self._slider(
             parent, "Smoothness", "smoothing_tau_still",
             minimum=0.02, maximum=0.15, resolution=0.002,
-            tooltip="higher = smoother but laggier",
+            tooltip="aim + dot damping on locked targets (higher = smoother, less swim)",
+        )
+        self._slider(
+            parent, "Red dot smoothness", "overlay_dot_smooth_alpha",
+            minimum=0.15, maximum=0.90, resolution=0.02,
+            tooltip="red overlay dot only — lower = smoother (not mouse recoil shake)",
         )
         self._slider(
             parent, "Moving Target Response", "smoothing_tau_moving",
@@ -765,34 +788,39 @@ class AbaApplication:
             tooltip="frames mouse can still move after losing detection",
         )
 
-        self._section(parent, "Recoil & jitter (engagement-gated)")
+        self._section(parent, "Recoil cancel (mouse only — not the red dot)")
         tk.Label(
             parent,
             text=(
-                "Both behaviours fire ONLY while LMB is held AND a target is locked. "
-                "Recoil pull-down compensates for muzzle climb; jitter breaks recoil "
-                "patterns. Leave OFF for pure tracking — turn on for the Strong preset."
+                "Fights weapon recoil so the crosshair stays on the lock while LMB is held. "
+                "Does not move the red overlay dot. Pull-down counters muzzle climb (ramps in "
+                "over ~0.2s). Lateral hold adds sideways correction only when aim is off-center "
+                "— on-target it stays straight (no sine shake). ABA must be running."
             ),
             bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
             justify=tk.LEFT,
         ).pack(anchor="w", pady=(0, 6))
-        self._toggle(parent, "Recoil compensation (downward pull while firing)",
+        self._toggle(parent, "Recoil pull-down (counter muzzle climb)",
                      "recoil_compensation_enabled")
         self._slider(
-            parent, "Recoil pull-down (px/s)", "recoil_pull_down_pixels_per_second",
+            parent, "Pull-down strength (px/s)", "recoil_pull_down_pixels_per_second",
             minimum=0.0, maximum=180.0, resolution=1.0, is_int=False,
-            tooltip="downward velocity added while LMB held (0 = off)",
+            tooltip="downward mouse speed while firing — Strong preset ≈ 25",
         )
-        self._toggle(parent, "Horizontal jitter (LMB held)", "jitter_enabled")
+        self._toggle(
+            parent,
+            "Lateral recoil hold (LMB held)",
+            "jitter_enabled",
+        )
         self._slider(
-            parent, "Jitter amplitude (px)", "jitter_amplitude_pixels",
+            parent, "Lateral hold max (px/frame)", "jitter_amplitude_pixels",
             minimum=0.0, maximum=6.0, resolution=0.1,
-            tooltip="peak left/right pixels while firing",
+            tooltip="max sideways correction per frame toward target — 0 = off",
         )
         self._slider(
-            parent, "Jitter frequency (Hz)", "jitter_frequency_hz",
+            parent, "Lateral hold response (Hz)", "jitter_frequency_hz",
             minimum=0.5, maximum=20.0, resolution=0.5,
-            tooltip="how fast the side-to-side jitter cycles",
+            tooltip="how fast sideways correction engages (higher = snappier)",
         )
 
     # === DEBUG TAB ===

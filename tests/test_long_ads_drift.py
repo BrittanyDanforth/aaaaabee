@@ -65,12 +65,12 @@ class LongAdsDriftTests(unittest.TestCase):
         self.assertIs(effective.target, locked)
         self.assertEqual(state.locked_target, locked)
 
-    def test_overlay_confirm_resets_on_upward_jump(self) -> None:
+    def test_overlay_confirm_resets_on_upward_sky_jump(self) -> None:
         from target_lock import overlay_may_show_target
 
         state = TargetLockState()
-        t1 = _body(centroid_y=400.0)
-        t2 = _body(centroid_y=360.0)
+        t1 = _body(centroid_y=400.0, bbox_y=300, bbox_h=140)
+        t2 = _body(centroid_y=180.0, bbox_y=40, bbox_h=80)
         overlay_may_show_target(
             t1, detection_fresh=True, center_y=540.0, lock_state=state
         )

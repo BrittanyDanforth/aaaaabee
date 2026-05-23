@@ -500,7 +500,10 @@ class OverlayWindow:
     def set_state(self, ads: bool, target: tuple[float, float] | None) -> None:
         with self._lock:
             self._active = ads
-            self._target = target
+            if target is None:
+                self._target = None
+            else:
+                self._target = (float(target[0]), float(target[1]))
         self._request_redraw()
 
     def _request_redraw(self) -> None:
@@ -524,9 +527,13 @@ class OverlayWindow:
             self._sync_fov_ring()
 
             if target is not None:
-                tx, ty = int(round(target[0])), int(round(target[1]))
-                r = 6
-                self._canvas.coords(self._target_id, tx - r, ty - r, tx + r, ty + r)
+                # Sub-pixel coords — runtime already EMA-smooths; do not int(round)
+                # or stack a second EMA here (that caused laggy/wobbly dot feel).
+                tx, ty = float(target[0]), float(target[1])
+                r = 6.0
+                self._canvas.coords(
+                    self._target_id, tx - r, ty - r, tx + r, ty + r
+                )
                 self._canvas.itemconfig(
                     self._target_id,
                     outline="#ff4444",

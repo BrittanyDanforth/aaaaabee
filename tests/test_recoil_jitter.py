@@ -91,35 +91,28 @@ class RecoilCompensatorUnitTests(unittest.TestCase):
         )
         max_bx = 0.0
         max_by = 0.0
-        # Sweep one full second so the sine wave samples its full envelope.
         for _ in range(60):
-            bx, by = rc.compute_bias(is_firing=True, dt=1.0 / 60.0)
+            bx, by = rc.compute_bias(is_firing=True, dt=1.0 / 60.0, err_x=12.0)
             max_bx = max(max_bx, abs(bx))
             max_by = max(max_by, by)
-        # Horizontal jitter must stay below the amplitude (≤ 2.0 px).
-        self.assertLess(max_bx, 2.0 + 1e-6)
-        # Per-frame Y bias at 60 Hz ≈ 60 / 60 = 1.0 px — well under "per-frame
-        # < expected" sanity bound. We assert it's strictly less than 60/60 + 0.5.
+        self.assertLessEqual(max_bx, 2.0 + 1e-6)
         self.assertLess(max_by, 1.5)
-        # And strictly greater than zero (we did fire).
         self.assertGreater(max_by, 0.5)
 
-    def test_phase_resets_on_release(self) -> None:
+    def test_ramp_resets_on_release(self) -> None:
         rc = RecoilCompensator(
-            recoil_enabled=False,
-            pull_down_px_per_s=0.0,
-            jitter_enabled=True,
-            jitter_amplitude_px=2.0,
+            recoil_enabled=True,
+            pull_down_px_per_s=60.0,
+            jitter_enabled=False,
+            jitter_amplitude_px=0.0,
             jitter_frequency_hz=8.0,
         )
-        # Advance the phase mid-fire.
         for _ in range(20):
-            rc.compute_bias(is_firing=True, dt=1.0 / 60.0)
-        # Release.
-        rc.compute_bias(is_firing=False, dt=1.0 / 60.0)
-        # The very next firing frame must start from phase ≈ 0 → bias ≈ 0.
-        bx, _ = rc.compute_bias(is_firing=True, dt=1.0 / 60.0)
-        self.assertLess(abs(bx), 0.4)
+            rc.compute_bias(is_firing=True, dt=1.0 / 60.0, err_x=0.0)
+        _, by_before = rc.compute_bias(is_firing=True, dt=1.0 / 60.0, err_x=0.0)
+        rc.compute_bias(is_firing=False, dt=1.0 / 60.0, err_x=0.0)
+        _, by_after = rc.compute_bias(is_firing=True, dt=1.0 / 60.0, err_x=0.0)
+        self.assertLess(by_after, by_before * 0.6)
 
 
 class PullControllerRecoilTests(unittest.TestCase):
@@ -190,12 +183,12 @@ class PullControllerRecoilTests(unittest.TestCase):
         for dx, dy in deltas:
             self.assertLess(abs(dx), 2 + 1)  # amplitude + 1
             self.assertLess(abs(dy), 2 + 1)  # per-frame recoil + 1 (residual edge)
-        # Cumulative Y bias should be net downward over a second.
+        # Cumulative Y bias should be net downward over a second (ramp eases in).
         total_dy = sum(dy for _, dy in deltas)
-        self.assertGreater(total_dy, 30, "Recoil pull-down should accumulate downward")
-        # Cumulative X bias of a pure sine should be close to zero.
+        self.assertGreater(total_dy, 25, "Recoil pull-down should accumulate downward")
+        # On-target lateral hold: err_x≈0 → no sideways shake.
         total_dx = sum(dx for dx, _ in deltas)
-        self.assertLess(abs(total_dx), 6, "Jitter mean should be near zero over a full second")
+        self.assertEqual(total_dx, 0, "On-target stabilization must not lateral-shake")
 
     def test_hot_reload_via_update_tuning(self) -> None:
         ctrl = PullController(_tuning())
@@ -237,9 +230,8 @@ class PullControllerRecoilTests(unittest.TestCase):
         )
         self._run_frames(ctrl, 20, is_firing=True)
         ctrl.reset()
-        # After reset the compensator phase is back to zero. First firing
-        # frame after reset must emit ≈ 0 horizontal jitter (sin(0)=0) and
-        # because the residual was also cleared, the integer delta is 0.
+        # After reset the ramp timer is zero. On-target lateral hold is 0;
+        # residual cleared so first frame may emit no integer step.
         pr = ctrl.compute_delta(
             _on_target_tgt(200.0, 200.0),
             200.0,
@@ -291,18 +283,17 @@ class PullControllerRecoilTests(unittest.TestCase):
         )
         deltas = self._run_frames(ctrl, 120, is_firing=True)
         total_dy = sum(dy for _, dy in deltas)
-        # Expected float total: 10 px/s × 2 s = 20 px. Residual should keep
-        # us within 1 px of that.
+        # Ramp reduces early frames; 10 px/s × 2 s ≈ 20 px — allow ramp slack.
         self.assertTrue(
-            19 <= total_dy <= 21,
-            f"Residual drain off: total_dy={total_dy}, expected ~20",
+            16 <= total_dy <= 21,
+            f"Residual drain off: total_dy={total_dy}, expected ~18-20 with ramp",
         )
 
     def test_concurrent_pull_and_bias_on_offset_target(self) -> None:
         """
         Off-crosshair target → normal pull engages. With recoil enabled, the
-        Y output should be MORE downward than pull alone, but X output
-        should be approximately the same (jitter zero-mean).
+        Y output should be MORE downward than pull alone. With lateral hold
+        enabled, horizontal pull should be slightly stronger (same sign as err_x).
         """
         target = (260.0, 200.0)  # 60 px right of crosshair
         center = (200.0, 200.0)
@@ -326,14 +317,26 @@ class PullControllerRecoilTests(unittest.TestCase):
 
         total_dy_baseline = sum(dy for _, dy in deltas_baseline)
         total_dy_recoil = sum(dy for _, dy in deltas_with)
-        # Recoil branch must drift more downward (positive dy = down in screen
-        # coords).
         self.assertGreater(total_dy_recoil, total_dy_baseline + 10)
 
         total_dx_baseline = sum(dx for dx, _ in deltas_baseline)
         total_dx_recoil = sum(dx for dx, _ in deltas_with)
-        # Horizontal pull should be unchanged within rounding.
         self.assertLess(abs(total_dx_recoil - total_dx_baseline), 3)
+
+        ctrl_hold = PullController(
+            _tuning(
+                recoil_compensation_enabled=False,
+                recoil_pull_down_pixels_per_second=0.0,
+                jitter_enabled=True,
+                jitter_amplitude_pixels=2.0,
+                jitter_frequency_hz=8.0,
+            )
+        )
+        deltas_hold = self._run_frames(
+            ctrl_hold, 30, is_firing=True, target_xy=target, center_xy=center
+        )
+        total_dx_hold = sum(dx for dx, _ in deltas_hold)
+        self.assertGreater(total_dx_hold, total_dx_baseline + 5)
 
 
 class ProfileDefaultsTests(unittest.TestCase):

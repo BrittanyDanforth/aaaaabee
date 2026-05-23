@@ -198,7 +198,11 @@ def overlay_may_show_target(
             lock_state._overlay_last_cy = None
             return False
         last_cy = getattr(lock_state, "_overlay_last_cy", None)
-        if last_cy is not None and target.centroid_y < float(last_cy) - 22.0:
+        if (
+            last_cy is not None
+            and target.centroid_y < float(last_cy) - 22.0
+            and bbox_mid_in_sky_band(target.bbox_y, target.bbox_h, center_y)
+        ):
             lock_state.overlay_confirm_frames = 0
         lock_state._overlay_last_cy = float(target.centroid_y)
         lock_state.overlay_confirm_frames += 1
@@ -359,12 +363,9 @@ def apply_target_lock(
             if state.target_lost_frames == 0:
                 state.switch_candidate = None
                 state.switch_frames = 0
-                if (
-                    adopt_iou >= SOFT_REFINE_MIN_IOU
-                    and not clutter_fp
-                    and not new_is_env
-                    and _passes_instant_refine_gates(new_t)
-                ):
+                # Same guards as instant/soft refine — weak IoU-only adopt caused
+                # upward head/HUD fragments to steal the lock on moving enemies.
+                if soft_refine_ok:
                     state.locked_target = new_t
                     return result, False
                 return (
