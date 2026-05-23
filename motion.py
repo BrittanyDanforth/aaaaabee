@@ -113,6 +113,18 @@ class TargetTracker:
         self._prediction_lead_s: float = _MAX_PRED_LEAD_S
         self._prediction_max_px: float = _MAX_PRED_PX
         self._body_bbox: tuple[int, int, int, int] | None = None
+        # PHASE-7 AUDIT FIX (CRIT3): track the last stable body bbox so we
+        # can refuse a single-frame fragment (e.g. the detector returns
+        # just the helmet because the enemy crouched or slid behind
+        # cover). When the new bbox jumps significantly upward OR shrinks
+        # dramatically we treat it as a likely fragment and keep using
+        # the previous stable bbox for the chest-band clamp for a few
+        # frames, giving the detector time to re-acquire the full body.
+        # Without this, a 40-px head fragment replacing a 140-px torso
+        # bbox would jump the chest-band clamp upward by ~30 px in one
+        # frame, manifesting as visible aim drift.
+        self._last_stable_bbox: tuple[int, int, int, int] | None = None
+        self._stable_bbox_hold_frames: int = 0
         self._aim_is_body_anchor: bool = True
         self._fov_cx: float | None = None
         self._fov_cy: float | None = None
@@ -215,6 +227,8 @@ class TargetTracker:
         self._vx = 0.0
         self._vy = 0.0
         self._body_bbox = None
+        self._last_stable_bbox = None
+        self._stable_bbox_hold_frames = 0
         self._aim_is_body_anchor = True
         self._fov_cx = None
         self._fov_cy = None
@@ -248,6 +262,12 @@ class TargetTracker:
         self._vx = 0.0
         self._vy = 0.0
         self._body_bbox = None
+        # PHASE-7 (CRIT3): soft_reset also clears the stable-bbox cache
+        # because the lock has been released — no continuity assumption
+        # holds between the old target and whatever new body the
+        # next observation will refer to.
+        self._last_stable_bbox = None
+        self._stable_bbox_hold_frames = 0
         self._last_pred_offset = (0.0, 0.0)
         self._last_pre_predict = None
         self._in_deadband = False
@@ -351,7 +371,38 @@ class TargetTracker:
             and bbox_h > 0
         ):
             bx, by, bw, bh = int(bbox_x), int(bbox_y), int(bbox_w), int(bbox_h)
-            self._body_bbox = (bx, by, bw, bh)
+            # PHASE-7 AUDIT FIX (CRIT3): stabilise the bbox used for the
+            # chest-band clamp against single-frame fragment hits.
+            # ``bx, by, bw, bh`` is the bbox the detector returned this
+            # frame; ``cx, cy, cw, ch`` is what we ACTUALLY use for the
+            # clamp.  When the new bbox jumps upward (top above the prior
+            # stable top by more than 20% of stable height) OR shrinks
+            # dramatically (h < 55% of stable h), we treat it as a likely
+            # fragment and keep using the prior stable bbox for the next
+            # few frames.  After ``_STABLE_BBOX_HOLD_MAX`` consecutive
+            # fragment frames the detector has clearly committed to the
+            # smaller bbox, so we accept it as the new baseline.
+            cx, cy, cw, ch = bx, by, bw, bh
+            _STABLE_BBOX_HOLD_MAX = 4
+            prev = self._last_stable_bbox
+            if prev is not None:
+                pbx, pby, pbw, pbh = prev
+                upward_jump = by < pby - pbh * 0.20
+                shrunk = bh < pbh * 0.55
+                if (upward_jump or shrunk) and self._stable_bbox_hold_frames < _STABLE_BBOX_HOLD_MAX:
+                    cx, cy, cw, ch = pbx, pby, pbw, pbh
+                    self._stable_bbox_hold_frames += 1
+                else:
+                    self._last_stable_bbox = (bx, by, bw, bh)
+                    self._stable_bbox_hold_frames = 0
+            else:
+                self._last_stable_bbox = (bx, by, bw, bh)
+                self._stable_bbox_hold_frames = 0
+            self._body_bbox = (cx, cy, cw, ch)
+            # Recompute bx/by/bw/bh to refer to the STABILISED bbox so
+            # the rest of this method (clamp, column blend, last_meas
+            # step cap) operates against the stable baseline.
+            bx, by, bw, bh = cx, cy, cw, ch
             if self._aim_is_body_anchor:
                 x, y = self._clamp_to_body_bbox(x, y, bx, by, bw, bh)
             else:
