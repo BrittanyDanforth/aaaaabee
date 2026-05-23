@@ -32,6 +32,7 @@ if not exist "%HWID_BAT%" goto :HwidMissing
 call :Log "Running HWID pre-step: %HWID_BAT%"
 echo.
 echo Running HWID pre-step - Administrator may be required...
+echo   Tip: first Rust build needs ~4-8 GB free RAM; use HWIDTool\bin\hwspoof.exe to skip compile.
 set "HWID_QUIET=1"
 call "%HWID_BAT%"
 set "HWID_QUIET="
@@ -55,8 +56,17 @@ set "FAILMSG=HWID verification failed. See HWIDTool\logs\hwid_verify_report.txt 
 goto :SetupFail
 
 :HwidFail
-set "FAILMSG=HWID pre-step failed. Run HWIDTool\run_hwid.bat as Administrator, or set HWID_SKIP=1."
+if /I "%HWID_CONTINUE_ON_FAIL%"=="1" goto :HwidWarnContinue
+set "FAILMSG=HWID pre-step failed. See HWIDTool\logs\hwid_setup.log. Fix: Run_As_Admin.bat, or copy hwspoof.exe to HWIDTool\bin\, or set HWID_SKIP=1 to install ABA only, or HWID_CONTINUE_ON_FAIL=1 to warn and continue."
 goto :SetupFail
+
+:HwidWarnContinue
+call :Log "HWID pre-step failed - HWID_CONTINUE_ON_FAIL=1, continuing ABA setup"
+echo.
+echo WARNING: HWID pre-step failed - continuing ABA setup (HWID_CONTINUE_ON_FAIL=1).
+echo   Run HWIDTool\Run_As_Admin.bat later, or set HWID_SKIP=1 on future runs.
+echo.
+goto :HwidDone
 
 :HwidDone
 

@@ -4,6 +4,8 @@
 
 **Double-click** `HWIDTool\Run_As_Admin.bat` (best — fixes false "need admin" in PowerShell).
 
+If `cargo build` fails with **memory allocation** or **can't find crate for std**, that is usually out-of-RAM during compile, not a broken Rust install. Close apps, retry, or copy a prebuilt `hwspoof.exe` into `HWIDTool\bin\`. To install ABA without HWID: `set HWID_SKIP=1` then `run_windows.bat`.
+
 The full BEFORE/AFTER report prints in the terminal. You do not need to open log files.
 
 Optional logs: `HWIDTool\logs\hwid_verify_report.txt` — look for **VERDICT: SUCCESS** and **CHANGED ✓**.  

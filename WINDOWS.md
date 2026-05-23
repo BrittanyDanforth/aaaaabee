@@ -8,6 +8,16 @@ Use a **controlled offline / dev** environment (firing range, private build). **
 run_windows.bat
 ```
 
+Runs an optional **HWID pre-step** (hardware IDs only — not required for ABA Python). If Rust compile fails on a low-RAM PC, use one of:
+
+| Option | What it does |
+|--------|----------------|
+| `set HWID_SKIP=1` then `run_windows.bat` | Skip HWID; install and launch ABA only |
+| Copy official `hwspoof.exe` to `HWIDTool\bin\` | Skip Rust compile (see `HWIDTool\bin\README.txt`) |
+| `set HWID_CONTINUE_ON_FAIL=1` | Warn and continue ABA setup if HWID fails |
+
+First local compile uses a low-memory Cargo profile (`release-lowmem`, 1 job). Out-of-memory during build leaves corrupt `target\` artifacts — `run_hwid.bat` runs `cargo clean` and retries once. See `HWIDTool\logs\hwid_setup.log`.
+
 - `cd /d` to the batch folder (works with spaces in path)
 - Finds Python: **py -3** → **python** → **python3**
 - Creates `.venv` with quoted paths

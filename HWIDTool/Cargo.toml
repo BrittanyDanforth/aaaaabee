@@ -56,6 +56,15 @@ strip = "symbols"
 opt-level = 3
 strip = true
 
+# Used by run_hwid.bat for first-time local builds. Fat LTO + codegen-units=1 in
+# [profile.release] can exceed 8 GB RAM during compile; this profile trades a
+# bit of binary size for builds that succeed on typical student laptops.
+[profile.release-lowmem]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+incremental = true
+
 [[bin]]
 name = "hwspoof"
 path = "src/main.rs"
