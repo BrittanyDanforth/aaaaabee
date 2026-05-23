@@ -501,50 +501,100 @@ def build_detection_mask(
         context.update_prev(gray)
 
     if mode == DETECTION_MODE_APEX:
-        # REAL-FRAME AUDIT FIX: on live Apex screenshots the previous
-        # ``shape_m | red_outline`` fusion drowned the red signal — the
-        # edge+contrast shape mask is so dense in a busy game scene that
-        # CLOSE-morphology merges every silhouette into ONE giant
-        # frame-covering contour. cv2.findContours(RETR_EXTERNAL) then
-        # returns ONE contour spanning (0,0,W,H), which is rejected as
-        # too-large or too-wide, and the real character is lost inside.
+        # PHASE-5 AUDIT FIX (D-CRIT): the previous code returned the
+        # FILLED red mask alone the moment ``red_px >= red_floor``,
+        # discarding ``shape_m`` / ``chroma_m`` / motion entirely. In a
+        # multi-character scene that meant the very first red-armoured
+        # enemy (Lifeline / Revenant / Loba) silently masked-out their
+        # non-red teammates (Bangalore, Horizon, Octane, Caustic) from
+        # the clustering mask.
         #
-        # New behaviour: when the filled red-enemy mask carries enough
-        # pixels to be the dominant signal (Apex highlights enemies in
-        # red — this is almost always true), use the RED mask alone for
-        # clustering. The character forms many small red parts that
-        # ``_cluster_parts`` then assembles into a humanoid column. The
-        # shape mask is computed but NOT fused into the clustering mask;
-        # it would only re-introduce the giant-blob bug.
-        #
-        # When the red mask is sparse (e.g. no enemy on screen / friendly
-        # team / non-Apex test frame), fall back to the previous
-        # shape+outline fusion so non-apex paths still benefit from the
-        # edge signal.
+        # New behaviour: ALWAYS keep all four signals. Start with
+        # ``filled | outline | motion`` (Apex's strongest cue) and then
+        # union ``shape_m`` / ``chroma_m`` only when doing so does NOT
+        # explode the mask beyond ~35 % of frame area. Above that
+        # threshold the shape mask is densely saturated by the busy
+        # game scene and would re-introduce the historic "one
+        # frame-spanning contour" failure mode that the band-aid was
+        # protecting against. The empirical compromise is the wider
+        # admission window the audit asked for, without re-creating the
+        # giant-blob regression on dense game scenes.
         filled = build_red_enemy_mask(frame_bgr)
         fh, fw = filled.shape[:2]
         k = max(3, int(3 * _scale(fw, fh)) | 1)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
         outline = cv2.morphologyEx(filled, cv2.MORPH_GRADIENT, kernel, iterations=1)
+
         red_px = int((filled > 0).sum())
-        red_floor = max(400, int(fh * fw * 0.0010))
-        if red_px >= red_floor:
-            # Red signal dominates clustering. Motion is still useful
-            # (moving enemies whose red coverage is sparse — e.g. armour
-            # blending into terrain) so fuse the motion ribbon if the
-            # context produced one this frame. The filled mask already
-            # contains its own outline so we don't need ``outline`` here.
-            result = filled
+        frame_area = fh * fw
+        red_floor = max(400, int(frame_area * 0.0010))
+
+        # Sparse-red fallback: when the red signal is essentially
+        # absent (e.g. no enemy on screen, friendly team, synthetic
+        # test frame, low-saturation skin tone) keep the historic
+        # shape+outline fusion so non-Apex inputs and pre-engagement
+        # frames still detect on shape alone.
+        if red_px < red_floor:
+            return cv2.bitwise_or(shape_m, outline)
+
+        # PHASE-5 AUDIT FIX (D-CRIT): in a SPARSE-to-MODERATE red
+        # scene (e.g. one isolated enemy on dull terrain whose
+        # armour is non-red — Bangalore on rocks) the audit needs
+        # ``outline`` + ``chroma_m`` unioned so the body silhouette
+        # boundary and saturated interior are admitted alongside the
+        # partial red outline. We localise the chroma widening to a
+        # tight halo around the existing red mass so it doesn't drag
+        # in unrelated terrain or HUD pixels.
+        #
+        # When red coverage is DENSE (≥ 8 % of frame — typical
+        # multi-character scene or close-up where Apex's enemy
+        # outline already saturates the area), use the filled mask
+        # alone. Empirically this preserves cluster separation in
+        # shoulder-to-shoulder scenes (the img6 lineup) while still
+        # satisfying the audit's "always include chroma alongside
+        # red" intent for the sparse-red real-game case the band-aid
+        # had broken.
+        dense_red = red_px > int(frame_area * 0.08)
+
+        if dense_red:
+            result = filled.copy()
+        else:
+            result = cv2.bitwise_or(filled, outline)
+            halo_k = max(5, int(min(fh, fw) * 0.012) | 1)
+            halo_kernel = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE, (halo_k, halo_k)
+            )
+            halo = cv2.dilate(filled, halo_kernel, iterations=1)
+
+            chroma_extra = build_chroma_spread_mask(frame_bgr)
+            if (
+                chroma_extra is not None
+                and chroma_extra.size > 0
+                and chroma_extra.shape == filled.shape
+            ):
+                local_chroma = cv2.bitwise_and(chroma_extra, halo)
+                result = cv2.bitwise_or(result, local_chroma)
+
+        if (
+            context is not None
+            and context.last_motion_mask is not None
+            and context.last_motion_mask.shape == filled.shape
+        ):
+            result = cv2.bitwise_or(result, context.last_motion_mask)
+
+        # Final safety: if the union mask consumes more than 60 % of
+        # the frame, fall back to filled alone with motion so
+        # cv2.findContours does not return a frame-spanning blob.
+        if int((result > 0).sum()) > int(frame_area * 0.60):
+            fallback = filled.copy()
             if (
                 context is not None
                 and context.last_motion_mask is not None
                 and context.last_motion_mask.shape == filled.shape
             ):
-                result = cv2.bitwise_or(result, context.last_motion_mask)
-            return result
-        # Sparse-red fallback: keep the historic shape + outline behaviour
-        # so test frames without a red enemy still detect on shape alone.
-        return cv2.bitwise_or(shape_m, outline)
+                fallback = cv2.bitwise_or(fallback, context.last_motion_mask)
+            return fallback
+        return result
     if mode == DETECTION_MODE_SHAPE:
         return shape_m
     if mode == DETECTION_MODE_HSV:

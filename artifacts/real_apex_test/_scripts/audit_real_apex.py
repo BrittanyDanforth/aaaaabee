@@ -49,6 +49,7 @@ _IMAGE_HINTS = {
     "img3_side_view.webp": {"ads": True, "label": "side_view"},
     "img4_dummy_not_detected.webp": {"ads": False, "label": "dummy_diamond"},
     "img5_close_ads.webp": {"ads": True, "label": "close_ads"},
+    "img6_seven_characters.png": {"ads": False, "label": "seven_characters"},
 }
 
 
@@ -69,6 +70,20 @@ def _fov_radius(frame_w: int, frame_h: int, ads: bool) -> int:
     if ads:
         return max(80, int(0.42 * base))
     return max(80, int(0.36 * base))
+
+
+def _fov_radius_for(filename: str, frame_w: int, frame_h: int, ads: bool) -> int:
+    """img6 is a 7-character lineup — use a wide FOV so all characters enumerate.
+
+    The other five images are single-character framings where the production
+    FOV (36/42 % of the smaller axis) reflects the runtime crop's actual
+    aim cone. For the lineup we must enumerate every candidate regardless
+    of distance to centre, so we sweep the entire frame.
+    """
+    if filename.startswith("img6"):
+        base = max(frame_w, frame_h)
+        return int(0.95 * base / 2.0)
+    return _fov_radius(frame_w, frame_h, ads)
 
 
 def _shift(frame: np.ndarray, dx: int) -> np.ndarray:
@@ -128,7 +143,7 @@ def audit_one(
         raise FileNotFoundError(f"Could not read {input_path}")
     h, w = img.shape[:2]
     cx, cy = w / 2.0, h / 2.0
-    fov_r = _fov_radius(w, h, ads_hint)
+    fov_r = _fov_radius_for(name, w, h, ads_hint)
     min_area_floor = max(40.0, 60.0 * (min(w, h) / 1080.0) ** 2)
 
     # --- masks ---
@@ -166,6 +181,11 @@ def audit_one(
     # runtime crops these out via ``cap_region`` and stays on the
     # default 0.22 in production.
     exclude_bottom = 0.30
+    if name.startswith("img6"):
+        # Multi-character lineup screenshot — no viewmodel / ammo HUD at the
+        # bottom. Use a small exclude_bottom so feet of characters in the
+        # lower portion of the lineup remain in the clustering mask.
+        exclude_bottom = 0.05
 
     cands, mask_used, parts = detector.enumerate_candidates(
         img,
