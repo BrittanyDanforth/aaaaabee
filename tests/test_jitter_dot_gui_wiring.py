@@ -32,8 +32,9 @@ class DotSmoothnessWiringTests(unittest.TestCase):
         text = Path("aba_gui.py").read_text(encoding="utf-8")
         self.assertIn('"Red dot smoothness"', text)
         self.assertIn('"overlay_dot_smooth_alpha"', text)
-        self.assertIn("Recoil-break mouse shake", text)
-        self.assertIn("moves MOUSE", text)
+        self.assertIn("Lateral recoil hold", text)
+        self.assertIn("Recoil cancel", text)
+        self.assertIn("not the red dot", text)
 
     def test_overlay_window_uses_float_coords_not_int_round(self) -> None:
         text = Path("overlay_window.py").read_text(encoding="utf-8")

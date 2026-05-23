@@ -1,4 +1,4 @@
-"""Recoil-break jitter must move mouse via pull only — never the overlay dot."""
+"""Lateral recoil hold — mouse pull only, never the overlay dot."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class JitterMouseOnlyTests(unittest.TestCase):
         bx0, _ = rc.compute_bias(is_firing=True, dt=1.0 / 60.0, err_x=0.0)
         self.assertEqual(bx0, 0.0)
 
-    def test_jitter_enable_produces_mouse_dx_over_time(self) -> None:
+    def test_lateral_hold_only_when_aim_off_center(self) -> None:
         ctrl = PullController(
             _tuning(
                 jitter_enabled=True,
@@ -36,20 +36,25 @@ class JitterMouseOnlyTests(unittest.TestCase):
                 recoil_pull_down_pixels_per_second=0.0,
             )
         )
-        seen_nonzero_x = False
+        on_target = []
+        off_target = []
         t = 0.0
-        for _ in range(50):
+        for i in range(40):
+            tgt = _on_target_tgt(200.0, 200.0) if i < 20 else _on_target_tgt(230.0, 200.0)
             pr = ctrl.compute_delta(
-                _on_target_tgt(300.0, 300.0),
+                tgt,
                 200.0,
                 200.0,
                 time_sec=t,
                 is_firing=True,
             )
-            if pr.dx != 0:
-                seen_nonzero_x = True
+            if i < 20:
+                on_target.append(pr.dx)
+            else:
+                off_target.append(pr.dx)
             t += 1.0 / 60.0
-        self.assertTrue(seen_nonzero_x, "mouse shake must emit horizontal pull deltas")
+        self.assertEqual(sum(on_target), 0, "centered aim → no sideways correction")
+        self.assertGreater(sum(off_target), 0, "off-center → lateral hold assists pull")
 
 
 if __name__ == "__main__":

@@ -230,9 +230,8 @@ class PullControllerRecoilTests(unittest.TestCase):
         )
         self._run_frames(ctrl, 20, is_firing=True)
         ctrl.reset()
-        # After reset the compensator phase is back to zero. First firing
-        # frame after reset must emit ≈ 0 horizontal jitter (sin(0)=0) and
-        # because the residual was also cleared, the integer delta is 0.
+        # After reset the ramp timer is zero. On-target lateral hold is 0;
+        # residual cleared so first frame may emit no integer step.
         pr = ctrl.compute_delta(
             _on_target_tgt(200.0, 200.0),
             200.0,
