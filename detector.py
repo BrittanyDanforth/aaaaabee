@@ -3111,7 +3111,14 @@ def draw_debug(
     # detection by showing only the shape channel.
     dbg_mode = detection_mode if detection_mode is not None else DETECTION_MODE_SHAPE
     mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=dbg_mode)
-    fov = _build_fov_mask(h, w, cx_f, cy_f, fov_radius)
+    # Match the visible ring radius so the green tint does not draw a second
+    # "ghost" boundary at the wider detection FOV when display_fov_radius is set.
+    mask_fov_r = (
+        int(display_fov_radius)
+        if display_fov_radius is not None and not debug_show_detect_ring
+        else int(fov_radius)
+    )
+    fov = _build_fov_mask(h, w, cx_f, cy_f, mask_fov_r)
     vm = _build_viewmodel_exclude_mask(h, w, _VIEWMODEL_EXCLUDE_FRAC)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
     mask = cv2.bitwise_and(mask, mask, mask=vm)
