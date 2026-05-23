@@ -263,6 +263,9 @@ class OverlayWindow:
         self._fov_center_x = fov_center_x
         self._fov_center_y = fov_center_y
         self._target: tuple[float, float] | None = None
+        self._render_x: float | None = None
+        self._render_y: float | None = None
+        self._render_alpha = 0.42
         self._active = False
         self._closed = False
         self._lock = threading.Lock()
@@ -406,6 +409,11 @@ class OverlayWindow:
             self._overlay_fps = max(30, min(144, int(fps)))
             self._tick_ms = max(4, int(1000 / self._overlay_fps))
 
+    def set_dot_render_alpha(self, alpha: float) -> None:
+        """Per-tick display EMA toward runtime position (lower = smoother on screen)."""
+        with self._lock:
+            self._render_alpha = max(0.08, min(0.92, float(alpha)))
+
     def set_fov_radius(self, radius: int) -> None:
         with self._lock:
             new_r = max(40, int(radius))
@@ -500,7 +508,12 @@ class OverlayWindow:
     def set_state(self, ads: bool, target: tuple[float, float] | None) -> None:
         with self._lock:
             self._active = ads
-            self._target = target
+            if target is None:
+                self._target = None
+                self._render_x = None
+                self._render_y = None
+            else:
+                self._target = (float(target[0]), float(target[1]))
         self._request_redraw()
 
     def _request_redraw(self) -> None:
@@ -524,9 +537,18 @@ class OverlayWindow:
             self._sync_fov_ring()
 
             if target is not None:
-                tx, ty = int(round(target[0])), int(round(target[1]))
-                r = 6
-                self._canvas.coords(self._target_id, tx - r, ty - r, tx + r, ty + r)
+                tx_f, ty_f = target[0], target[1]
+                if self._render_x is None or self._render_y is None:
+                    self._render_x, self._render_y = tx_f, ty_f
+                else:
+                    a = self._render_alpha
+                    self._render_x += a * (tx_f - self._render_x)
+                    self._render_y += a * (ty_f - self._render_y)
+                tx, ty = self._render_x, self._render_y
+                r = 6.0
+                self._canvas.coords(
+                    self._target_id, tx - r, ty - r, tx + r, ty + r
+                )
                 self._canvas.itemconfig(
                     self._target_id,
                     outline="#ff4444",

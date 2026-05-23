@@ -42,8 +42,8 @@ class OverlayDotPipelineTests(unittest.TestCase):
         pull_drift = max(
             math.hypot(px - m0.x, py - m0.y) for px, py in pull_positions
         )
-        self.assertLess(ox_max, 0.6, "overlay dot anchor should stay pinned in deadband")
-        self.assertLess(oy_max, 0.6, "overlay dot anchor should stay pinned in deadband")
+        self.assertLess(ox_max, 0.75, "overlay dot anchor should stay pinned in deadband")
+        self.assertLess(oy_max, 0.75, "overlay dot anchor should stay pinned in deadband")
         self.assertGreater(pull_drift, 0.05, "pull anchor should still creep in deadband")
 
     def test_overlay_xy_defaults_to_pull_when_unset(self) -> None:

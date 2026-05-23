@@ -569,6 +569,13 @@ class AbaApplication:
 
     def _on_bool_change(self, key: str) -> None:
         patch = {key: bool(self._bool_vars[key].get())}
+        if key == "jitter_enabled" and patch[key]:
+            amp_key = "jitter_amplitude_pixels"
+            amp = float(self.config.get(amp_key, 0.0))
+            if amp < 0.1 and amp_key in self._sliders:
+                amp = 1.5
+                self._sliders[amp_key].set(amp)
+                patch[amp_key] = amp
         try:
             self.config = self._controller.apply_config_patch(patch, persist=False)
         except Exception as exc:
@@ -666,7 +673,12 @@ class AbaApplication:
         self._slider(
             parent, "Smoothness", "smoothing_tau_still",
             minimum=0.02, maximum=0.15, resolution=0.002,
-            tooltip="higher = smoother but laggier",
+            tooltip="aim + dot damping on locked targets (higher = smoother, less swim)",
+        )
+        self._slider(
+            parent, "Red dot smoothness", "overlay_dot_smooth_alpha",
+            minimum=0.15, maximum=0.90, resolution=0.02,
+            tooltip="lower = smoother red dot on screen (hot-applies while running)",
         )
         self._slider(
             parent, "Moving Target Response", "smoothing_tau_moving",
@@ -787,7 +799,7 @@ class AbaApplication:
         self._slider(
             parent, "Jitter amplitude (px)", "jitter_amplitude_pixels",
             minimum=0.0, maximum=6.0, resolution=0.1,
-            tooltip="peak left/right pixels while firing",
+            tooltip="peak left/right px while LMB firing (0 = no effect even if enabled)",
         )
         self._slider(
             parent, "Jitter frequency (Hz)", "jitter_frequency_hz",

@@ -613,11 +613,17 @@ class TargetTracker:
             self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
             self._pull_x = self._pull_x + alpha * (x - self._pull_x)
             self._pull_y = self._pull_y + alpha * (y - self._pull_y)
-        elif meas_drift > 0.4:
-            # Overlay anchor stays frozen in deadband; pull anchor creeps for assist.
-            track_alpha = max(alpha * 0.55, alpha_from_tau(dt, 0.028))
-            self._pull_x = self._pull_x + track_alpha * (x - self._pull_x)
-            self._pull_y = self._pull_y + track_alpha * (y - self._pull_y)
+        else:
+            # Overlay: gentle follow in deadband so Basic "Smoothness" (tau_still)
+            # still damps detector 1–3 px noise without freeing the pull anchor.
+            ov_cap = max(0.025, min(0.085, 0.12 - (_tau_still - 0.02) * 1.2))
+            ov_alpha = min(alpha_from_tau(dt, max(_tau_still * 2.2, 0.036)), ov_cap)
+            self._smooth_x = self._smooth_x + ov_alpha * (x - self._smooth_x)
+            self._smooth_y = self._smooth_y + ov_alpha * (y - self._smooth_y)
+            if meas_drift > 0.4:
+                track_alpha = max(alpha * 0.55, alpha_from_tau(dt, 0.028))
+                self._pull_x = self._pull_x + track_alpha * (x - self._pull_x)
+                self._pull_y = self._pull_y + track_alpha * (y - self._pull_y)
 
         pre_pull_x, pre_pull_y = self._pull_x, self._pull_y
         self._last_pre_predict = (pre_pull_x, pre_pull_y)
