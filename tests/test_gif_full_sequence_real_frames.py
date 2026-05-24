@@ -11,7 +11,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 GIF = REPO / "artifacts" / "real_apex_test" / "_gif_frames" / "source.gif"
 FRAMES_ALL = REPO / "artifacts" / "real_apex_test" / "_gif_frames_all"
-SUMMARY = REPO / "artifacts" / "audit_gif_full_sequence" / "summary.json"
+SUMMARY = REPO / "artifacts" / "real_apex_test" / "gif_166_proof" / "summary.json"
 
 
 def _ensure_frames() -> None:

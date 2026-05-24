@@ -21,7 +21,7 @@ from targeting_runtime import TargetingRuntime
 
 GIF_DIR = REPO / "artifacts" / "real_apex_test" / "_gif_frames"
 PHASE1_DIR = REPO / "artifacts" / "audit_phase1"
-OUT = REPO / "artifacts" / "audit_stale_overlay"
+OUT = REPO / "artifacts" / "real_apex_test" / "gif_166_proof"
 
 
 def _inside_body(x: float, y: float, bb: tuple[int, int, int, int]) -> bool:
@@ -40,8 +40,11 @@ def main() -> int:
     active_frames = 0
 
     frame_paths: list[Path] = []
-    if GIF_DIR.exists():
-        frame_paths.extend(sorted(GIF_DIR.glob("frame_*.png"))[:40])
+    frames_all = REPO / "artifacts" / "real_apex_test" / "_gif_frames_all"
+    if frames_all.exists():
+        frame_paths.extend(sorted(frames_all.glob("frame_*.png")))
+    elif GIF_DIR.exists():
+        frame_paths.extend(sorted(GIF_DIR.glob("frame_*.png")))
     if not frame_paths and PHASE1_DIR.exists():
         frame_paths.extend(sorted(PHASE1_DIR.glob("*/00_original.png"))[:12])
 
@@ -100,8 +103,8 @@ def main() -> int:
         "gates": gates,
         "pass": sky_violations == 0 and all(gates.values()),
     }
-    (OUT / "summary.json").write_text(
-        json.dumps({"summary": summary, "rows": rows}, indent=2),
+    (OUT / "stale_overlay_spot_check.json").write_text(
+        json.dumps({"summary": summary, "rows": rows[:50]}, indent=2),
         encoding="utf-8",
     )
     print(json.dumps(summary, indent=2))
