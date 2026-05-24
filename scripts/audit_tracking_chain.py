@@ -169,14 +169,21 @@ def run_audit(out_root: Path, *, stride: int = 5) -> dict:
             mtrace = tracker.trace_snapshot()
             trace_lines.append(f"motion_trace={json.dumps(mtrace, default=str)}")
             if t is not None and not is_stale:
-                if not _point_inside_bbox(ox, oy, t):
+                mbb = tracker._body_bbox
+                if mbb is not None and mbb[2] > 0 and mbb[3] > 0:
+                    bx, by, bw, bh = mbb
+                else:
+                    bx, by, bw, bh = t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h
+                if not TargetTracker.point_inside_body_bbox(ox, oy, bx, by, bw, bh):
                     inside_failures.append(
-                        f"frame {frame_idx}: overlay outside body "
-                        f"ov=({ox:.0f},{oy:.0f}) bbox_y={t.bbox_y} h={t.bbox_h}"
+                        f"frame {frame_idx}: overlay outside motion body band "
+                        f"ov=({ox:.0f},{oy:.0f}) body_bbox=({bx},{by},{bw},{bh})"
                     )
-                if not _point_inside_bbox(motion_obs.x, motion_obs.y, t):
+                if not TargetTracker.point_inside_body_bbox(
+                    motion_obs.x, motion_obs.y, bx, by, bw, bh
+                ):
                     inside_failures.append(
-                        f"frame {frame_idx}: pull outside body"
+                        f"frame {frame_idx}: pull outside motion body band"
                     )
 
         if prev_raw and t is not None and not is_stale and prev_raw.get("active"):
