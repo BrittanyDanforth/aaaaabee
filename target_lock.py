@@ -29,6 +29,7 @@ from detector import (
     DetectionResult,
     Target,
     _bbox_iou,
+    _should_retarget_closer_humanoid,
     bbox_mid_in_sky_band,
     bbox_top_in_sky_band,
     is_upward_fragment_vs_locked,
@@ -136,7 +137,7 @@ def _passes_new_lock_gates(
         return False
     bw = max(1, int(target.bbox_w))
     bh = max(1, int(target.bbox_h))
-    if bh < bw * 1.08:
+    if bh < bw * 1.08 and target.fill_ratio > 0.5:
         return False
     return True
 
@@ -205,6 +206,19 @@ def _locked_is_environment_fp(
     bh = max(1, int(target.bbox_h))
     if bh < bw * 1.08 and target.fill_ratio > 0.5:
         return True
+    if (
+        fov_cx is not None
+        and fov_cy is not None
+        and frame_w > 0
+        and frame_h > 0
+    ):
+        dist = math.hypot(
+            target.centroid_x - float(fov_cx),
+            target.centroid_y - float(fov_cy),
+        )
+        ring_r = min(float(frame_w), float(frame_h)) * 0.35
+        if dist > ring_r and bh <= 56 and float(target.red_coverage) < 0.06:
+            return True
     return False
 
 
@@ -443,6 +457,62 @@ def apply_target_lock(
                 on_lock_expired()
             locked = None
         if locked is not None:
+            display_fov = float(
+                cfg.get("_runtime_overlay_fov")
+                or cfg.get("_runtime_detect_fov")
+                or cfg.get("_runtime_fov")
+                or 200
+            )
+            detect_fov = float(
+                cfg.get("_runtime_detect_fov") or cfg.get("_runtime_fov") or 200
+            )
+            lock_fcx = float(fov_cx if fov_cx is not None else (fw * 0.5 if fw else 0.0))
+            lock_fcy = float(
+                fov_cy if fov_cy is not None else (fh * 0.5 if fh else center_y)
+            )
+            if (
+                fw > 0
+                and fh > 0
+                and _should_retarget_closer_humanoid(
+                    locked,
+                    new_t,
+                    detect_fov=detect_fov,
+                    display_fov=display_fov,
+                    fov_cx=lock_fcx,
+                    fov_cy=lock_fcy,
+                    frame_w=fw,
+                    frame_h=fh,
+                )
+            ):
+                _commit_locked_target(state, new_t, is_new_lock=True)
+                state.target_lost_frames = 0
+                state.switch_candidate = None
+                state.switch_frames = 0
+                state.new_lock_candidate = None
+                state.new_lock_frames = 0
+                return result, False
+
+            both_in_ring = (
+                locked.distance_to_center < display_fov * 0.42
+                and new_t.distance_to_center < display_fov * 0.42
+            )
+            if (
+                both_in_ring
+                and math.hypot(
+                    new_t.centroid_x - locked.centroid_x,
+                    new_t.centroid_y - locked.centroid_y,
+                )
+                < max(95.0, float(locked.bbox_h) * 0.9)
+                and new_t.body_shape_score >= 0.50
+                and not new_is_env
+                and not target_is_background_clutter(new_t)
+            ):
+                _commit_locked_target(state, new_t, is_new_lock=False)
+                state.target_lost_frames = 0
+                state.switch_candidate = None
+                state.switch_frames = 0
+                return result, False
+
             drift = math.hypot(
                 new_t.centroid_x - locked.centroid_x,
                 new_t.centroid_y - locked.centroid_y,

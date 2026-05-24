@@ -814,6 +814,9 @@ class AssistRuntime:
             context=self._detect_ctx,
             currently_locked=currently_locked,
             exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
+            display_fov_radius=float(
+                effective_overlay_fov_radius(cfg)
+            ),
         )
         with self._lock:
 

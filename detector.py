@@ -1629,6 +1629,9 @@ def _body_structure_reject(
     limb_s: float,
     v_score: float,
     fill: float,
+    *,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
 ) -> RejectReason | None:
     """Body-first gate: color mask is input only; shape must pass."""
     aspect = bh / max(bw, 1)
@@ -1636,6 +1639,16 @@ def _body_structure_reject(
     center_y = frame_h * 0.5
     max_circ = _max_part_circularity(parts)
     align_s = _part_alignment_score(parts, scale)
+    fcx = frame_w * 0.5 if fov_cx is None else float(fov_cx)
+    fcy = frame_h * 0.5 if fov_cy is None else float(fov_cy)
+    dist_fov = math.hypot(bx + bw * 0.5 - fcx, by + bh * 0.5 - fcy)
+    close_fov_humanoid = (
+        dist_fov < min(frame_w, frame_h) * 0.28
+        and bh >= 72 * scale
+        and aspect >= 1.08
+        and len(parts) >= 2
+        and (limb_s >= 0.32 or len(parts) >= 4 or v_score >= 0.22)
+    )
 
     # --- sky / balloon family ---
     if foot_y < frame_h * 0.48 and aspect < 1.75 and len(parts) <= 2:
@@ -1691,7 +1704,11 @@ def _body_structure_reject(
     )
 
     if not has_torso and torso_s < 0.24:
-        if not (len(parts) >= 3 and limb_s >= 0.50 and v_score >= 0.35) and not silhouette_ok:
+        if (
+            not (len(parts) >= 3 and limb_s >= 0.50 and v_score >= 0.35)
+            and not silhouette_ok
+            and not close_fov_humanoid
+        ):
             return RejectReason.NO_TORSO
 
     stack_ok = (
@@ -1700,6 +1717,7 @@ def _body_structure_reject(
         or (len(parts) >= 3 and limb_s >= 0.42 and v_score >= 0.28 and aspect >= 1.35)
         or (aspect >= 1.55 and bh >= 65 * scale and v_score >= 0.30 and align_s >= 0.45)
         or silhouette_ok
+        or close_fov_humanoid
     )
     if not stack_ok:
         return RejectReason.NO_BODY_STACK
@@ -2792,6 +2810,8 @@ def analyze_figure(
     struct_reject = _body_structure_reject(
         parts, bx, by, bw, bh, frame_h, frame_w, scale,
         head_s, torso_s, limb_s, v_score, fill,
+        fov_cx=fov_cx,
+        fov_cy=fov_cy,
     )
     if struct_reject is not None:
         return _FigureAnalysis(
@@ -2842,6 +2862,16 @@ def analyze_figure(
         partial_min = _MIN_BODY_SHAPE_PARTIAL
     min_accept = partial_min if len(parts) <= 2 else full_min
     has_head_part = any(p.role == PartRole.HEAD for p in parts)
+    fcx = frame_w * 0.5 if fov_cx is None else float(fov_cx)
+    fcy = frame_h * 0.5 if fov_cy is None else float(fov_cy)
+    dist_fov = math.hypot(bx + bw * 0.5 - fcx, by + bh * 0.5 - fcy)
+    close_fov_humanoid = (
+        dist_fov < min(frame_w, frame_h) * 0.28
+        and bh >= 72 * scale
+        and aspect >= 1.08
+        and len(parts) >= 2
+        and (limb_s >= 0.30 or has_head_part)
+    )
     structure_ok = (
         (has_head_part and torso_s >= 0.28 and (limb_s >= 0.32 or len(parts) >= 3))
         or (torso_s >= 0.30 and limb_s >= 0.40 and len(parts) >= 2)
@@ -2875,8 +2905,10 @@ def analyze_figure(
         elif v_score < 0.35 or fill > 0.88:
             structure_ok = False
     foot_y = by + bh
-    if foot_y < frame_h * 0.42 and len(parts) < 3:
+    if foot_y < frame_h * 0.42 and len(parts) < 3 and not close_fov_humanoid:
         structure_ok = False
+    if close_fov_humanoid and body_shape >= 0.55 and limb_s >= 0.28:
+        structure_ok = True
 
     has_classified_torso = any(p.role == PartRole.TORSO for p in parts)
     if structure_ok and len(parts) >= 3 and not has_classified_torso and align_s < 0.35:
@@ -3963,6 +3995,48 @@ def score_target(
     return body_term + dist_term + area_term + closeness_term + motion_bonus + red_bonus - penalty
 
 
+def _should_retarget_closer_humanoid(
+    locked: Target,
+    challenger: Target,
+    *,
+    detect_fov: float,
+    display_fov: float,
+    fov_cx: float,
+    fov_cy: float,
+    frame_w: int,
+    frame_h: int,
+) -> bool:
+    """Allow breaking HIGH6 empty-pool hold when a much closer in-ring humanoid exists."""
+    if challenger.body_shape_score < 0.52:
+        return False
+    if target_is_background_clutter(challenger) or target_is_environment_column(
+        challenger, center_y=fov_cy, frame_w=frame_w, frame_h=frame_h
+    ):
+        return False
+    if target_is_viewmodel_column_fp(
+        challenger, frame_w=frame_w, frame_h=frame_h, fov_cx=fov_cx, fov_cy=fov_cy
+    ):
+        return False
+    if bbox_mid_in_sky_band(challenger.bbox_y, challenger.bbox_h, fov_cy):
+        return False
+    sd = float(locked.distance_to_center)
+    cd = float(challenger.distance_to_center)
+    if cd >= sd * 0.58 and cd >= 58.0:
+        return False
+    if challenger.bbox_h < max(64, int(locked.bbox_h * 1.28)):
+        return False
+    if sd < display_fov * 0.52:
+        return False
+    if cd > display_fov * 0.90:
+        return False
+    if _bbox_iou(
+        locked.bbox_x, locked.bbox_y, locked.bbox_w, locked.bbox_h,
+        challenger.bbox_x, challenger.bbox_y, challenger.bbox_w, challenger.bbox_h,
+    ) >= 0.14:
+        return False
+    return True
+
+
 def _normalize_confidence(raw: float, fov_radius: float, body_shape: float = 0.0) -> float:
     from_dist = raw / max(fov_radius * 2.8, 1.0)
     base = 0.55 * body_shape + 0.45 * from_dist
@@ -3998,10 +4072,16 @@ def find_best_target(
     detection_mode: str | None = None,
     context: DetectionContext | None = None,
     currently_locked: bool = False,
+    display_fov_radius: float | None = None,
 ) -> DetectionResult:
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
+    ring_fov = (
+        float(display_fov_radius)
+        if display_fov_radius is not None and display_fov_radius > 0
+        else float(fov_radius) * 0.757
+    )
 
     resolved_mode = detection_mode
     if resolved_mode is None:
@@ -4151,9 +4231,53 @@ def find_best_target(
                 dist <= stickiness_pixels and t.body_shape_score >= min_pool_body
             ):
                 pool.append(t)
+        if (
+            currently_locked
+            and sticky_target.bbox_h <= 56
+            and sticky_target.distance_to_center > ring_fov * 0.45
+        ):
+            for t in candidates:
+                if t in pool:
+                    continue
+                if (
+                    t.bbox_h >= max(64, int(sticky_target.bbox_h * 1.35))
+                    and t.distance_to_center < sticky_target.distance_to_center * 0.62
+                    and t.body_shape_score >= 0.52
+                    and not target_is_background_clutter(t)
+                ):
+                    pool.append(t)
         if pool:
             sticky_best = max(pool, key=rank)
             global_best = max(candidates, key=rank)
+            closer_challengers = [
+                t
+                for t in candidates
+                if _should_retarget_closer_humanoid(
+                    sticky_target,
+                    t,
+                    detect_fov=float(fov_radius),
+                    display_fov=ring_fov,
+                    fov_cx=cx,
+                    fov_cy=cy,
+                    frame_w=w,
+                    frame_h=h,
+                )
+            ]
+            if currently_locked and closer_challengers:
+                chosen = finalize(max(closer_challengers, key=rank))
+                if not target_is_background_clutter(chosen):
+                    dbg.append(
+                        f"closer_retarget_pool dist={chosen.distance_to_center:.0f} "
+                        f"h={chosen.bbox_h} was={sticky_target.distance_to_center:.0f}"
+                    )
+                    _refresh_validation(chosen)
+                    return DetectionResult(
+                        chosen,
+                        len(candidates),
+                        chosen.confidence,
+                        debug_lines=dbg,
+                        active=True,
+                    )
             # Size-based switch guard: a clearly larger (closer) enemy can
             # win, but the existing _STICKY_SWITCH_RATIO must still bound how
             # easily two similarly-sized enemies flicker the lock.
@@ -4227,15 +4351,112 @@ def find_best_target(
             )
             return DetectionResult(chosen, len(candidates), chosen.confidence, debug_lines=dbg, active=True)
         dbg.append("sticky lost lock (no overlapping candidate)")
-        # PHASE-6 AUDIT FIX (D-HIGH6): when the runtime tells us we are
-        # currently_locked but the sticky pool is empty (no candidate
-        # overlaps the previous lock), do NOT fall through to a global
-        # free-max selection. That free-max was picking up unrelated
-        # junk (sky pixels, HUD numerals, the player's scope) and
-        # silently breaking the lock onto a FP. Returning None instead
-        # lets the runtime's grace period (target_lost_frames_before_unlock)
-        # hold the previous lock and the motion-validated memory keeps
-        # the dot anchored until the real body reappears.
+        if currently_locked and sticky_target is not None:
+            probe, probe_dbg = _collect_candidates(
+                frame_bgr,
+                hsv_ranges,
+                fov_radius,
+                min_area,
+                cx,
+                cy,
+                exclude_bottom_frac=exclude_bottom_frac,
+                torso_aim_fraction=torso_aim_fraction,
+                body_shape_min_score=body_shape_min_score,
+                head_score_weight=head_score_weight,
+                torso_score_weight=torso_score_weight,
+                limb_stack_score_weight=limb_stack_score_weight,
+                aim_y_min_fraction=aim_y_min_fraction,
+                aim_y_max_fraction=aim_y_max_fraction,
+                debug=False,
+                detection_mode=resolved_mode,
+                context=None,
+                min_aspect=min_aspect,
+                max_aspect=max_aspect,
+                min_solidity=min_solidity,
+            )
+            if probe_dbg:
+                dbg.extend(probe_dbg[:2])
+            seen = {
+                (t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h) for t in candidates
+            }
+            for t in probe:
+                key = (t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+                if key not in seen:
+                    candidates.append(t)
+                    seen.add(key)
+            before_clutter = len(candidates)
+            candidates = [t for t in candidates if not target_is_background_clutter(t)]
+            if len(candidates) < before_clutter:
+                dbg.append(
+                    f"rim_retarget_clutter: {before_clutter} -> {len(candidates)}"
+                )
+            identity = [
+                t
+                for t in candidates
+                if _bbox_iou(
+                    sticky_target.bbox_x,
+                    sticky_target.bbox_y,
+                    sticky_target.bbox_w,
+                    sticky_target.bbox_h,
+                    t.bbox_x,
+                    t.bbox_y,
+                    t.bbox_w,
+                    t.bbox_h,
+                )
+                >= 0.12
+                or math.hypot(
+                    t.centroid_x - sticky_target.centroid_x,
+                    t.centroid_y - sticky_target.centroid_y,
+                )
+                < max(55.0, float(sticky_target.bbox_h) * 0.85)
+            ]
+            if identity:
+                chosen = finalize(max(identity, key=rank))
+                if not target_is_background_clutter(chosen):
+                    dbg.append(
+                        f"sticky_identity dist={chosen.distance_to_center:.0f} "
+                        f"h={chosen.bbox_h}"
+                    )
+                    _refresh_validation(chosen)
+                    return DetectionResult(
+                        chosen,
+                        len(candidates),
+                        chosen.confidence,
+                        debug_lines=dbg,
+                        active=True,
+                    )
+        if currently_locked and candidates:
+            lost_challengers = [
+                t
+                for t in candidates
+                if _should_retarget_closer_humanoid(
+                    sticky_target,
+                    t,
+                    detect_fov=float(fov_radius),
+                    display_fov=ring_fov,
+                    fov_cx=cx,
+                    fov_cy=cy,
+                    frame_w=w,
+                    frame_h=h,
+                )
+            ]
+            if lost_challengers:
+                chosen = finalize(max(lost_challengers, key=rank))
+                if not target_is_background_clutter(chosen):
+                    dbg.append(
+                        f"closer_retarget dist={chosen.distance_to_center:.0f} "
+                        f"h={chosen.bbox_h} was={sticky_target.distance_to_center:.0f}"
+                    )
+                    _refresh_validation(chosen)
+                    return DetectionResult(
+                        chosen,
+                        len(candidates),
+                        chosen.confidence,
+                        debug_lines=dbg,
+                        active=True,
+                    )
+        # PHASE-6 (D-HIGH6): empty sticky pool while locked — hold unless closer
+        # humanoid retarget above fired.
         if currently_locked:
             return DetectionResult(
                 None, len(candidates), 0.0, debug_lines=dbg, active=False,

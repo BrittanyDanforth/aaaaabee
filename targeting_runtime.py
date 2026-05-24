@@ -20,6 +20,7 @@ from motion import TargetMotion, TargetTracker
 from profiles import (
     effective_detection_fov_radius,
     effective_fov_radius,
+    effective_overlay_fov_radius,
 )
 from target_lock import (
     TargetLockState,
@@ -216,6 +217,7 @@ class TargetingRuntime:
             detection_mode=str(config.get("detection_mode", "apex")),
             context=self._detect_ctx,
             debug=debug,
+            display_fov_radius=float(effective_overlay_fov_radius(config)),
         )
         result, is_stale = apply_target_lock(
             self._lock_state,
