@@ -2763,6 +2763,18 @@ def _collect_candidates(
 
         aim_x, aim_y = clamp_point_to_fov(fig.aim_x, fig.aim_y, cx, cy, float(fov_radius))
         dist = float(np.hypot(aim_x - cx, aim_y - cy))
+        # Motion sand / rock FP (img2): sparse fill, low solidity, far from crosshair.
+        if (
+            fig.fill_ratio < 0.32
+            and fig.solidity < 0.16
+            and dist > float(fov_radius) * 0.40
+        ):
+            if debug:
+                lines.append(
+                    f"cand[{idx}] drop sparse_rim_fp fill={fig.fill_ratio:.2f} "
+                    f"solidity={fig.solidity:.2f} dist={dist:.0f}"
+                )
+            continue
         if dist > float(fov_radius) * 1.02:
             if debug:
                 lines.append(f"cand[{idx}] {RejectReason.OUTSIDE_FOV.value}")
@@ -3000,6 +3012,8 @@ def score_target(
     rim_frac = target.distance_to_center / max(fov_radius, 1.0)
     if rim_frac > 0.68:
         penalty += fov_radius * 0.50 * ((rim_frac - 0.68) / 0.32) ** 1.4
+    if target.fill_ratio < 0.32 and rim_frac > 0.52:
+        penalty += fov_radius * 0.85
     if target_is_range_board_fp(target, motion_overlap=motion_overlap):
         penalty += fov_radius * 1.35
     if motion_overlap < 0.04 and red_cov >= 0.24 and int(target.part_count) <= 2:
@@ -3510,7 +3524,12 @@ def draw_debug(
     # detection by showing only the shape channel.
     dbg_mode = detection_mode if detection_mode is not None else DETECTION_MODE_SHAPE
     mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=dbg_mode)
-    fov = _build_fov_mask(h, w, cx_f, cy_f, fov_radius)
+    mask_fov = (
+        int(display_fov_radius)
+        if display_fov_radius is not None
+        else int(fov_radius)
+    )
+    fov = _build_fov_mask(h, w, cx_f, cy_f, mask_fov)
     vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
     mask = cv2.bitwise_and(mask, mask, mask=fov)
     mask = cv2.bitwise_and(mask, mask, mask=vm)

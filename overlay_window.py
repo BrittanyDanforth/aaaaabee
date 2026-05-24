@@ -465,7 +465,11 @@ class OverlayWindow:
             self._cx = fx
             self._cy = fy
         self._position_crosshair()
-        self._sync_fov_ring()
+        with self._lock:
+            radius = int(self._fov_radius)
+            ads = self._active
+        color = "#00ff88" if ads else "#446644"
+        self._replace_fov_ring(radius, color)
         self._request_redraw()
 
     def _fov_ring_alive(self) -> bool:
@@ -493,8 +497,6 @@ class OverlayWindow:
             except (tk.TclError, ValueError):
                 continue
             if radius < 25.0:
-                continue
-            if abs(ocx - self._cx) > 6.0 or abs(ocy - self._cy) > 6.0:
                 continue
             if item == self._fov_id:
                 continue
