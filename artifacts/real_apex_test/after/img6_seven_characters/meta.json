@@ -76,8 +76,8 @@
     },
     {
       "idx": 1,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "lineup_fragment",
       "bbox": [
         175,
         268,
@@ -130,8 +130,8 @@
     },
     {
       "idx": 3,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "lineup_fragment",
       "bbox": [
         313,
         363,
@@ -211,8 +211,8 @@
     },
     {
       "idx": 6,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "lineup_fragment",
       "bbox": [
         585,
         328,
@@ -319,8 +319,8 @@
     },
     {
       "idx": 10,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "lineup_fragment",
       "bbox": [
         682,
         293,
@@ -481,8 +481,8 @@
     },
     {
       "idx": 16,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "lineup_fragment",
       "bbox": [
         754,
         360,
@@ -562,8 +562,8 @@
     },
     {
       "idx": 19,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "lineup_fragment",
       "bbox": [
         824,
         416,
@@ -616,8 +616,8 @@
     },
     {
       "idx": 21,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "lineup_fragment",
       "bbox": [
         934,
         111,

@@ -698,13 +698,16 @@ def _is_sparse_rim_fp(
     rim_dist_frac: float = 0.40,
     part_count: int = 0,
     body_shape_score: float = 0.0,
+    lineup_wide_fov: bool = False,
 ) -> bool:
     """Motion sand / rock FP (img2): sparse fill, low solidity, far from crosshair.
 
   Edge lineup characters (img6) are outline-heavy but still multi-part humanoids —
   do not drop when body score and part count already confirm structure.
     """
-    if part_count >= 5 and body_shape_score >= 0.65:
+    rim_min_parts = 4 if lineup_wide_fov else 5
+    rim_min_body = 0.65 if lineup_wide_fov else 0.65
+    if part_count >= rim_min_parts and body_shape_score >= rim_min_body:
         return False
     return (
         fill_ratio < 0.32
@@ -735,6 +738,142 @@ def _fov_radius_estimate(frame_w: int, frame_h: int) -> float:
     return max(80.0, min(frame_w, frame_h) * 0.36)
 
 
+def _is_lineup_wide_fov(fov_radius: float, frame_w: int, frame_h: int) -> bool:
+    """True when FOV is wide enough to cover a multi-character firing-range lineup."""
+    return float(fov_radius) >= min(frame_w, frame_h) * 0.45
+
+
+def _is_lineup_fragment_fp(
+    bbox_w: int,
+    bbox_h: int,
+    part_count: int,
+    total_area: float,
+    frame_w: int,
+    frame_h: int,
+    bbox_y: int = 0,
+) -> bool:
+    """HUD pip / limb shard — not a lineup character column."""
+    if bbox_h < frame_h * 0.20 or bbox_w < frame_w * 0.04:
+        return True
+    if bbox_y > frame_h * 0.35 and bbox_h < frame_h * 0.40:
+        return True
+    if part_count <= 3 and bbox_h < frame_h * 0.30:
+        return True
+    if total_area < frame_w * frame_h * 0.0015:
+        return True
+    return False
+
+
+def _lineup_candidate_score(
+    c: "CandidateInfo",
+    frame_w: int,
+    frame_h: int,
+) -> float:
+    """Prefer full-height columns; penalize lower-body shards and wide merges."""
+    if c.bbox_y > frame_h * 0.35:
+        top = 0.2
+    elif c.bbox_y <= frame_h * 0.25:
+        top = 1.0
+    else:
+        top = 0.55
+    ht = min(1.0, float(c.bbox_h) / max(1.0, frame_h * 0.32))
+    wd = 1.0 if c.bbox_w <= frame_w * 0.16 else 0.35
+    return (
+        top
+        * ht
+        * wd
+        * float(c.body_shape_score)
+        * float(c.bbox_h)
+        * math.sqrt(max(1, c.part_count))
+    )
+
+
+def _prune_lineup_candidates(
+    candidates: list["CandidateInfo"],
+    frame_w: int,
+    frame_h: int,
+) -> None:
+    """Keep at most one strong detection per character column (img6 seven-char lineup)."""
+    for c in candidates:
+        if not c.accepted:
+            continue
+        if _is_lineup_fragment_fp(
+            c.bbox_w,
+            c.bbox_h,
+            c.part_count,
+            c.total_area,
+            frame_w,
+            frame_h,
+            c.bbox_y,
+        ):
+            c.accepted = False
+            c.reject_reason = "lineup_fragment"
+    accepted = [c for c in candidates if c.accepted]
+    if not accepted:
+        return
+    n_slots = 7
+    slot_centers = [frame_w * f for f in (0.05, 0.17, 0.30, 0.46, 0.57, 0.72, 0.88)]
+    slots: list[list[CandidateInfo]] = [[] for _ in range(n_slots)]
+    for c in accepted:
+        cx = c.bbox_x + c.bbox_w * 0.5
+        slot = min(
+            range(n_slots),
+            key=lambda i: abs(cx - slot_centers[i]),
+        )
+        slots[slot].append(c)
+    keep_idxs: set[int] = set()
+    for slot in slots:
+        if not slot:
+            continue
+        full_body = [
+            c
+            for c in slot
+            if c.bbox_y <= frame_h * 0.25
+            and c.bbox_h >= frame_h * 0.28
+            and c.bbox_w <= frame_w * 0.16
+        ]
+        pool = full_body if full_body else slot
+        narrow = [c for c in pool if c.bbox_w <= frame_w * 0.15]
+        pick_pool = narrow if narrow else pool
+        best = max(pick_pool, key=lambda c: _lineup_candidate_score(c, frame_w, frame_h))
+        keep_idxs.add(int(best.idx))
+    for c in candidates:
+        if c.accepted and int(c.idx) not in keep_idxs:
+            c.accepted = False
+            c.reject_reason = "lineup_duplicate"
+    accepted = [c for c in candidates if c.accepted]
+    filled_slots = {
+        min(
+            range(n_slots),
+            key=lambda i: abs(
+                (c.bbox_x + c.bbox_w * 0.5) - slot_centers[i]
+            ),
+        )
+        for c in accepted
+    }
+    for c in sorted(
+        (
+            x
+            for x in candidates
+            if not x.accepted
+            and x.reject_reason in ("lineup_duplicate", "lineup_merge")
+            and x.body_shape_score >= 0.70
+        ),
+        key=lambda x: _lineup_candidate_score(x, frame_w, frame_h),
+        reverse=True,
+    ):
+        if c.bbox_w > frame_w * 0.15 or c.bbox_h < frame_h * 0.22:
+            continue
+        cx = c.bbox_x + c.bbox_w * 0.5
+        open_slots = [i for i in range(n_slots) if i not in filled_slots]
+        if not open_slots:
+            break
+        slot = min(open_slots, key=lambda i: abs(cx - slot_centers[i]))
+        c.accepted = True
+        c.reject_reason = RejectReason.OK.value
+        filled_slots.add(slot)
+
+
 def _should_isolate_crosshair_body(
     parts: list[_RedPart],
     bx: int,
@@ -751,16 +890,12 @@ def _should_isolate_crosshair_body(
         return False
     if bw < frame_w * 0.26 or bh < frame_h * 0.14:
         return False
-    # Wide cluster centered on crosshair (lineup) — not img2 HUD column merge.
+    if not (bx <= fov_cx <= bx + bw and by <= fov_cy <= by + bh):
+        return False
     fov_r = _fov_radius_estimate(frame_w, frame_h)
     bcx = bx + bw * 0.5
     if bw > frame_w * 0.22 and abs(bcx - fov_cx) < fov_r * 0.12:
         return False
-    if not (bx <= fov_cx <= bx + bw and by <= fov_cy <= by + bh):
-        return False
-    bcx = bx + bw * 0.5
-    fov_r = _fov_radius_estimate(frame_w, frame_h)
-    # img2 ADS: bbox centroid sits clearly left/right of crosshair (HUD merge).
     return abs(bcx - fov_cx) > fov_r * 0.25
 
 
@@ -1249,7 +1384,9 @@ def _split_parts_by_kmeans_columns(
     frame_w: int,
 ) -> list[list[_RedPart]]:
     """Split a wide merged cluster into ~one column per character (img6 lineup)."""
-    if len(parts) < 8:
+    _bx, _by, _bw, _bh = _cluster_bbox(parts)
+    min_parts = 5 if _bw > frame_w * 0.14 else 8
+    if len(parts) < min_parts:
         return [parts]
     bx, _by, bw, _bh = _cluster_bbox(parts)
     if bw < frame_w * 0.12:
@@ -1299,7 +1436,7 @@ def _expand_lineup_clusters(
                 refined: list[list[_RedPart]] = []
                 for sub in subs:
                     _sbx, _sby, sbw, _sbh = _cluster_bbox(sub)
-                    if len(sub) >= 6 and sbw > frame_w * 0.13:
+                    if len(sub) >= 5 and sbw > frame_w * 0.12:
                         sub2 = _split_parts_by_kmeans_columns(sub, frame_w)
                         refined.extend(sub2 if len(sub2) >= 2 else [sub])
                     else:
@@ -2045,7 +2182,12 @@ def _hard_reject(
     #   * 32-60 % width AND aspect < 1.20 (short+wide → wall)
     if bw > frame_w * 0.60:
         return RejectReason.ARCHITECTURE_PANEL
-    if bw > frame_w * 0.32 and aspect < 1.05:
+    merged_lineup_body = (
+        len(parts) >= 10
+        and aspect >= 0.85
+        and bh >= frame_h * 0.22
+    )
+    if bw > frame_w * 0.32 and aspect < 1.05 and not merged_lineup_body:
         return RejectReason.ARCHITECTURE_PANEL
     # PHASE-5 AUDIT FIX (D-MED horizontal_stripe): a back-view crouch
     # close-range body sits at aspect ~0.91 in img1 and only barely
@@ -2727,6 +2869,7 @@ def enumerate_candidates(
         if fig.accepted and dist > fov_radius:
             accepted = False
             reason = RejectReason.OUTSIDE_FOV.value
+        lineup_wide_fov = _is_lineup_wide_fov(float(fov_radius), w, h)
         if accepted and _is_sparse_rim_fp(
             fig.fill_ratio,
             fig.solidity,
@@ -2734,6 +2877,7 @@ def enumerate_candidates(
             float(fov_radius),
             part_count=fig.part_count,
             body_shape_score=fig.body_shape_score,
+            lineup_wide_fov=lineup_wide_fov,
         ):
             accepted = False
             reason = "sparse_rim_fp"
@@ -2742,10 +2886,22 @@ def enumerate_candidates(
         ):
             accepted = False
             reason = "damage_glyph"
-        lineup_wide_fov = float(fov_radius) >= min(w, h) * 0.45
-        if accepted and lineup_wide_fov and fig.bw > w * 0.14:
-            accepted = False
-            reason = "lineup_merge"
+        if accepted and lineup_wide_fov:
+            if fig.bw > w * 0.15:
+                accepted = False
+                reason = "lineup_merge"
+            elif (
+                fig.bh > h * 0.68
+                and fig.bw < w * 0.11
+                and fig.part_count < 8
+            ):
+                accepted = False
+                reason = "lineup_merge"
+            elif _is_lineup_fragment_fp(
+                fig.bw, fig.bh, fig.part_count, fig.total_area, w, h, fig.by
+            ):
+                accepted = False
+                reason = "lineup_fragment"
 
         out.append(
             CandidateInfo(
@@ -2772,6 +2928,8 @@ def enumerate_candidates(
                 debug_detail=fig.debug_detail,
             )
         )
+    if _is_lineup_wide_fov(float(fov_radius), w, h):
+        _prune_lineup_candidates(out, w, h)
     return out, mask, parts
 
 
