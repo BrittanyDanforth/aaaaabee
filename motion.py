@@ -247,6 +247,11 @@ class TargetTracker:
             return aim_x, aim_y
         aim_x, aim_y = self._clamp_aim_output(aim_x, aim_y)
         if self._overlay_follow_x is None or self._overlay_follow_y is None:
+            oa0 = max(0.35, min(0.72, self._overlay_dot_alpha))
+            if self._fov_cx is not None and self._fov_cy is not None:
+                sx = self._fov_cx + oa0 * (aim_x - self._fov_cx)
+                sy = self._fov_cy + oa0 * (aim_y - self._fov_cy)
+                aim_x, aim_y = self._clamp_aim_output(sx, sy)
             self._overlay_follow_x, self._overlay_follow_y = aim_x, aim_y
             return aim_x, aim_y
         speed = math.hypot(self._vx, self._vy)

@@ -418,7 +418,7 @@ class OverlayWindow:
         a = max(0.05, min(1.0, float(alpha)))
         with self._lock:
             self._dot_glide_alpha = a
-            self._dot_max_step_per_tick = max(6.0, min(18.0, 6.0 + a * 20.0))
+            self._dot_max_step_per_tick = max(7.0, min(22.0, 7.0 + a * 22.0))
 
     def set_fov_radius(self, radius: int) -> None:
         with self._lock:
@@ -511,6 +511,14 @@ class OverlayWindow:
         except tk.TclError:
             self._replace_fov_ring(radius, color)
 
+    def _initial_dot_display(
+        self, dest: tuple[float, float]
+    ) -> tuple[float, float]:
+        """Start glide from ring center so the dot does not pop onto the target."""
+        cx = float(self._cx) if self._cx else dest[0]
+        cy = float(self._cy) if self._cy else dest[1]
+        return cx, cy
+
     def set_state(self, ads: bool, target: tuple[float, float] | None) -> None:
         with self._lock:
             self._active = ads
@@ -521,10 +529,8 @@ class OverlayWindow:
                 dest = (float(target[0]), float(target[1]))
                 self._dot_dest = dest
                 if self._dot_disp is None:
-                    self._dot_disp = dest
-                    self._target = dest
-                else:
-                    self._target = dest
+                    self._dot_disp = self._initial_dot_display(dest)
+                self._target = dest
         self._request_redraw()
 
     def _request_redraw(self) -> None:

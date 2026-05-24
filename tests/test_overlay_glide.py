@@ -62,5 +62,23 @@ class GlidePointTests(unittest.TestCase):
         self.assertGreater(prev[0], ax - 12.0)
 
 
+    def test_first_show_starts_from_ring_center_not_dest(self) -> None:
+        try:
+            import tkinter as _tk  # noqa: F401
+        except ImportError:
+            self.skipTest("tkinter not available")
+        from overlay_window import OverlayWindow
+
+        win = OverlayWindow(800, 600, fov_radius=120, overlay_fps=90)
+        win._cx = 400
+        win._cy = 300
+        dest = (520.0, 380.0)
+        start = win._initial_dot_display(dest)
+        self.assertAlmostEqual(start[0], 400.0)
+        self.assertAlmostEqual(start[1], 300.0)
+        dist_to_dest = math.hypot(start[0] - dest[0], start[1] - dest[1])
+        self.assertGreater(dist_to_dest, 50.0)
+
+
 if __name__ == "__main__":
     unittest.main()
