@@ -3722,5 +3722,3 @@ def draw_debug(
     for i, line in enumerate(lines[:10]):
         cv2.putText(out, line[:72], (8, y0 + i * 17), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA)
     return out
-ENDOFFILE
-echo "Done writing targeting.py"
