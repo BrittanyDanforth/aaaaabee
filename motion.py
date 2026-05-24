@@ -294,10 +294,10 @@ class TargetTracker:
         bbox_h: int = 80,
         dt: float = 1.0 / 60.0,
     ) -> tuple[float, float]:
-        """Single-state overlay drag: step-cap then EMA (no separate cap buffer).
+        """Legacy overlay drag helper — not used by AssistRuntime (see _advance_overlay_follow).
 
-        Using one smoothed anchor avoids the dot feeling like it is recreated
-        every frame when a hard cap and a soft EMA fought each other.
+        Retained for unit tests only. Production hold-last uses set_monitor_overlay_point;
+        do not call this on the live overlay hot path.
         """
         if not (math.isfinite(x) and math.isfinite(y)):
             return x, y
