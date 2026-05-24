@@ -264,12 +264,20 @@ class TargetTracker:
         oa = max(oa_lo, min(oa_hi, oa))
         fx = self._overlay_follow_x + oa * (aim_x - self._overlay_follow_x)
         fy = self._overlay_follow_y + oa * (aim_y - self._overlay_follow_y)
-        if speed > 25.0:
+        if speed > 25.0 and self._body_bbox is None:
             lead = min(dt, 0.05)
             fx += self._vx * lead * 0.38
             fy += self._vy * lead * 0.38
             if fy < self._overlay_follow_y - 10.0:
                 fy = self._overlay_follow_y - 10.0
+        elif speed > 25.0 and self._body_bbox is not None:
+            # Minimal upward lead when body bbox is active — full vy lead caused sky climb.
+            lead = min(dt, 0.05)
+            fx += self._vx * lead * 0.22
+            if self._vy > 0.0:
+                fy += self._vy * lead * 0.08
+            elif self._vy < -40.0:
+                fy += self._vy * lead * 0.05
         bh = 80
         if self._body_bbox is not None:
             bh = self._body_bbox[3]
@@ -282,6 +290,14 @@ class TargetTracker:
             fx = self._overlay_follow_x + fdx * s
             fy = self._overlay_follow_y + fdy * s
         ox, oy = self._clamp_aim_output(fx, fy)
+        if self._body_bbox is not None:
+            bx, by, bw, bh = self._body_bbox
+            y_hi = by + bh * _body_y_hi_frac
+            if oy > y_hi:
+                oy = y_hi
+            up_cap = max(4.0, bh * 0.04)
+            if oy < self._overlay_follow_y - up_cap:
+                oy = max(by + bh * _body_y_lo_frac, self._overlay_follow_y - up_cap)
         self._overlay_follow_x, self._overlay_follow_y = ox, oy
         return ox, oy
 

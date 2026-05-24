@@ -13,9 +13,11 @@ RUNTIME = Path(__file__).resolve().parents[1] / "runtime.py"
 def _runtime_build_frame_overlay_expr() -> str | None:
     text = RUNTIME.read_text(encoding="utf-8")
     m = re.search(
-        r"build_frame_overlay\s*=\s*show_for_overlay\s+or\s*\(\s*"
-        r"may_assist_pull\s+and\s+not\s+detection_fresh\s*\)",
+        r"build_frame_overlay\s*=\s*\(\s*"
+        r"show_for_overlay\s+or\s*\(\s*may_assist_pull\s+and\s+not\s+detection_fresh\s*\)"
+        r"\s+or\s*\(\s*stale_det\s+and\s+locked_grace\s+and\s+motion\s+is\s+not\s+None\s*\)",
         text,
+        re.DOTALL,
     )
     return m.group(0) if m else None
 

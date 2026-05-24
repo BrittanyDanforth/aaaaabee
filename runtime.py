@@ -1243,9 +1243,16 @@ class AssistRuntime:
                         target_lost_frames=self._target_lost_frames,
                         stale_grace_frames=stale_grace,
                     )
-                    # Stale grace only: fresh frames still need 2-frame overlay confirm.
-                    build_frame_overlay = show_for_overlay or (
-                        may_assist_pull and not detection_fresh
+                    locked_grace = (
+                        self._locked_target is not None
+                        and self._target_lost_frames
+                        < int(cfg.get("target_lost_frames_before_unlock", 18))
+                    )
+                    # Stale grace: keep dot on frozen motion during brief detect gaps.
+                    build_frame_overlay = (
+                        show_for_overlay
+                        or (may_assist_pull and not detection_fresh)
+                        or (stale_det and locked_grace and motion is not None)
                     )
                     frame_overlay: tuple[float, float] | None = None
                     monitor_overlay: tuple[float, float] | None = None
@@ -1482,18 +1489,18 @@ class AssistRuntime:
                                 self._locked_target is not None
                                 and self._target_lost_frames < unlock_grace
                             )
-                            if self._overlay_miss_frames >= 4 and not locked_hold:
+                            if self._overlay_miss_frames >= 10 and not locked_hold:
                                 self._aim_tracker.reset_overlay_smoothing()
                         else:
                             self._overlay_miss_frames = 0
                         if overlay_pt is None and ads_for_assist:
                             held = self._aim_tracker.peek_overlay_smooth()
-                            locked = self._locked_target
-                            if (
+                            if held is not None and locked_hold:
+                                overlay_pt = held
+                            elif (
                                 held is not None
-                                and locked is not None
-                                and self._target_lost_frames
-                                < int(cfg.get("target_lost_frames_before_unlock", 18))
+                                and self._locked_target is not None
+                                and self._overlay_miss_frames < 6
                             ):
                                 overlay_pt = held
                         self._overlay.set_state(ads_for_assist, overlay_pt)

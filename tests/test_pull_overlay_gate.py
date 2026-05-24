@@ -20,9 +20,16 @@ def _build_frame_overlay(
     show_for_overlay: bool,
     may_assist_pull: bool,
     detection_fresh: bool,
+    stale_det: bool = False,
+    locked_grace: bool = False,
+    motion_ok: bool = True,
 ) -> bool:
     """Mirror runtime.py build_frame_overlay (must stay in sync)."""
-    return show_for_overlay or (may_assist_pull and not detection_fresh)
+    return (
+        show_for_overlay
+        or (may_assist_pull and not detection_fresh)
+        or (stale_det and locked_grace and motion_ok)
+    )
 
 
 def _humanoid() -> Target:
@@ -170,10 +177,11 @@ class PullOverlayGateTests(unittest.TestCase):
         text = RUNTIME.read_text(encoding="utf-8")
         self.assertIn("show_for_overlay = overlay_may_show_target", text)
         self.assertIn("may_assist_pull = may_assist_pull_target", text)
-        self.assertIn("build_frame_overlay = show_for_overlay or (", text)
+        self.assertIn("build_frame_overlay = (", text)
+        self.assertIn("stale_det and locked_grace", text)
         self.assertIn("may_assist_pull and not detection_fresh", text)
         self.assertIn("and build_frame_overlay", text)
-        self.assertIn("Stale grace only", text)
+        self.assertIn("Stale grace: keep dot on frozen motion", text)
         self.assertIn("and may_assist_pull", text)
 
     def test_runtime_refreshes_motion_memory_while_locked(self) -> None:
