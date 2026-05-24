@@ -726,6 +726,7 @@ class TargetTracker:
                     else (x, y)
                 )
                 ox, oy = self._advance_overlay_follow(fx, fy, 1.0 / 60.0)
+                ox, oy = self._clamp_aim_output(ox, oy)
             else:
                 ox, oy = self._clamp_aim_output(self._smooth_x, self._smooth_y)
             self._last = TargetMotion(x, y, 0.0, 0.0, overlay_x=ox, overlay_y=oy)
@@ -842,6 +843,7 @@ class TargetTracker:
                 else (x, y)
             )
             overlay_x, overlay_y = self._advance_overlay_follow(fx, fy, dt)
+            overlay_x, overlay_y = self._clamp_aim_output(overlay_x, overlay_y)
         else:
             overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
 

@@ -445,7 +445,24 @@ class OverlayWindow:
             self._cx = fx
             self._cy = fy
         self._position_crosshair()
+        # Sync immediately when canvas exists so ADS hip→zoom does not leave
+        # one frame with the old grey ring under the new cyan ring.
+        if self._canvas is not None:
+            try:
+                self._purge_orphan_fov_rings()
+                self._sync_fov_ring()
+            except (tk.TclError, RuntimeError):
+                pass
         self._request_redraw()
+
+    def count_fov_ring_items(self) -> int:
+        """Test/audit helper: number of canvas ovals tagged ``fov_ring``."""
+        if self._canvas is None:
+            return 0
+        try:
+            return len(self._canvas.find_withtag("fov_ring"))
+        except tk.TclError:
+            return 0
 
     def _position_crosshair(self) -> None:
         if self._canvas is None or self._cross_h is None or self._cross_v is None:
@@ -491,6 +508,12 @@ class OverlayWindow:
         for item in list(self._canvas.find_all()):
             if item == self._target_id:
                 continue
+            try:
+                tags = self._canvas.gettags(item)
+                if "target_dot" in tags:
+                    continue
+            except tk.TclError:
+                tags = ()
             try:
                 if str(self._canvas.type(item)) != "oval":
                     continue
