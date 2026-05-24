@@ -1780,6 +1780,29 @@ def _lineup_display_anchor_cx(
     return 0.52 * slot_cx + 0.48 * part_cx
 
 
+def _lineup_mask_torso_peak_gx(
+    mask: np.ndarray,
+    rby: int,
+    rby1: int,
+    cluster_slot: int,
+    frame_w: int,
+) -> float:
+    """Torso-heavy column peak in mask — body center for overlay alignment."""
+    slot_cx = int(frame_w * _LINEUP_SLOT_X_FRACS[cluster_slot])
+    x0m = max(0, slot_cx - int(frame_w * 0.07))
+    x1m = min(frame_w, slot_cx + int(frame_w * 0.07))
+    band = mask[max(0, rby) : min(mask.shape[0], rby1), x0m:x1m]
+    if band.size == 0 or not band.any():
+        return float(slot_cx)
+    ys, xs = np.where(band > 0)
+    h_band = max(1, rby1 - rby)
+    y_mid_lo = int(h_band * 0.20)
+    y_mid_hi = int(h_band * 0.82)
+    torso = (ys >= y_mid_lo) & (ys <= y_mid_hi)
+    xs_use = xs[torso] if torso.any() else xs
+    return float(x0m + float(xs_use.mean()))
+
+
 def _lineup_extend_display_vertical(
     mask: np.ndarray,
     rbx: int,
@@ -1936,10 +1959,24 @@ def _refine_lineup_display_bbox(
             rbx = max(0, int(xs.min()) - pad_x)
             rbx1 = min(frame_w, int(xs.max()) + 1 + pad_x)
             rbw = min(max_col_w, max(8, rbx1 - rbx))
-            anchor_cx = _lineup_display_anchor_cx(parts, bx, by, bw, bh, frame_w, peak_gx)
-            center_x = int(round(anchor_cx))
-            rbx = max(0, min(frame_w - rbw, center_x - rbw // 2))
-            rbx1 = rbx + rbw
+    mask_cx = _lineup_mask_torso_peak_gx(mask, rby, rby1, cluster_slot, frame_w)
+    anchor_cx = _lineup_display_anchor_cx(parts, bx, by, bw, bh, frame_w, peak_gx)
+    slot_cx_f = frame_w * _LINEUP_SLOT_X_FRACS[cluster_slot]
+    if cluster_slot == 5:
+        mask_w = 0.62
+    elif cluster_slot == 0:
+        mask_w = 0.28
+    else:
+        mask_w = 0.48
+    final_cx = (1.0 - mask_w) * anchor_cx + mask_w * mask_cx
+    clamp_lo = slot_cx_f - frame_w * 0.025
+    clamp_hi = slot_cx_f + (
+        frame_w * 0.008 if cluster_slot == 0 else frame_w * 0.025
+    )
+    final_cx = max(clamp_lo, min(clamp_hi, final_cx))
+    center_x = int(round(final_cx))
+    rbx = max(0, min(frame_w - rbw, center_x - rbw // 2))
+    rbx1 = rbx + rbw
     rbh = max(8, rby1 - rby)
     return rbx, rby, rbw, rbh
 

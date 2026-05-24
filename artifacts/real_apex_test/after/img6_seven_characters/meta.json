@@ -52,7 +52,7 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        33,
+        36,
         102,
         149,
         492
@@ -67,9 +67,9 @@
       "aspect": 3.302013422818792,
       "part_count": 19,
       "total_area": 3307.5,
-      "distance_to_center": 517.4002721298086,
+      "distance_to_center": 514.4084384999919,
       "aim": [
-        107.5,
+        110.5,
         288.96000000000004
       ],
       "debug_detail": "parts=19 head=0.74 torso=0.57 limb=1.00 vert=0.72 geom=0.56 align=0.12 circ=0.58 fill=0.10"
@@ -79,7 +79,7 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        190,
+        193,
         274,
         149,
         196
@@ -94,9 +94,9 @@
       "aspect": 1.3154362416107384,
       "part_count": 5,
       "total_area": 3564.0,
-      "distance_to_center": 359.6420309140743,
+      "distance_to_center": 356.6474315062426,
       "aim": [
-        264.5,
+        267.5,
         348.48
       ],
       "debug_detail": "parts=5 head=0.39 torso=0.75 limb=1.00 vert=1.00 geom=0.78 align=0.34 circ=0.48 fill=0.49"
@@ -106,7 +106,7 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        203,
+        199,
         140,
         149,
         481
@@ -121,9 +121,9 @@
       "aspect": 3.228187919463087,
       "part_count": 5,
       "total_area": 13350.5,
-      "distance_to_center": 346.0257337251089,
+      "distance_to_center": 350.0254396468919,
       "aim": [
-        277.5,
+        273.5,
         322.78
       ],
       "debug_detail": "parts=5 head=0.35 torso=0.78 limb=1.00 vert=1.00 geom=0.44 align=0.33 circ=0.43 fill=0.40"
@@ -133,7 +133,7 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        209,
+        207,
         358,
         149,
         257
@@ -148,9 +148,9 @@
       "aspect": 1.7248322147651007,
       "part_count": 3,
       "total_area": 1620.0,
-      "distance_to_center": 363.52908494369467,
+      "distance_to_center": 365.4003223862836,
       "aim": [
-        283.5,
+        281.5,
         455.65999999999997
       ],
       "debug_detail": "parts=3 head=0.23 torso=0.91 limb=1.00 vert=1.00 geom=0.96 align=0.10 circ=0.47 fill=0.37"
@@ -187,7 +187,7 @@
       "accepted": false,
       "reject_reason": "lineup_duplicate",
       "bbox": [
-        412,
+        398,
         234,
         110,
         373
@@ -202,9 +202,9 @@
       "aspect": 3.390909090909091,
       "part_count": 11,
       "total_area": 4100.0,
-      "distance_to_center": 163.91411653667905,
+      "distance_to_center": 177.3297425701622,
       "aim": [
-        467.0,
+        453.0,
         375.74
       ],
       "debug_detail": "parts=11 head=0.86 torso=0.74 limb=1.00 vert=1.00 geom=0.92 align=0.27 circ=0.71 fill=0.34"
@@ -214,7 +214,7 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        530,
+        543,
         170,
         174,
         380
@@ -231,7 +231,7 @@
       "total_area": 746.5,
       "distance_to_center": 14.177799547179406,
       "aim": [
-        617.0,
+        630.0,
         314.4
       ],
       "debug_detail": "parts=8 head=1.00 torso=0.69 limb=1.00 vert=1.00 geom=0.96 align=0.26 circ=0.74 fill=0.23"
@@ -322,7 +322,7 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        547,
+        537,
         292,
         174,
         295
@@ -337,9 +337,9 @@
       "aspect": 1.6954022988505748,
       "part_count": 4,
       "total_area": 335.5,
-      "distance_to_center": 77.81169577897658,
+      "distance_to_center": 77.10162125403073,
       "aim": [
-        634.0,
+        624.0,
         404.1
       ],
       "debug_detail": "parts=4 head=1.00 torso=0.72 limb=1.00 vert=1.00 geom=0.53 align=0.64 circ=0.67 fill=0.22"
@@ -484,7 +484,7 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        718,
+        730,
         340,
         149,
         170
@@ -499,9 +499,9 @@
       "aspect": 1.1409395973154361,
       "part_count": 1,
       "total_area": 202.5,
-      "distance_to_center": 185.9644051962633,
+      "distance_to_center": 196.9333897539978,
       "aim": [
-        792.5,
+        804.5,
         404.6
       ],
       "debug_detail": "parts=1 head=0.42 torso=0.95 limb=0.20 vert=0.72 geom=0.72 align=0.00 circ=0.33 fill=0.64"
@@ -511,7 +511,7 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        753,
+        737,
         121,
         119,
         193
@@ -526,9 +526,9 @@
       "aspect": 1.6218487394957983,
       "part_count": 5,
       "total_area": 4311.0,
-      "distance_to_center": 230.910535922465,
+      "distance_to_center": 218.00843011223213,
       "aim": [
-        812.5,
+        796.5,
         194.34
       ],
       "debug_detail": "parts=5 head=0.37 torso=0.92 limb=1.00 vert=1.00 geom=0.60 align=0.34 circ=0.76 fill=0.33"
@@ -565,7 +565,7 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        730,
+        740,
         414,
         149,
         170
@@ -580,9 +580,9 @@
       "aspect": 1.1409395973154361,
       "part_count": 4,
       "total_area": 374.0,
-      "distance_to_center": 236.10074121018766,
+      "distance_to_center": 243.85151219543422,
       "aim": [
-        804.5,
+        814.5,
         478.6
       ],
       "debug_detail": "parts=4 head=0.98 torso=0.00 limb=1.00 vert=1.00 geom=0.98 align=0.74 circ=0.54 fill=0.22"
@@ -592,7 +592,7 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        890,
+        896,
         68,
         149,
         426
@@ -607,9 +607,9 @@
       "aspect": 2.859060402684564,
       "part_count": 10,
       "total_area": 2878.0,
-      "distance_to_center": 354.5607062267335,
+      "distance_to_center": 360.334975266071,
       "aim": [
-        964.5,
+        970.5,
         229.88
       ],
       "debug_detail": "parts=10 head=1.00 torso=0.62 limb=1.00 vert=1.00 geom=0.74 align=0.40 circ=0.73 fill=0.28"
@@ -619,7 +619,7 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        897,
+        888,
         105,
         149,
         423
@@ -634,9 +634,9 @@
       "aspect": 2.838926174496644,
       "part_count": 7,
       "total_area": 1023.5,
-      "distance_to_center": 353.35079963118807,
+      "distance_to_center": 344.49062048189353,
       "aim": [
-        971.5,
+        962.5,
         265.74
       ],
       "debug_detail": "parts=7 head=0.20 torso=0.76 limb=1.00 vert=1.00 geom=0.74 align=0.15 circ=0.54 fill=0.20"
@@ -646,7 +646,7 @@
       "accepted": false,
       "reject_reason": "lineup_duplicate",
       "bbox": [
-        1055,
+        1052,
         0,
         149,
         369
@@ -661,9 +661,9 @@
       "aspect": 2.476510067114094,
       "part_count": 7,
       "total_area": 29693.0,
-      "distance_to_center": 539.372569194986,
+      "distance_to_center": 536.5591937521898,
       "aim": [
-        1129.5,
+        1126.5,
         140.22
       ],
       "debug_detail": "parts=7 head=0.36 torso=0.90 limb=1.00 vert=1.00 geom=0.40 align=0.23 circ=0.69 fill=0.62"
@@ -673,7 +673,7 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        1070,
+        1072,
         150,
         149,
         480
@@ -688,9 +688,9 @@
       "aspect": 3.221476510067114,
       "part_count": 7,
       "total_area": 21032.5,
-      "distance_to_center": 521.0279838933798,
+      "distance_to_center": 523.0278768861178,
       "aim": [
-        1144.5,
+        1146.5,
         332.4
       ],
       "debug_detail": "parts=7 head=0.98 torso=0.83 limb=1.00 vert=1.00 geom=0.62 align=0.23 circ=0.67 fill=0.65"

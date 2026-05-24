@@ -54,6 +54,6 @@ def test_img6_enumerates_multiple_characters_not_one_merge() -> None:
     octane = sorted(accepted, key=lambda c: c.bbox_x)[5]
     slot_cx = w * detector._LINEUP_SLOT_X_FRACS[5]
     oct_cx = octane.bbox_x + octane.bbox_w * 0.5
-    assert abs(oct_cx - slot_cx) <= w * 0.02, (
+    assert abs(oct_cx - slot_cx) <= w * 0.015, (
         f"octane overlay off column: cx={oct_cx:.0f} slot={slot_cx:.0f}"
     )
