@@ -54,6 +54,7 @@ from profiles import (
     effective_capture_fov_radius,
     effective_detection_fov_radius,
     effective_fov_radius,
+    effective_overlay_fov_radius,
     effective_overlay_fps,
 )
 from pull import PullController, PullTuning
@@ -739,10 +740,7 @@ class AssistRuntime:
     ) -> None:
         from overlay_window import OverlayWindow
 
-        ads_active = (
-            bool(self._ads.is_ads_active()) if self._ads is not None else False
-        )
-        radius = effective_fov_radius(self.config, ads_active=ads_active)
+        radius = effective_overlay_fov_radius(self.config)
         cfg = self.config
         self._overlay = OverlayWindow(
             width,
@@ -1135,13 +1133,13 @@ class AssistRuntime:
                     self._sync_ads_assist_state(ads_for_assist)
 
                     user_fov = effective_fov_radius(cfg, ads_active=ads_for_assist)
+                    overlay_fov = effective_overlay_fov_radius(cfg)
                     detect_fov = effective_detection_fov_radius(
                         cfg, ads_active=ads_for_assist
                     )
-                    display_fov = user_fov
                     if bool(cfg.get("unified_fov", True)):
                         detect_fov = user_fov
-                    ring_inner = float(user_fov) * 0.96
+                    ring_inner = float(overlay_fov) * 0.96
                     cfg["_runtime_fov"] = user_fov
                     cfg["_runtime_overlay_fov"] = ring_inner
                     capture_fov = effective_capture_fov_radius(
@@ -1176,12 +1174,12 @@ class AssistRuntime:
                             self._pull._tuning.fov_radius = float(detect_fov)
                     if self._overlay is not None:
                         self._overlay.update_fov(
-                            display_fov,
-                            ads_for_assist,
+                            overlay_fov,
+                            False,
                             center_x,
                             center_y,
                         )
-                        self._last_display_fov = display_fov
+                        self._last_display_fov = overlay_fov
                     if cap_region is not None:
                         self._frame_cx = center_x - cap_region.offset_x
                         self._frame_cy = center_y - cap_region.offset_y
@@ -1263,7 +1261,7 @@ class AssistRuntime:
                             center_x=float(center_x),
                             center_y=float(center_y),
                             detect_fov=float(detect_fov),
-                            display_fov=float(display_fov),
+                            display_fov=float(overlay_fov),
                         )
                         if frame_overlay is not None:
                             fx, fy = frame_overlay
@@ -1522,7 +1520,7 @@ class AssistRuntime:
                             # debug window can't show a phantom second
                             # ring at the detection FOV. The second
                             # detect-FOV ring is opt-in via cfg flag.
-                            display_fov_radius=display_fov,
+                            display_fov_radius=overlay_fov,
                             debug_show_detect_ring=bool(
                                 cfg.get("debug_show_detect_ring", False)
                             ),

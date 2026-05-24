@@ -157,14 +157,9 @@ class RuntimeController:
                     "detection_fov_margin_pixels",
                 )
             ):
-                from profiles import effective_fov_radius
+                from profiles import effective_overlay_fov_radius
 
-                ads_active = False
-                if getattr(live, "_ads", None) is not None:
-                    ads_active = bool(live._ads.is_ads_active())
-                display_fov = int(
-                    effective_fov_radius(merged, ads_active=ads_active)
-                )
+                overlay_fov = int(effective_overlay_fov_radius(merged))
                 if getattr(live, "_overlay", None) is not None:
                     try:
                         import mss
@@ -179,11 +174,11 @@ class RuntimeController:
                             merged.get("crosshair_offset_y", 0.0)
                         )
                         live._overlay.update_fov(
-                            display_fov, ads_active, cx, cy
+                            overlay_fov, False, cx, cy
                         )
                     except Exception:
                         logger.exception("hot-reload FOV failed")
-                live._last_display_fov = display_fov
+                live._last_display_fov = overlay_fov
                 live._last_fov_radius = -1
             if any(k in patch for k in ("crosshair_offset_x", "crosshair_offset_y")):
                 if getattr(live, "_overlay", None) is not None:

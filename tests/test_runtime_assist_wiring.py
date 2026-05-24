@@ -52,6 +52,6 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         )
         # Unified FOV: ring_inner = user_fov * 0.96; clamp uses min(detect, display)
         # which are equal when unified_fov is True (default).
-        self.assertIn("float(user_fov) * 0.96", text)
+        self.assertIn("float(overlay_fov) * 0.96", text)
         self.assertIn("unified_fov", text)
         self.assertIn(") * 0.96", text)

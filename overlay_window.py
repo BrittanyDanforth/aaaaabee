@@ -13,6 +13,8 @@ from motion import overlay_glide_step
 logger = logging.getLogger("overlay_assist")
 
 _TRANSPARENT_BG = "#010203"
+# Single default HUD ring — ADS must not switch to cyan (double-ring on RMB).
+FOV_RING_OUTLINE = "#446644"
 
 
 def _hex_to_colorref(hex_color: str) -> int:
@@ -258,7 +260,7 @@ class OverlayWindow:
         self._tick_ms = max(4, int(1000 / self._overlay_fps))
         self._fov_radius = fov_radius
         self._drawn_fov_radius = fov_radius
-        self._drawn_ring_color = "#446644"
+        self._drawn_ring_color = FOV_RING_OUTLINE
         self._screen_width = screen_width
         self._screen_height = screen_height
         self._origin_x = origin_x
@@ -350,7 +352,7 @@ class OverlayWindow:
         # outer ring trace back to ambiguity about whether set_fov_radius()
         # could leak a second oval; tagging + a guarded delete in _redraw
         # makes the invariant impossible to violate.
-        init_ring_color = "#446644"
+        init_ring_color = FOV_RING_OUTLINE
         self._fov_id = self._canvas.create_oval(
             self._cx - fov_radius,
             self._cy - fov_radius,
@@ -434,12 +436,11 @@ class OverlayWindow:
         center_x: float,
         center_y: float,
     ) -> None:
-        """Single overlay FOV update (radius + ADS color + center) — one ring only."""
+        """Single overlay FOV update (radius + center). ``ads`` is ignored for the ring."""
         fx, fy = float(center_x), float(center_y)
         new_r = max(40, int(radius))
         with self._lock:
             self._fov_radius = new_r
-            self._active = bool(ads)
             self._fov_center_x = fx
             self._fov_center_y = fy
             self._cx = fx
@@ -488,9 +489,8 @@ class OverlayWindow:
     def set_fov_center(self, x: float, y: float) -> None:
         """Move ring + crosshair — does not create a second oval (use update_fov)."""
         with self._lock:
-            ads = self._active
             radius = int(self._fov_radius)
-        self.update_fov(radius, ads, x, y)
+        self.update_fov(radius, False, x, y)
 
     def _fov_ring_alive(self) -> bool:
         if self._canvas is None or self._fov_id is None:
@@ -557,13 +557,12 @@ class OverlayWindow:
         self._drawn_ring_color = color
 
     def _sync_fov_ring(self) -> None:
-        """Ensure exactly one FOV oval matches radius, ADS color, and center."""
+        """Ensure exactly one default FOV oval (hip size/color; ADS does not restyle)."""
         if self._canvas is None:
             return
         with self._lock:
             radius = int(self._fov_radius)
-            ads = self._active
-        color = "#00ff88" if ads else "#446644"
+        color = FOV_RING_OUTLINE
         self._purge_orphan_fov_rings()
         # Never coords-resize across ADS/radius steps — that left the old grey
         # hip-fire ring visible inside the new cyan ADS ring (double FOV bug).
@@ -595,8 +594,9 @@ class OverlayWindow:
         return float(self._cx), float(self._cy)
 
     def set_state(self, ads: bool, target: tuple[float, float] | None) -> None:
+        # ``ads`` is for runtime telemetry only; the HUD ring does not change on RMB.
+        del ads
         with self._lock:
-            self._active = ads
             if target is None:
                 self._target = None
                 self._dot_dest = None

@@ -407,6 +407,22 @@ class TargetTracker:
         self._deadband_exit_frames = 0
 
     @staticmethod
+    def point_inside_body_bbox(
+        x: float,
+        y: float,
+        bbox_x: int,
+        bbox_y: int,
+        bbox_w: int,
+        bbox_h: int,
+    ) -> bool:
+        mx = bbox_w * _BODY_X_MARGIN_FRAC
+        y_lo = bbox_y + bbox_h * _body_y_lo_frac
+        y_hi = bbox_y + bbox_h * _body_y_hi_frac
+        x_lo = bbox_x + mx
+        x_hi = bbox_x + bbox_w - mx
+        return x_lo <= x <= x_hi and y_lo <= y <= y_hi
+
+    @staticmethod
     def _clamp_to_body_bbox(
         x: float,
         y: float,

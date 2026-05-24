@@ -48,7 +48,7 @@ class DebugRingDefaultsTests(unittest.TestCase):
     def test_runtime_passes_display_fov_to_draw_debug(self) -> None:
         text = RUNTIME_PATH.read_text(encoding="utf-8")
         self.assertIn(
-            "display_fov_radius=display_fov",
+            "display_fov_radius=overlay_fov",
             text,
             "runtime must forward display_fov to draw_debug (O1 audit fix)",
         )

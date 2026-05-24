@@ -14,18 +14,20 @@ class OverlayAuditFixesTests(unittest.TestCase):
 
         self.assertIn("def set_fov_center", ow)
         self.assertIn("_position_crosshair", ow)
-        self.assertIn("init_ring_color = \"#446644\"", ow)
+        self.assertIn("FOV_RING_OUTLINE", ow)
         self.assertNotIn("if self._cx else dest", ow)
 
         self.assertIn("update_fov(", rt)
         self.assertIn("user_fov = effective_fov_radius", rt)
-        self.assertIn("ring_inner = float(user_fov) * 0.96", rt)
+        self.assertIn("ring_inner = float(overlay_fov) * 0.96", rt)
+        self.assertIn("effective_overlay_fov_radius", rt)
         self.assertIn("overlay_mon = monitor_overlay", rt)
         self.assertIn("center_moved", rt)
         self.assertIn("configure_overlay_dot_alpha(dot_alpha)", rt)
         self.assertNotIn("def _target_for_pull", rt)
 
-        self.assertIn("ads_active=ads_active", rc)
+        self.assertIn("effective_overlay_fov_radius", rc)
+        self.assertIn("overlay_fov, False", rc)
         self.assertIn("configure_overlay_dot_alpha", rc)
         self.assertIn("crosshair_offset_x", rc)
         self.assertIn("update_fov(", rc)

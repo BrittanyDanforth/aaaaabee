@@ -46,13 +46,13 @@ class RuntimeUnifiedFovSourceTests(unittest.TestCase):
         self.assertIn("update_fov(", text)
         self.assertNotIn("set_fov_center(center_x, center_y)", text)
 
-    def test_overlay_replaces_ring_on_ads_color_change(self) -> None:
+    def test_overlay_single_default_ring_color(self) -> None:
         text = Path(__file__).resolve().parents[1].joinpath(
             "overlay_window.py"
         ).read_text(encoding="utf-8")
         self.assertIn("def update_fov", text)
-        self.assertIn("color != self._drawn_ring_color", text)
-        self.assertIn("self._replace_fov_ring(radius, color)", text)
+        self.assertIn("FOV_RING_OUTLINE", text)
+        self.assertNotIn("#00ff88", text)
 
 
 try:
@@ -83,42 +83,19 @@ class OverlayAdsRingInvariantTests(unittest.TestCase):
         win._drawn_ring_color = "#446644"
         return win, canvas
 
-    def test_ads_radius_change_replaces_not_coords_stack(self) -> None:
+    def test_ads_does_not_change_drawn_radius_when_runtime_passes_hip(self) -> None:
+        """Production passes overlay_fov (hip) on RMB — ring must not jump to 185."""
         win, canvas = self._make_window()
-        win.update_fov(185, True, 960.0, 540.0)
+        win.update_fov(140, True, 960.0, 540.0)
         win._redraw()
-        deletes = [c for c in canvas.delete.call_args_list]
-        creates = [
+        self.assertEqual(win._fov_radius, 140)
+        self.assertEqual(win._drawn_fov_radius, 140)
+        ring_creates = [
             c
             for c in canvas.create_oval.call_args_list
             if c.kwargs.get("tags") == ("fov_ring",)
         ]
-        self.assertTrue(deletes or creates, "ADS step must replace or recreate ring")
-        self.assertLessEqual(
-            len(creates),
-            2,
-            f"expected at most 2 ring creates (build+ADS), got {len(creates)}",
-        )
-
-    def test_hip_then_ads_leaves_one_tagged_ring(self) -> None:
-        win, canvas = self._make_window()
-        tagged: list[int] = []
-
-        def track_create(*args, **kwargs):
-            item_id = 10 + len(tagged)
-            if kwargs.get("tags") == ("fov_ring",):
-                tagged.append(item_id)
-            return item_id
-
-        canvas.create_oval.side_effect = track_create
-        canvas.find_withtag.side_effect = lambda tag: tuple(tagged) if tag == "fov_ring" else ()
-
-        win.update_fov(140, False, 960.0, 540.0)
-        win._redraw()
-        win.update_fov(185, True, 960.0, 540.0)
-        win._redraw()
-        self.assertEqual(len(tagged), 2, "hip + ADS should each create one ring after purge")
-        self.assertEqual(win._fov_id, tagged[-1])
+        self.assertLessEqual(len(ring_creates), 1)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,8 @@ _APEX_TUNING: dict[str, Any] = {
     # Set unified_fov=False and detection_fov_margin_pixels>0 only if you
     # need a hidden detection halo beyond the drawn ring.
     "unified_fov": True,
+    # HUD ring stays hip-fire size/color on ADS (no second cyan/larger ring).
+    "overlay_ring_fixed_hip": True,
     "detection_fov_margin_pixels": 0,
     "capture_fov_crop": True,
     "capture_crop_padding": 1.34,
@@ -234,7 +236,7 @@ def effective_capture_fps(config: dict[str, Any]) -> int:
 
 
 def effective_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
-    """Overlay / HUD ring radius (hip-fire vs ADS)."""
+    """Assist FOV radius (hip-fire vs ADS) for detection/capture/pull."""
     base = int(config.get("fov_radius_pixels", 140))
     if not ads_active:
         return max(80, base)
@@ -243,6 +245,21 @@ def effective_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
         scale = float(config.get("fov_ads_scale", 1.30))
         ads = int(base * scale)
     return max(base, ads)
+
+
+def effective_overlay_fov_radius(
+    config: dict[str, Any], *, ads_active: bool = False
+) -> int:
+    """
+    Visible HUD FOV ring only.
+
+    When ``overlay_ring_fixed_hip`` is True (default), the drawn ring always
+    uses hip-fire ``fov_radius_pixels`` — ADS does not spawn a second/larger
+    cyan ring (the common double-FOV bug on RMB).
+    """
+    if bool(config.get("overlay_ring_fixed_hip", True)):
+        return effective_fov_radius(config, ads_active=False)
+    return effective_fov_radius(config, ads_active=ads_active)
 
 
 def effective_detection_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
