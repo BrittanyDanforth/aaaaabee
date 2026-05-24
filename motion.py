@@ -209,13 +209,13 @@ class TargetTracker:
         self._fov_radius = max(1.0, float(radius))
 
     def _clamp_to_fov(self, x: float, y: float) -> tuple[float, float]:
-        """Keep smoothed aim inside detection FOV circle."""
+        """Keep aim inside overlay FOV circle (ring margin applied in runtime)."""
         if self._fov_cx is None or self._fov_cy is None or self._fov_radius is None:
             return x, y
         dx = x - self._fov_cx
         dy = y - self._fov_cy
         dist = math.hypot(dx, dy)
-        r = self._fov_radius * 0.96
+        r = self._fov_radius
         if dist <= r or dist <= 0.0:
             return x, y
         s = r / dist
