@@ -230,6 +230,31 @@ class TargetTracker:
         """Capture-frame overlay drag blend (GUI: Red dot smoothness)."""
         self._overlay_dot_alpha = max(0.05, min(1.0, float(alpha)))
 
+    def trace_snapshot(self) -> dict[str, object]:
+        """Debug fields for pull_trace / GIF audits."""
+        snap: dict[str, object] = {
+            "in_deadband": self._in_deadband,
+            "deadband_exit_frames": self._deadband_exit_frames,
+            "stable_bbox_hold_frames": self._stable_bbox_hold_frames,
+            "vx": self._vx,
+            "vy": self._vy,
+        }
+        if self._last_stable_bbox is not None:
+            snap["last_stable_bbox"] = self._last_stable_bbox
+        if self._body_bbox is not None:
+            snap["body_bbox"] = self._body_bbox
+        if (
+            self._last_meas_x is not None
+            and self._last_meas_y is not None
+            and self._smooth_x is not None
+            and self._smooth_y is not None
+        ):
+            snap["meas_drift"] = math.hypot(
+                self._last_meas_x - self._smooth_x,
+                self._last_meas_y - self._smooth_y,
+            )
+        return snap
+
     def sync_overlay_follow_frame(self, frame_x: float, frame_y: float) -> None:
         """Align frame follow state with post-ring-clamp monitor→frame point."""
         if math.isfinite(frame_x) and math.isfinite(frame_y):
@@ -264,12 +289,19 @@ class TargetTracker:
         oa = max(oa_lo, min(oa_hi, oa))
         fx = self._overlay_follow_x + oa * (aim_x - self._overlay_follow_x)
         fy = self._overlay_follow_y + oa * (aim_y - self._overlay_follow_y)
-        if speed > 25.0:
+        if speed > 25.0 and self._body_bbox is None:
             lead = min(dt, 0.05)
             fx += self._vx * lead * 0.38
             fy += self._vy * lead * 0.38
             if fy < self._overlay_follow_y - 10.0:
                 fy = self._overlay_follow_y - 10.0
+        elif speed > 25.0 and self._body_bbox is not None:
+            lead = min(dt, 0.05)
+            fx += self._vx * lead * 0.22
+            if self._vy > 0.0:
+                fy += self._vy * lead * 0.08
+            elif self._vy < -40.0:
+                fy += self._vy * lead * 0.05
         bh = 80
         if self._body_bbox is not None:
             bh = self._body_bbox[3]
@@ -282,6 +314,13 @@ class TargetTracker:
             fx = self._overlay_follow_x + fdx * s
             fy = self._overlay_follow_y + fdy * s
         ox, oy = self._clamp_aim_output(fx, fy)
+        if self._body_bbox is not None:
+            bx, by, bw, bh = self._body_bbox
+            y_hi = by + bh * _body_y_hi_frac
+            if oy > y_hi:
+                oy = y_hi
+            if oy < self._overlay_follow_y - max(4.0, bh * 0.04):
+                oy = max(by + bh * _body_y_lo_frac, self._overlay_follow_y - max(4.0, bh * 0.04))
         self._overlay_follow_x, self._overlay_follow_y = ox, oy
         return ox, oy
 
@@ -405,6 +444,22 @@ class TargetTracker:
         self._last_pre_predict = None
         self._in_deadband = False
         self._deadband_exit_frames = 0
+
+    @staticmethod
+    def point_inside_body_bbox(
+        x: float,
+        y: float,
+        bbox_x: int,
+        bbox_y: int,
+        bbox_w: int,
+        bbox_h: int,
+    ) -> bool:
+        mx = bbox_w * _BODY_X_MARGIN_FRAC
+        y_lo = bbox_y + bbox_h * _body_y_lo_frac
+        y_hi = bbox_y + bbox_h * _body_y_hi_frac
+        x_lo = bbox_x + mx
+        x_hi = bbox_x + bbox_w - mx
+        return x_lo <= x <= x_hi and y_lo <= y <= y_hi
 
     @staticmethod
     def _clamp_to_body_bbox(

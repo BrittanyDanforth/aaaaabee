@@ -15,7 +15,9 @@ from pathlib import Path
 import cv2
 
 import detector
+import motion as motion_mod
 import profiles
+from motion import TargetTracker
 from target_lock import (
     TargetLockMachine,
     detection_sticky_context,
@@ -124,6 +126,60 @@ class GifDriftRegressionTests(unittest.TestCase):
                 prev_body = float(effective.body_shape_score)
                 prev_locked = effective
         self.assertEqual(violations, [], "\n  " + "\n  ".join(violations))
+
+    def test_gif_motion_overlay_stays_inside_body_bbox(self) -> None:
+        cfg = _live_cfg()
+        ctx = detector.DetectionContext(
+            motion_assist=True,
+            motion_threshold=int(cfg["detection_motion_threshold"]),
+        )
+        lock = TargetLockMachine(cfg, center_y=360.0)
+        tracker = TargetTracker()
+        outside: list[str] = []
+        for frame_idx in SAMPLE_INDICES:
+            path = FRAMES_DIR / f"frame_{frame_idx:03d}.png"
+            img = __import__("cv2").imread(str(path), __import__("cv2").IMREAD_COLOR)
+            h, w = img.shape[:2]
+            cx, cy = w / 2.0, h / 2.0
+            lock.center_y = cy
+            fov_r = profiles.effective_detection_fov_radius(cfg, ads_active=False)
+            sticky, currently_locked, _ = detection_sticky_context(lock.state, cfg)
+            result = detector.find_best_target(
+                img,
+                cfg.get("hsv_ranges"),
+                fov_r,
+                float(cfg["min_target_area_pixels"]),
+                cx,
+                cy,
+                exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
+                detection_mode=detector.DETECTION_MODE_APEX,
+                context=ctx,
+                min_height_px=float(cfg["humanoid_min_height_pixels"]),
+                sticky_target=sticky,
+                stickiness_pixels=float(cfg["target_stickiness_pixels"]),
+                currently_locked=currently_locked,
+            )
+            merged, is_stale = lock.step_detection(result)
+            t = merged.target
+            if t is None or is_stale:
+                continue
+            m = tracker.observe_target(
+                t.centroid_x,
+                t.centroid_y,
+                frame_idx / 30.0,
+                bbox_x=t.bbox_x,
+                bbox_y=t.bbox_y,
+                bbox_w=t.bbox_w,
+                bbox_h=t.bbox_h,
+                aim_is_body_anchor=True,
+            )
+            ox, oy = m.overlay_xy()
+            y_hi = t.bbox_y + t.bbox_h * motion_mod._body_y_hi_frac
+            if oy > y_hi + 3.0:
+                outside.append(
+                    f"frame {frame_idx}: overlay_y={oy:.0f} > chest_hi={y_hi:.0f}"
+                )
+        self.assertEqual(outside, [], "\n  " + "\n  ".join(outside))
 
 
 if __name__ == "__main__":

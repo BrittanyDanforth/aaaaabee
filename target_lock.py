@@ -595,6 +595,17 @@ def apply_target_lock(
             if on_lock_expired is not None:
                 on_lock_expired()
             return DetectionResult(None, result.candidates, 0.0), False
+        anchor_cy = state._lock_anchor_cy
+        if anchor_cy is not None and locked.centroid_y < anchor_cy - MAX_LOCK_UPWARD_DRIFT_PX:
+            state.reset()
+            if on_lock_expired is not None:
+                on_lock_expired()
+            return DetectionResult(None, result.candidates, 0.0), False
+        if bbox_mid_in_sky_band(locked.bbox_y, locked.bbox_h, center_y):
+            state.reset()
+            if on_lock_expired is not None:
+                on_lock_expired()
+            return DetectionResult(None, result.candidates, 0.0), False
         is_stale = True
         return (
             DetectionResult(locked, result.candidates, locked.confidence),

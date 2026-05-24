@@ -419,6 +419,32 @@ class AssistRuntime:
         pre_pp = getattr(self._aim_tracker, "last_pre_predict_point", None)
         body_clamp = pre_pp if pre_pp is not None else (rx, ry)
         pull_in = (mx, my) if motion is not None else (rx, ry)
+        mtrace = self._aim_tracker.trace_snapshot()
+        stable_bb = mtrace.get("last_stable_bbox")
+        body_bb = mtrace.get("body_bbox")
+        ov_in = pull_in_body = False
+        ov_pull_delta = -1.0
+        motion_out = None
+        if motion is not None:
+            motion_out = (motion.x, motion.y)
+            if overlay_dot is not None:
+                ov_pull_delta = math.hypot(
+                    overlay_dot[0] - motion.x, overlay_dot[1] - motion.y
+                )
+        if isinstance(body_bb, tuple) and len(body_bb) == 4:
+            bx, by, bw, bh = body_bb
+            if overlay_dot is not None:
+                ov_in = TargetTracker.point_inside_body_bbox(
+                    overlay_dot[0], overlay_dot[1], bx, by, bw, bh
+                )
+            pull_in_body = TargetTracker.point_inside_body_bbox(
+                mx, my, bx, by, bw, bh
+            )
+        cand_id = ""
+        if target is not None:
+            cand_id = (
+                f"{target.bbox_x},{target.bbox_y},{target.bbox_w}x{target.bbox_h}"
+            )
         log_trace_frame(
             PullTraceFrame(
                 frame=self._trace_frame,
@@ -452,6 +478,29 @@ class AssistRuntime:
                 torso_score=torso_s,
                 limb_score=limb_s,
                 selected_reason=selected_reason,
+                body_shape_score=float(target.body_shape_score)
+                if target is not None
+                else -1.0,
+                red_coverage=float(target.red_coverage)
+                if target is not None
+                else -1.0,
+                reject_reason=str(getattr(target, "reject_reason", "") or "")
+                if target is not None
+                else "",
+                candidate_id=cand_id,
+                last_stable_bbox=stable_bb if isinstance(stable_bb, tuple) else None,
+                motion_body_bbox=body_bb if isinstance(body_bb, tuple) else None,
+                in_deadband=bool(mtrace.get("in_deadband", False)),
+                meas_drift=float(mtrace["meas_drift"])
+                if isinstance(mtrace.get("meas_drift"), (int, float))
+                else -1.0,
+                inst_speed=math.hypot(
+                    float(mtrace.get("vx", 0.0)), float(mtrace.get("vy", 0.0))
+                ),
+                overlay_inside_body=ov_in,
+                pull_inside_body=pull_in_body,
+                overlay_pull_delta_px=ov_pull_delta,
+                motion_output=motion_out,
                 capture_ms=capture_ms,
                 detect_ms=detect_ms,
                 total_loop_ms=total_loop_ms,
