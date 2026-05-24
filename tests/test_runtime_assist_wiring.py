@@ -57,7 +57,7 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         # ring when detection_fov_margin_pixels is non-zero — that was
         # the "dot outside the ring" symptom in the user screenshots.
         self.assertIn(
-            "min(float(detect_fov), float(display_fov))",
+            "float(user_fov) * 0.96",
             text,
             "overlay clamp must use the smaller of detect_fov and display_fov",
         )

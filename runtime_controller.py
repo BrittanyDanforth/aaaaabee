@@ -148,7 +148,15 @@ class RuntimeController:
             logging.getLogger().setLevel(level)
             logging.getLogger("aba").setLevel(level)
         if live is not None and getattr(live, "running", False):
-            if any(k in patch for k in ("fov_radius_pixels", "fov_radius_ads_pixels")):
+            if any(
+                k in patch
+                for k in (
+                    "fov_radius_pixels",
+                    "fov_radius_ads_pixels",
+                    "unified_fov",
+                    "detection_fov_margin_pixels",
+                )
+            ):
                 from profiles import effective_fov_radius
 
                 ads_active = False
@@ -158,7 +166,23 @@ class RuntimeController:
                     effective_fov_radius(merged, ads_active=ads_active)
                 )
                 if getattr(live, "_overlay", None) is not None:
-                    live._overlay.set_fov_radius(display_fov)
+                    try:
+                        import mss
+
+                        mon = mss.mss().monitors[
+                            int(merged.get("monitor_index", 1))
+                        ]
+                        cx = mon["width"] / 2.0 + float(
+                            merged.get("crosshair_offset_x", 0.0)
+                        )
+                        cy = mon["height"] / 2.0 + float(
+                            merged.get("crosshair_offset_y", 0.0)
+                        )
+                        live._overlay.update_fov(
+                            display_fov, ads_active, cx, cy
+                        )
+                    except Exception:
+                        logger.exception("hot-reload FOV failed")
                 live._last_display_fov = display_fov
                 live._last_fov_radius = -1
             if any(k in patch for k in ("crosshair_offset_x", "crosshair_offset_y")):
@@ -175,7 +199,15 @@ class RuntimeController:
                         cy = mon["height"] / 2.0 + float(
                             merged.get("crosshair_offset_y", 0.0)
                         )
-                        live._overlay.set_fov_center(cx, cy)
+                        from profiles import effective_fov_radius
+
+                        ads_active = False
+                        if getattr(live, "_ads", None) is not None:
+                            ads_active = bool(live._ads.is_ads_active())
+                        fov_r = int(
+                            effective_fov_radius(merged, ads_active=ads_active)
+                        )
+                        live._overlay.update_fov(fov_r, ads_active, cx, cy)
                         live._last_fov_radius = -1
                     except Exception:
                         logger.exception("hot-reload crosshair center failed")
