@@ -22,28 +22,28 @@
   "parts": 122,
   "cluster_count": 24,
   "active": true,
-  "best_score": 0.8139868909049236,
+  "best_score": 0.8174679443381161,
   "selected": {
     "bbox": [
-      345,
-      151,
-      122,
-      470
+      338,
+      142,
+      136,
+      483
     ],
     "centroid": [
-      383.18500000000006,
-      319.30269652855543
+      406.0,
+      325.53999999999996
     ],
     "body_shape_score": 1.0,
     "head_score": 1.0,
     "torso_score": 0.6948670790837652,
     "limb_stack_score": 1.0,
     "part_count": 15,
-    "red_coverage": 0.253331008022323,
+    "red_coverage": 0.2531055900621118,
     "fill_ratio": 0.3723404109477997,
     "max_circularity": 0.6780457086184489,
-    "confidence": 0.8139868909049236,
-    "distance_to_center": 240.43824093877305,
+    "confidence": 0.8174679443381161,
+    "distance_to_center": 217.50490017468573,
     "reject_reason": "ok"
   },
   "candidates": [
@@ -52,9 +52,9 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        50,
-        0,
-        139,
+        108,
+        6,
+        149,
         307
       ],
       "body_shape_score": 0.9196929392969563,
@@ -64,13 +64,13 @@
       "vertical_profile_score": 0.72,
       "fill_ratio": 0.10097719728946686,
       "max_circularity": 0.5809130369619321,
-      "aspect": 2.20863309352518,
+      "aspect": 2.0604026845637584,
       "part_count": 19,
       "total_area": 3307.5,
-      "distance_to_center": 535.3842230205481,
+      "distance_to_center": 486.04098139971694,
       "aim": [
-        125.71000000000001,
-        129.91782891566265
+        182.5,
+        122.66
       ],
       "debug_detail": "parts=19 head=0.74 torso=0.57 limb=1.00 vert=0.72 geom=0.56 align=0.12 circ=0.58 fill=0.10"
     },
@@ -79,10 +79,10 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        175,
-        268,
-        76,
-        198
+        170,
+        264,
+        86,
+        206
       ],
       "body_shape_score": 0.8602575704915942,
       "head_score": 0.3879904306220096,
@@ -91,25 +91,25 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.4898989796638489,
       "max_circularity": 0.4849556241789846,
-      "aspect": 2.6052631578947367,
+      "aspect": 2.395348837209302,
       "part_count": 5,
       "total_area": 3564.0,
-      "distance_to_center": 412.31903361185175,
+      "distance_to_center": 410.7842845095221,
       "aim": [
-        211.185,
-        328.8238019660411
+        213.0,
+        342.28
       ],
       "debug_detail": "parts=5 head=0.39 torso=0.75 limb=1.00 vert=1.00 geom=0.78 align=0.34 circ=0.48 fill=0.49"
     },
     {
       "idx": 2,
-      "accepted": false,
-      "reject_reason": "lineup_merge",
+      "accepted": true,
+      "reject_reason": "ok",
       "bbox": [
-        192,
-        147,
-        198,
-        465
+        267,
+        138,
+        149,
+        475
       ],
       "body_shape_score": 0.8172860442110403,
       "head_score": 0.35377622377622375,
@@ -118,13 +118,13 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.3978494703769684,
       "max_circularity": 0.4312084470642874,
-      "aspect": 2.3484848484848486,
+      "aspect": 3.1879194630872485,
       "part_count": 5,
       "total_area": 13350.5,
-      "distance_to_center": 301.15547210785326,
+      "distance_to_center": 282.1280737537475,
       "aim": [
-        322.35,
-        325.1845439955727
+        341.5,
+        318.5
       ],
       "debug_detail": "parts=5 head=0.35 torso=0.78 limb=1.00 vert=1.00 geom=0.44 align=0.33 circ=0.43 fill=0.40"
     },
@@ -133,10 +133,10 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        313,
-        363,
-        47,
-        247
+        310,
+        358,
+        53,
+        252
       ],
       "body_shape_score": 0.8842698466073236,
       "head_score": 0.23367252543940795,
@@ -145,13 +145,13 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.37246963381767273,
       "max_circularity": 0.47164385392401487,
-      "aspect": 5.25531914893617,
+      "aspect": 4.754716981132075,
       "part_count": 3,
       "total_area": 1620.0,
-      "distance_to_center": 313.75768041474845,
+      "distance_to_center": 313.7468686696331,
       "aim": [
-        339.21500000000003,
-        459.7626483399734
+        336.5,
+        453.76
       ],
       "debug_detail": "parts=3 head=0.23 torso=0.91 limb=1.00 vert=1.00 geom=0.96 align=0.10 circ=0.47 fill=0.37"
     },
@@ -160,10 +160,10 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        345,
-        151,
-        122,
-        470
+        338,
+        142,
+        136,
+        483
       ],
       "body_shape_score": 1.0,
       "head_score": 1.0,
@@ -172,25 +172,25 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.3723404109477997,
       "max_circularity": 0.6780457086184489,
-      "aspect": 3.8524590163934427,
+      "aspect": 3.551470588235294,
       "part_count": 15,
       "total_area": 8971.5,
-      "distance_to_center": 240.43824093877305,
+      "distance_to_center": 217.50490017468573,
       "aim": [
-        383.18500000000006,
-        319.30269652855543
+        406.0,
+        325.53999999999996
       ],
       "debug_detail": "parts=15 head=1.00 torso=0.69 limb=1.00 vert=1.00 geom=0.71 align=0.23 circ=0.68 fill=0.37"
     },
     {
       "idx": 5,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "lineup_duplicate",
       "bbox": [
-        447,
-        241,
-        98,
-        359
+        441,
+        234,
+        110,
+        353
       ],
       "body_shape_score": 1.0,
       "head_score": 0.8589689889809962,
@@ -199,25 +199,25 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.33704736828804016,
       "max_circularity": 0.714016562005898,
-      "aspect": 3.663265306122449,
+      "aspect": 3.209090909090909,
       "part_count": 11,
       "total_area": 4100.0,
-      "distance_to_center": 130.58775066216322,
+      "distance_to_center": 133.9729435371187,
       "aim": [
-        493.9000000000001,
-        343.0312389728096
+        496.0,
+        368.14
       ],
       "debug_detail": "parts=11 head=0.86 torso=0.74 limb=1.00 vert=1.00 geom=0.92 align=0.27 circ=0.71 fill=0.34"
     },
     {
       "idx": 6,
-      "accepted": false,
-      "reject_reason": "lineup_fragment",
+      "accepted": true,
+      "reject_reason": "ok",
       "bbox": [
-        585,
-        328,
-        10,
-        13
+        548,
+        173,
+        64,
+        233
       ],
       "body_shape_score": 1.0,
       "head_score": 1.0,
@@ -226,13 +226,13 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.22677595913410187,
       "max_circularity": 0.7429627832727255,
-      "aspect": 1.3,
+      "aspect": 3.640625,
       "part_count": 8,
       "total_area": 746.5,
-      "distance_to_center": 30.15907160374797,
+      "distance_to_center": 78.59555712634142,
       "aim": [
-        593.7,
-        331.64
+        580.0,
+        261.54
       ],
       "debug_detail": "parts=8 head=1.00 torso=0.69 limb=1.00 vert=1.00 geom=0.96 align=0.26 circ=0.74 fill=0.23"
     },
@@ -322,10 +322,10 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        682,
-        293,
-        23,
-        63
+        680,
+        290,
+        27,
+        177
       ],
       "body_shape_score": 1.0,
       "head_score": 1.0,
@@ -334,13 +334,13 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.21511627733707428,
       "max_circularity": 0.6710150573647033,
-      "aspect": 2.739130434782609,
+      "aspect": 6.555555555555555,
       "part_count": 4,
       "total_area": 335.5,
-      "distance_to_center": 61.50250157513921,
+      "distance_to_center": 76.26052451957041,
       "aim": [
-        684.99,
-        325.76
+        693.5,
+        357.26
       ],
       "debug_detail": "parts=4 head=1.00 torso=0.72 limb=1.00 vert=1.00 geom=0.53 align=0.64 circ=0.67 fill=0.22"
     },
@@ -484,10 +484,10 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        754,
-        360,
-        18,
-        36
+        752,
+        359,
+        22,
+        38
       ],
       "body_shape_score": 0.5869344642526679,
       "head_score": 0.42,
@@ -496,13 +496,13 @@
       "vertical_profile_score": 0.72,
       "fill_ratio": 0.6388888955116272,
       "max_circularity": 0.3323868746774257,
-      "aspect": 2.0,
+      "aspect": 1.7272727272727273,
       "part_count": 1,
       "total_area": 202.5,
-      "distance_to_center": 147.45265941719828,
+      "distance_to_center": 147.0269485502573,
       "aim": [
-        764.2,
-        371.111186440678
+        763.0,
+        373.44
       ],
       "debug_detail": "parts=1 head=0.42 torso=0.95 limb=0.20 vert=0.72 geom=0.72 align=0.00 circ=0.33 fill=0.64"
     },
@@ -511,10 +511,10 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        778,
-        122,
-        107,
-        188
+        772,
+        119,
+        119,
+        190
       ],
       "body_shape_score": 0.8778355238919271,
       "head_score": 0.372196261682243,
@@ -523,13 +523,13 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.3297872245311737,
       "max_circularity": 0.7613273845523406,
-      "aspect": 1.7570093457943925,
+      "aspect": 1.596638655462185,
       "part_count": 5,
       "total_area": 4311.0,
-      "distance_to_center": 255.51474321455512,
+      "distance_to_center": 248.4061996005736,
       "aim": [
-        828.6200000000001,
-        174.64000000000001
+        831.5,
+        191.2
       ],
       "debug_detail": "parts=5 head=0.37 torso=0.92 limb=1.00 vert=1.00 geom=0.60 align=0.34 circ=0.76 fill=0.33"
     },
@@ -565,10 +565,10 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        824,
-        416,
-        32,
-        134
+        822,
+        413,
+        36,
+        140
       ],
       "body_shape_score": 0.8425340369388281,
       "head_score": 0.9826730360712669,
@@ -577,13 +577,13 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.21641790866851807,
       "max_circularity": 0.5390120952601716,
-      "aspect": 4.1875,
+      "aspect": 3.888888888888889,
       "part_count": 4,
       "total_area": 374.0,
-      "distance_to_center": 266.5137314994816,
+      "distance_to_center": 257.3885972610286,
       "aim": [
-        841.4966666666667,
-        480.32
+        840.0,
+        466.2
       ],
       "debug_detail": "parts=4 head=0.98 torso=0.00 limb=1.00 vert=1.00 geom=0.98 align=0.74 circ=0.54 fill=0.22"
     },
@@ -592,10 +592,10 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        865,
-        63,
-        76,
-        423
+        860,
+        65,
+        86,
+        425
       ],
       "body_shape_score": 1.0,
       "head_score": 1.0,
@@ -604,13 +604,13 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.2813238799571991,
       "max_circularity": 0.7347452903810099,
-      "aspect": 5.565789473684211,
+      "aspect": 4.941860465116279,
       "part_count": 10,
       "total_area": 2878.0,
-      "distance_to_center": 301.9940127510483,
+      "distance_to_center": 297.0193596383912,
       "aim": [
-        917.2800000000001,
-        257.04504779874213
+        903.0,
+        226.5
       ],
       "debug_detail": "parts=10 head=1.00 torso=0.62 limb=1.00 vert=1.00 geom=0.74 align=0.40 circ=0.73 fill=0.28"
     },
@@ -619,10 +619,10 @@
       "accepted": false,
       "reject_reason": "lineup_fragment",
       "bbox": [
-        934,
-        111,
-        74,
-        411
+        930,
+        103,
+        82,
+        420
       ],
       "body_shape_score": 0.8098840561478151,
       "head_score": 0.19967097532314926,
@@ -631,25 +631,25 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.20437955856323242,
       "max_circularity": 0.5374300472128527,
-      "aspect": 5.554054054054054,
+      "aspect": 5.121951219512195,
       "part_count": 7,
       "total_area": 1023.5,
-      "distance_to_center": 334.52365317614897,
+      "distance_to_center": 353.4170482588524,
       "aim": [
-        954.2750000000001,
-        277.06029726443774
+        971.0,
+        262.6
       ],
       "debug_detail": "parts=7 head=0.20 torso=0.76 limb=1.00 vert=1.00 geom=0.74 align=0.15 circ=0.54 fill=0.20"
     },
     {
       "idx": 22,
       "accepted": false,
-      "reject_reason": "lineup_merge",
+      "reject_reason": "lineup_duplicate",
       "bbox": [
-        931,
+        989,
         0,
-        270,
-        362
+        149,
+        369
       ],
       "body_shape_score": 0.8461893167882848,
       "head_score": 0.3578824303094516,
@@ -658,13 +658,13 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.6160221099853516,
       "max_circularity": 0.6873677746941971,
-      "aspect": 1.3407407407407408,
+      "aspect": 2.476510067114094,
       "part_count": 7,
       "total_area": 29693.0,
-      "distance_to_center": 386.2830407874516,
+      "distance_to_center": 478.0028958071279,
       "aim": [
-        984.0,
-        188.24
+        1063.5,
+        140.22
       ],
       "debug_detail": "parts=7 head=0.36 torso=0.90 limb=1.00 vert=1.00 geom=0.40 align=0.23 circ=0.69 fill=0.62"
     },
@@ -673,10 +673,10 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        1067,
-        156,
+        1068,
+        147,
         149,
-        465
+        480
       ],
       "body_shape_score": 1.0,
       "head_score": 0.9821207644794624,
@@ -685,13 +685,13 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.6516128778457642,
       "max_circularity": 0.6656152491871414,
-      "aspect": 3.120805369127517,
+      "aspect": 3.221476510067114,
       "part_count": 7,
       "total_area": 21032.5,
-      "distance_to_center": 530.3954094919727,
+      "distance_to_center": 519.0055491032828,
       "aim": [
-        1153.545,
-        346.276627950897
+        1142.5,
+        329.4
       ],
       "debug_detail": "parts=7 head=0.98 torso=0.83 limb=1.00 vert=1.00 geom=0.62 align=0.23 circ=0.67 fill=0.65"
     }

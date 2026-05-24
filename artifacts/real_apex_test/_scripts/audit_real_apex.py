@@ -264,9 +264,11 @@ def audit_one(
     _draw_fov(sel, int(cx), int(cy), int(fov_r))
     if name.startswith("img6"):
         n_acc = 0
-        for c in cands:
-            if not c.accepted or c.bbox_w <= 0 or c.bbox_h <= 0:
-                continue
+        slot_names = ("C", "R", "L", "M", "H", "O", "P")
+        for c in sorted(
+            [x for x in cands if x.accepted and x.bbox_w > 0 and x.bbox_h > 0],
+            key=lambda x: x.bbox_x,
+        ):
             n_acc += 1
             cv2.rectangle(
                 sel,
@@ -274,6 +276,27 @@ def audit_one(
                 (c.bbox_x + c.bbox_w, c.bbox_y + c.bbox_h),
                 (0, 0, 255),
                 2,
+            )
+            cx_b = int(c.bbox_x + c.bbox_w * 0.5)
+            cy_b = int(c.bbox_y + c.bbox_h * 0.5)
+            cv2.drawMarker(
+                sel, (cx_b, cy_b), (0, 255, 255), cv2.MARKER_CROSS, 10, 1
+            )
+            slot = min(
+                range(len(slot_names)),
+                key=lambda i: abs(
+                    cx_b - w * (0.08, 0.22, 0.36, 0.50, 0.64, 0.78, 0.92)[i]
+                ),
+            )
+            cv2.putText(
+                sel,
+                slot_names[slot],
+                (c.bbox_x, max(14, c.bbox_y - 6)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (0, 255, 255),
+                1,
+                cv2.LINE_AA,
             )
         label = (
             f"LINEUP accepted={n_acc}/{len(cands)}"
