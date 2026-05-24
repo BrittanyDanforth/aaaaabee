@@ -1742,6 +1742,35 @@ def _cluster_bbox(parts: list[_RedPart]) -> tuple[int, int, int, int]:
     return x0, y0, x1 - x0, y1 - y0
 
 
+def _lineup_display_anchor_cx(
+    parts: list[_RedPart],
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    frame_w: int,
+    peak_gx: float,
+) -> float:
+    """Horizontal center for lineup overlay — slot column resists backdrop/gap drift."""
+    cluster_cx = float(bx) + float(bw) * 0.5
+    slot = _lineup_slot_index(cluster_cx, frame_w)
+    slot_cx = frame_w * _LINEUP_SLOT_X_FRACS[slot]
+    torso_parts = [
+        p
+        for p in parts
+        if float(by) + float(bh) * 0.18 <= float(p.y) + float(p.h) * 0.5 <= float(by) + float(bh) * 0.88
+    ]
+    pool = torso_parts if torso_parts else parts
+    if pool:
+        part_cx = float(np.median([float(p.x) + float(p.w) * 0.5 for p in pool]))
+    else:
+        part_cx = peak_gx
+    drift = part_cx - slot_cx
+    if abs(drift) > frame_w * 0.05:
+        return 0.72 * slot_cx + 0.28 * part_cx
+    return 0.52 * slot_cx + 0.48 * part_cx
+
+
 def _refine_lineup_display_bbox(
     parts: list[_RedPart],
     mask: np.ndarray,
@@ -1783,20 +1812,32 @@ def _refine_lineup_display_bbox(
         if keep.sum() >= 12:
             ys = ys[keep]
             xs = xs[keep]
-    # Trim top sky: drop sparse rows above the main body band.
+    # Trim top sky / rock wisps above the main body band.
     row_counts = np.bincount(ys, minlength=roi.shape[0])
     peak_rows = float(row_counts.max()) if row_counts.size else 0.0
     y_lo, y_hi = 0, roi.shape[0]
     if peak_rows >= 3.0:
-        dense_rows = row_counts >= max(2.0, peak_rows * 0.15)
+        dense_rows = row_counts >= max(2.0, peak_rows * 0.20)
         if dense_rows.any():
             y_lo = int(np.flatnonzero(dense_rows)[0])
             y_hi = int(np.flatnonzero(dense_rows)[-1]) + 1
+            body_thr = max(3.0, peak_rows * 0.32)
+            for r in range(y_lo, min(y_lo + 28, y_hi)):
+                if row_counts[r] >= body_thr:
+                    y_lo = r
+                    break
             row_mask = (ys >= y_lo) & (ys < y_hi)
             ys = ys[row_mask]
             xs = xs[row_mask]
     if ys.size < 12:
         return bx, by, bw, bh
+    torso_row_thr = max(2.0, peak_rows * 0.32)
+    torso_mask = row_counts[ys] >= torso_row_thr
+    xs_torso = xs[torso_mask] if torso_mask.any() else xs
+    col_w = np.bincount(xs_torso, minlength=max(1, roi.shape[1]))
+    peak_lx = int(col_w.argmax()) if col_w.size and col_w.sum() > 0 else int(xs_torso.mean())
+    peak_gx = float(x0 + peak_lx)
+    anchor_cx = _lineup_display_anchor_cx(parts, bx, by, bw, bh, frame_w, peak_gx)
     pad_y = max(2, int(round((y_hi - y_lo) * 0.02)))
     pad_x = max(2, int(round((xs.max() - xs.min() + 1) * 0.06)))
     rbx = max(0, x0 + int(xs.min()) - pad_x)
@@ -1805,15 +1846,34 @@ def _refine_lineup_display_bbox(
     rby1 = min(frame_h, y0 + int(ys.max()) + 1 + pad_y)
     rbw = max(8, rbx1 - rbx)
     rbh = max(8, rby1 - rby)
+    if _lineup_slot_index(float(bx) + float(bw) * 0.5, frame_w) == 0 and rby < int(frame_h * 0.08):
+        torso_parts = [
+            p
+            for p in parts
+            if float(by) + float(bh) * 0.18
+            <= float(p.y) + float(p.h) * 0.5
+            <= float(by) + float(bh) * 0.88
+        ]
+        pool = torso_parts if torso_parts else parts
+        if pool:
+            part_ys = sorted(int(p.y) for p in pool)
+            part_top = part_ys[max(0, len(part_ys) // 5)]
+            if part_top > rby + 2 and part_top < rby + int(frame_h * 0.22):
+                rby = max(rby, part_top - pad_y)
+                rbh = max(8, rby1 - rby)
     # One humanoid column in the lineup is ~9–12 % of frame width.
     max_col_w = max(48, int(frame_w * 0.12))
     if rbw > max_col_w:
-        col_w = np.bincount(xs, minlength=max(1, roi.shape[1]))
-        peak_lx = int(col_w.argmax()) if col_w.size else int(xs.mean())
-        peak_gx = x0 + peak_lx
-        rbx = max(x0, peak_gx - max_col_w // 2)
-        rbx1 = min(frame_w, rbx + max_col_w)
-        rbw = max(8, rbx1 - rbx)
+        rbw = max_col_w
+    # Center on slot/part anchor — raw mask argmax pulls onto backdrop gaps.
+    center_x = int(round(anchor_cx))
+    rbx = max(0, center_x - rbw // 2)
+    rbx1 = min(frame_w, rbx + rbw)
+    if rbx1 - rbx < rbw:
+        rbx = max(0, rbx1 - rbw)
+    elif abs((rbx + rbx1) * 0.5 - anchor_cx) > frame_w * 0.02:
+        rbx = max(0, min(frame_w - rbw, int(round(anchor_cx - rbw * 0.5))))
+        rbx1 = rbx + rbw
     return rbx, rby, rbw, rbh
 
 
