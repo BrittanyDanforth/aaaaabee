@@ -1119,6 +1119,12 @@ class AssistRuntime:
                         self._detect_ctx.reset()
                         if self._overlay is not None:
                             self._aim_tracker.reset_overlay_smoothing()
+                            hip_fov = int(
+                                effective_fov_radius(cfg, ads_active=False)
+                            )
+                            self._overlay.update_fov(
+                                hip_fov, False, center_x, center_y
+                            )
                             self._overlay.set_state(False, None)
                         sleep_time = frame_interval - (time.perf_counter() - t0)
                         self._sleep_interruptible(sleep_time)

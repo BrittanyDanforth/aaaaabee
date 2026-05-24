@@ -50,15 +50,8 @@ class RuntimeSourceWiringTests(unittest.TestCase):
             "frame_overlay is not None",
             text,
         )
-        # O2 (audit): clamp the overlay dot to the SMALLER of the
-        # display ring and the detection ring so the dot always stays
-        # inside the GREEN ring the user sees on screen. The previous
-        # clamp used detect_fov alone which is wider than the display
-        # ring when detection_fov_margin_pixels is non-zero — that was
-        # the "dot outside the ring" symptom in the user screenshots.
-        self.assertIn(
-            "float(user_fov) * 0.96",
-            text,
-            "overlay clamp must use the smaller of detect_fov and display_fov",
-        )
+        # Unified FOV: ring_inner = user_fov * 0.96; clamp uses min(detect, display)
+        # which are equal when unified_fov is True (default).
+        self.assertIn("float(user_fov) * 0.96", text)
+        self.assertIn("unified_fov", text)
         self.assertIn(") * 0.96", text)
