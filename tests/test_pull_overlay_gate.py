@@ -13,7 +13,8 @@ class PullOverlayGateTests(unittest.TestCase):
         text = RUNTIME.read_text(encoding="utf-8")
         self.assertIn("show_for_overlay = overlay_may_show_target", text)
         self.assertIn("may_assist_pull = may_assist_pull_target", text)
-        self.assertIn("show_for_overlay or may_assist_pull", text)
+        self.assertIn("build_frame_overlay = show_for_overlay or (", text)
+        self.assertIn("may_assist_pull and not detection_fresh", text)
         self.assertIn("and may_assist_pull", text)
 
     def test_runtime_refreshes_motion_memory_while_locked(self) -> None:

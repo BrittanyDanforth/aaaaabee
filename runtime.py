@@ -1231,13 +1231,17 @@ class AssistRuntime:
                         target_lost_frames=self._target_lost_frames,
                         stale_grace_frames=stale_grace,
                     )
+                    # Stale grace only: fresh frames still need 2-frame overlay confirm.
+                    build_frame_overlay = show_for_overlay or (
+                        may_assist_pull and not detection_fresh
+                    )
                     frame_overlay: tuple[float, float] | None = None
                     monitor_overlay: tuple[float, float] | None = None
                     if (
                         motion is not None
                         and target is not None
                         and cap_region is not None
-                        and (show_for_overlay or may_assist_pull)
+                        and build_frame_overlay
                     ):
                         frame_overlay = self._frame_overlay_point(
                             motion,
