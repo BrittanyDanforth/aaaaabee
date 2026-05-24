@@ -41,11 +41,10 @@ def _runtime_build_frame_overlay_ast() -> ast.BoolOp | None:
 def _mirror_build(
     *,
     show: bool,
-    assist: bool,
+    plausible: bool,
     fresh: bool,
-    motion_ok: bool = True,
 ) -> bool:
-    return show or (assist and not fresh and motion_ok)
+    return show and plausible
 
 
 class GateWiringTests(unittest.TestCase):
@@ -54,8 +53,8 @@ class GateWiringTests(unittest.TestCase):
         self.assertIsNotNone(expr)
         text = RUNTIME.read_text(encoding="utf-8")
         self.assertNotIn("stale_det and locked_grace", text)
-        self.assertIn("may_assist_pull", text)
-        self.assertIn("and motion is not None", text)
+        self.assertIn("plausible_lock", text)
+        self.assertIn("show_for_overlay and plausible_lock", text)
 
     def test_mirror_matches_documented_stale_grace(self) -> None:
         t = Target(
@@ -78,24 +77,9 @@ class GateWiringTests(unittest.TestCase):
             torso_score=0.5,
             limb_stack_score=0.4,
         )
-        for lost, expect in ((3, True), (12, True), (13, False)):
-            assist = may_assist_pull_target(
-                t,
-                detection_fresh=False,
-                center_y=360.0,
-                target_lost_frames=lost,
-                stale_grace_frames=12,
-            )
-            got = _mirror_build(
-                show=False,
-                assist=assist,
-                fresh=False,
-            )
-            self.assertEqual(
-                got,
-                expect,
-                f"lost_frames={lost}: mirror build should be {expect}",
-            )
+        for lost, expect in ((3, False), (12, False), (13, False)):
+            got = _mirror_build(show=False, plausible=True, fresh=False)
+            self.assertEqual(got, expect, f"stale lost={lost}: dot build should stay off")
 
 
 class SkyClampPathTests(unittest.TestCase):

@@ -5,52 +5,52 @@ frame	state	overlay_y	violation
 3	no_target	0.0	
 4	no_target	0.0	
 5	no_target	0.0	
-6	bbox_in_sky	160.0	bbox_in_sky
-7	bbox_in_sky	160.0	bbox_in_sky
-8	bbox_in_sky	160.0	bbox_in_sky
-9	bbox_in_sky	160.0	bbox_in_sky
-10	bbox_in_sky	160.0	bbox_in_sky
-11	bbox_in_sky	160.0	bbox_in_sky
-12	bbox_in_sky	160.0	bbox_in_sky
-13	bbox_in_sky	160.0	bbox_in_sky
-14	bbox_in_sky	160.0	bbox_in_sky
-15	bbox_in_sky	160.0	bbox_in_sky
-16	bbox_in_sky	160.0	bbox_in_sky
-17	bbox_in_sky	160.0	bbox_in_sky
-18	bbox_in_sky	160.0	bbox_in_sky
-19	bbox_in_sky	160.0	bbox_in_sky
-20	bbox_in_sky	160.0	bbox_in_sky
-21	bbox_in_sky	160.0	bbox_in_sky
-22	bbox_in_sky	160.0	bbox_in_sky
-23	bbox_in_sky	160.0	bbox_in_sky
-24	bbox_in_sky	160.0	bbox_in_sky
-25	bbox_in_sky	160.0	bbox_in_sky
-26	bbox_in_sky	160.0	bbox_in_sky
-27	bbox_in_sky	160.0	bbox_in_sky
-28	no_target	0.0	
-29	no_target	0.0	
-30	no_target	0.0	
-31	fresh	212.4	
-32	stale	212.4	
-33	stale	212.4	
-34	stale	212.4	
-35	stale	212.4	
-36	stale	212.4	
-37	stale	212.4	
-38	stale	212.4	
-39	stale	212.4	
-40	stale	212.4	
-41	stale	212.4	
-42	stale	212.4	
-43	stale	212.4	
-44	stale	212.4	
-45	stale	212.4	
-46	stale	212.4	
-47	stale	212.4	
-48	stale	212.4	
-49	stale	212.4	
-50	stale	212.4	
-51	stale	212.4	
+6	no_target	0.0	
+7	no_target	0.0	
+8	no_target	0.0	
+9	no_target	0.0	
+10	no_target	0.0	
+11	fresh	199.0	
+12	stale	199.0	
+13	fresh	200.9	
+14	stale	200.9	
+15	stale	200.9	
+16	stale	200.9	
+17	stale	200.9	
+18	stale	200.9	
+19	stale	200.9	
+20	stale	200.9	
+21	stale	200.9	
+22	stale	200.9	
+23	stale	200.9	
+24	stale	200.9	
+25	stale	200.9	
+26	above_chest	199.2	above_chest
+27	above_chest	199.2	above_chest
+28	above_chest	199.2	above_chest
+29	above_chest	199.2	above_chest
+30	above_chest	199.2	above_chest
+31	above_chest	199.2	above_chest
+32	above_chest	199.2	above_chest
+33	above_chest	199.2	above_chest
+34	above_chest	199.2	above_chest
+35	above_chest	199.2	above_chest
+36	above_chest	199.2	above_chest
+37	above_chest	199.2	above_chest
+38	above_chest	199.2	above_chest
+39	above_chest	199.2	above_chest
+40	above_chest	199.2	above_chest
+41	above_chest	199.2	above_chest
+42	above_chest	199.2	above_chest
+43	above_chest	199.2	above_chest
+44	above_chest	199.2	above_chest
+45	above_chest	199.2	above_chest
+46	above_chest	199.2	above_chest
+47	above_chest	199.2	above_chest
+48	above_chest	199.2	above_chest
+49	above_chest	199.2	above_chest
+50	no_target	0.0	
+51	no_target	0.0	
 52	no_target	0.0	
 53	no_target	0.0	
 54	no_target	0.0	

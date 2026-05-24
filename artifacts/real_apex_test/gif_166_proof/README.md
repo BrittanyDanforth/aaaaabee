@@ -9,11 +9,11 @@ from `artifacts/real_apex_test/_gif_frames/source.gif` (extract via `extract_gif
 |-------|------:|
 | Red dot in sky band (top 12%) | **0** |
 | Pass (red dot sky) | **True** |
-| Tracked frames | 141 / 166 |
-| Fresh detection frames | 14 |
-| Stale hold frames | 127 |
-| Detector bbox top in sky (dot still on chest) | 22 |
-| Chest-band overlay lag | 2 |
+| Tracked frames | 137 / 166 |
+| Fresh detection frames | 15 |
+| Stale hold frames | 122 |
+| Detector bbox top in sky (dot still on chest) | 0 |
+| Chest-band overlay lag | 26 |
 
 ## Files
 

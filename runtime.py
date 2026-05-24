@@ -38,6 +38,7 @@ from target_lock import (
     TargetLockState,
     apply_target_lock,
     detection_sticky_context,
+    lock_target_is_plausible,
     locked_target_may_refresh_motion_memory,
     may_assist_pull_target,
     overlay_may_show_target,
@@ -1266,11 +1267,16 @@ class AssistRuntime:
                     stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
                     with self._lock:
                         firing_now = self._is_firing
+                    fh, fw = frame_bgr.shape[0], frame_bgr.shape[1]
                     show_for_overlay = overlay_may_show_target(
                         target,
                         detection_fresh=detection_fresh,
                         center_y=frame_cy,
                         lock_state=self._target_lock,
+                        frame_w=fw,
+                        frame_h=fh,
+                        fov_cx=frame_cx,
+                        fov_cy=frame_cy,
                     )
                     may_assist_pull = may_assist_pull_target(
                         target,
@@ -1278,6 +1284,21 @@ class AssistRuntime:
                         center_y=frame_cy,
                         target_lost_frames=self._target_lost_frames,
                         stale_grace_frames=stale_grace,
+                        frame_w=fw,
+                        frame_h=fh,
+                        fov_cx=frame_cx,
+                        fov_cy=frame_cy,
+                    )
+                    plausible_lock = (
+                        target is not None
+                        and lock_target_is_plausible(
+                            target,
+                            center_y=frame_cy,
+                            frame_w=fw,
+                            frame_h=fh,
+                            fov_cx=frame_cx,
+                            fov_cy=frame_cy,
+                        )
                     )
                     unlock_grace = int(
                         cfg.get("target_lost_frames_before_unlock", 18)
@@ -1293,17 +1314,10 @@ class AssistRuntime:
                         self._locked_target is not None
                         and self._target_lost_frames < unlock_grace
                     )
-                    # Overlay during brief detect gaps only (same window as pull
-                    # stale grace). Do NOT extend past stale_grace via lock grace —
-                    # that was ghost dot on screen with no fresh detection.
-                    build_frame_overlay = (
-                        show_for_overlay
-                        or (
-                            may_assist_pull
-                            and not detection_fresh
-                            and motion is not None
-                        )
-                    )
+                    # Red dot only on fresh confirmed overlay — never rebuild while
+                    # stale (STALE label in debug = frozen lock). Brief flicker
+                    # uses hold-last below on plausible locks only.
+                    build_frame_overlay = show_for_overlay and plausible_lock
                     frame_overlay: tuple[float, float] | None = None
                     monitor_overlay: tuple[float, float] | None = None
                     if (
@@ -1544,7 +1558,9 @@ class AssistRuntime:
                             if (
                                 held is not None
                                 and locked_hold
+                                and plausible_lock
                                 and self._target_lost_frames <= stale_grace
+                                and not stale_det
                             ):
                                 overlay_pt = held
                         self._overlay.set_state(ads_for_assist, overlay_pt)

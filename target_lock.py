@@ -30,8 +30,10 @@ from detector import (
     Target,
     _bbox_iou,
     bbox_mid_in_sky_band,
+    bbox_top_in_sky_band,
     is_upward_fragment_vs_locked,
     target_is_background_clutter,
+    target_is_environment_column,
     target_is_viewmodel_column_fp,
 )
 
@@ -99,11 +101,23 @@ def _same_lock_identity(a: Target, b: Target) -> bool:
     return drift < 32.0
 
 
-def _passes_new_lock_gates(target: Target, *, center_y: float) -> bool:
+def _passes_new_lock_gates(
+    target: Target,
+    *,
+    center_y: float,
+    frame_w: int = 0,
+    frame_h: int = 0,
+) -> bool:
     """Reject crates, panels, and scope/HUD blobs before a lock can confirm."""
     if target.body_shape_score < NEW_LOCK_MIN_BODY:
         return False
+    if bbox_top_in_sky_band(float(target.bbox_y), center_y):
+        return False
     if bbox_mid_in_sky_band(target.bbox_y, target.bbox_h, center_y):
+        return False
+    if frame_w > 0 and frame_h > 0 and target_is_environment_column(
+        target, center_y=center_y, frame_w=frame_w, frame_h=frame_h
+    ):
         return False
     if target.red_coverage < NEW_LOCK_MIN_RED:
         return False
@@ -152,7 +166,16 @@ def _locked_is_environment_fp(
     """True when an existing lock is clearly a crate/HUD/sky/viewmodel FP."""
     if target_is_background_clutter(target):
         return True
+    if bbox_top_in_sky_band(float(target.bbox_y), center_y):
+        return True
     if bbox_mid_in_sky_band(target.bbox_y, target.bbox_h, center_y):
+        return True
+    if target_is_environment_column(
+        target,
+        center_y=center_y,
+        frame_h=frame_h,
+        frame_w=frame_w,
+    ):
         return True
     if (
         fov_cx is not None
@@ -185,6 +208,34 @@ def _locked_is_environment_fp(
     return False
 
 
+def lock_target_is_plausible(
+    target: Target | None,
+    *,
+    center_y: float,
+    frame_w: int = 0,
+    frame_h: int = 0,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
+) -> bool:
+    """Humanoid lock only — blocks tower/gun/sky FPs for overlay and stale hold."""
+    if target is None:
+        return False
+    if not _passes_new_lock_gates(
+        target, center_y=center_y, frame_w=frame_w, frame_h=frame_h
+    ):
+        return False
+    if _locked_is_environment_fp(
+        target,
+        center_y=center_y,
+        fov_cx=fov_cx,
+        fov_cy=fov_cy,
+        frame_w=frame_w,
+        frame_h=frame_h,
+    ):
+        return False
+    return True
+
+
 def may_assist_pull_target(
     target: Target | None,
     *,
@@ -192,6 +243,10 @@ def may_assist_pull_target(
     center_y: float,
     target_lost_frames: int = 0,
     stale_grace_frames: int = 12,
+    frame_w: int = 0,
+    frame_h: int = 0,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
 ) -> bool:
     """Whether mouse pull may run — separate from overlay dot confirm frames.
 
@@ -200,7 +255,14 @@ def may_assist_pull_target(
     """
     if target is None:
         return False
-    if not _passes_new_lock_gates(target, center_y=center_y):
+    if not lock_target_is_plausible(
+        target,
+        center_y=center_y,
+        frame_w=frame_w,
+        frame_h=frame_h,
+        fov_cx=fov_cx,
+        fov_cy=fov_cy,
+    ):
         return False
     if detection_fresh:
         return True
@@ -215,6 +277,10 @@ def overlay_may_show_target(
     detection_fresh: bool,
     center_y: float,
     lock_state: TargetLockState | None = None,
+    frame_w: int = 0,
+    frame_h: int = 0,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
 ) -> bool:
     """Single gate for whether the red overlay dot may render.
 
@@ -227,7 +293,14 @@ def overlay_may_show_target(
             lock_state.overlay_confirm_frames = 0
             lock_state._overlay_last_cy = None
             return False
-        if not _passes_new_lock_gates(target, center_y=center_y):
+        if not lock_target_is_plausible(
+            target,
+            center_y=center_y,
+            frame_w=frame_w,
+            frame_h=frame_h,
+            fov_cx=fov_cx,
+            fov_cy=fov_cy,
+        ):
             lock_state.overlay_confirm_frames = 0
             lock_state._overlay_last_cy = None
             return False
@@ -257,7 +330,14 @@ def overlay_may_show_target(
         return lock_state.overlay_confirm_frames >= OVERLAY_CONFIRM_FRAMES
     if not detection_fresh or target is None:
         return False
-    return _passes_new_lock_gates(target, center_y=center_y)
+    return lock_target_is_plausible(
+        target,
+        center_y=center_y,
+        frame_w=frame_w,
+        frame_h=frame_h,
+        fov_cx=fov_cx,
+        fov_cy=fov_cy,
+    )
 
 
 @dataclass
@@ -536,7 +616,12 @@ def apply_target_lock(
                 is_stale,
             )
 
-        if not _passes_new_lock_gates(new_t, center_y=center_y) or new_is_env:
+        if (
+            not _passes_new_lock_gates(
+                new_t, center_y=center_y, frame_w=fw, frame_h=fh
+            )
+            or new_is_env
+        ):
             state.new_lock_candidate = None
             state.new_lock_frames = 0
             if locked is not None and state.target_lost_frames == 0:
@@ -594,11 +679,16 @@ def apply_target_lock(
             if on_lock_expired is not None:
                 on_lock_expired()
             return DetectionResult(None, result.candidates, 0.0), False
-        # Long ADS grace: drop a stale lock that has crept into sky / no red.
-        if (
-            state.target_lost_frames > 0
-            and bbox_mid_in_sky_band(locked.bbox_y, locked.bbox_h, center_y)
-            and float(locked.red_coverage) < NEW_LOCK_MIN_RED * 1.5
+        # Drop stale locks on sky/tower/gun FPs — do not hold dot on environment.
+        if state.target_lost_frames > 0 and (
+            bbox_top_in_sky_band(float(locked.bbox_y), center_y)
+            or target_is_environment_column(
+                locked, center_y=center_y, frame_w=fw, frame_h=fh
+            )
+            or (
+                bbox_mid_in_sky_band(locked.bbox_y, locked.bbox_h, center_y)
+                and float(locked.red_coverage) < NEW_LOCK_MIN_RED * 1.5
+            )
         ):
             state.reset()
             if on_lock_expired is not None:

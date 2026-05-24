@@ -173,13 +173,11 @@ class PullOverlayGateTests(unittest.TestCase):
         text = RUNTIME.read_text(encoding="utf-8")
         self.assertIn("show_for_overlay = overlay_may_show_target", text)
         self.assertIn("may_assist_pull = may_assist_pull_target", text)
-        self.assertIn("build_frame_overlay = (", text)
+        self.assertIn("build_frame_overlay = show_for_overlay and plausible_lock", text)
         self.assertNotIn("stale_det and locked_grace", text)
-        self.assertIn("may_assist_pull", text)
-        self.assertIn("not detection_fresh", text)
-        self.assertIn("motion is not None", text)
-        self.assertIn("and build_frame_overlay", text)
-        self.assertIn("Do NOT extend past stale_grace via lock grace", text)
+        self.assertIn("plausible_lock", text)
+        self.assertIn("lock_target_is_plausible", text)
+        self.assertIn("and not stale_det", text)
         self.assertIn("and may_assist_pull", text)
 
     def test_runtime_refreshes_motion_memory_while_locked(self) -> None:

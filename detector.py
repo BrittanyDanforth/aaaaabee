@@ -83,6 +83,46 @@ def bbox_mid_in_sky_band(bbox_y: float, bbox_h: float, center_y: float) -> bool:
     return mid_y < center_y * SKY_BAND_CENTER_FRAC
 
 
+def bbox_top_in_sky_band(bbox_y: float, center_y: float) -> bool:
+    """True when the bbox top edge sits in the upper sky/play boundary."""
+    return float(bbox_y) < center_y * SKY_BAND_CENTER_FRAC
+
+
+def target_is_environment_column(
+    target: Target,
+    *,
+    center_y: float,
+    frame_h: int = 0,
+    frame_w: int = 0,
+) -> bool:
+    """Firing-range tower, banners, tall props — tall bbox with top in sky band."""
+    if frame_h <= 0 or frame_w <= 0:
+        return False
+    bh = float(target.bbox_h)
+    bw = max(1.0, float(target.bbox_w))
+    if bh < frame_h * 0.22:
+        return False
+    aspect = bh / bw
+    top_sky = bbox_top_in_sky_band(float(target.bbox_y), center_y)
+    if top_sky and bh >= frame_h * 0.20 and aspect >= 1.35:
+        return True
+    if (
+        top_sky
+        and aspect >= 2.0
+        and float(target.red_coverage) < 0.07
+        and not target.has_classified_torso
+    ):
+        return True
+    if (
+        bh >= frame_h * 0.38
+        and aspect >= 1.6
+        and float(target.red_coverage) < max(MIN_ENEMY_RED_COVERAGE, 0.06)
+        and float(target.torso_score) < 0.35
+    ):
+        return True
+    return False
+
+
 def has_enemy_red_torso_evidence(
     parts: list,
     *,

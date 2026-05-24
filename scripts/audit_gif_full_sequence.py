@@ -32,6 +32,7 @@ import motion as motion_mod
 import profiles
 from motion import TargetTracker
 from profiles import PROFILE_APEX_STYLE_LIVE_TRACE
+from target_lock import lock_target_is_plausible
 from targeting_runtime import TargetingRuntime
 
 GIF_PATH = REPO / "artifacts" / "real_apex_test" / "_gif_frames" / "source.gif"
@@ -104,10 +105,11 @@ def _save_violation_png(
             2,
         )
         _draw_chest_band(vis, t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
-    _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
+    if aim.active:
+        _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
     cv2.putText(
         vis,
-        f"{violation} RED oy={aim.overlay_y:.0f}",
+        f"{violation} oy={aim.overlay_y:.0f}",
         (8, 22),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.55,
@@ -253,11 +255,24 @@ def run(
         t = float(i) * dt
         aim = rt.process_frame(img, cfg, time_sec=t, debug=False)
 
+        fov_cx = float(cfg["fov_center_x"])
+        fov_cy = float(cfg["fov_center_y"])
+        plausible = False
+        if aim.target is not None:
+            plausible = lock_target_is_plausible(
+                aim.target,
+                center_y=fov_cy,
+                frame_w=w,
+                frame_h=h,
+                fov_cx=fov_cx,
+                fov_cy=fov_cy,
+            )
         row: dict = {
             "frame_idx": i,
             "file": fp.name,
             "active": aim.active,
             "is_stale": aim.is_stale,
+            "plausible_lock": plausible,
             "aim_x": round(aim.aim_x, 1),
             "aim_y": round(aim.aim_y, 1),
             "overlay_x": round(aim.overlay_x, 1),
@@ -266,6 +281,8 @@ def run(
         }
 
         has_target = aim.target is not None
+        if aim.is_stale and aim.target is not None and plausible:
+            row["stale_with_dot_risk"] = True
         if has_target:
             if aim.active:
                 active_count += 1
@@ -334,21 +351,29 @@ def run(
 
         rows.append(row)
 
+        show_dot = plausible and aim.active
         if save_every > 0 and i % save_every == 0 and has_target:
             vis = img.copy()
             _sky_line(vis, h)
             if aim.target is not None:
                 t = aim.target
+                box_color = (0, 255, 0) if show_dot else (0, 120, 255)
+                if not plausible:
+                    box_color = (0, 80, 255)
                 cv2.rectangle(
                     vis,
                     (t.bbox_x, t.bbox_y),
                     (t.bbox_x + t.bbox_w, t.bbox_y + t.bbox_h),
-                    (0, 255, 0) if not aim.is_stale else (0, 200, 200),
+                    box_color,
                     2,
                 )
                 _draw_chest_band(vis, t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
-            _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
-            tag = "STALE" if aim.is_stale else "LIVE"
+            if show_dot:
+                _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
+            if aim.is_stale:
+                tag = "STALE" if plausible else "STALE_BAD"
+            else:
+                tag = "LIVE" if plausible else "LIVE_BAD"
             cv2.putText(
                 vis,
                 f"{tag} oy={aim.overlay_y:.0f} lost={rt.lock_state.target_lost_frames}",
@@ -402,9 +427,17 @@ def run(
     tracked = sum(1 for r in rows if r.get("bbox_y") is not None)
     sky_dot = [v for v in sky_violations if v.get("violation") == "sky_aim"]
     sky_bbox = [v for v in sky_violations if v.get("violation") == "bbox_in_sky"]
+    stale_dot_risk = sum(1 for r in rows if r.get("stale_with_dot_risk"))
+    env_tracked = sum(
+        1
+        for r in rows
+        if r.get("bbox_y") is not None and not r.get("plausible_lock", True)
+    )
     summary = {
         "total_frames": len(rows),
         "tracked_frames": tracked,
+        "implausible_lock_frames": env_tracked,
+        "stale_plausible_frames": stale_dot_risk,
         "active_frames": active_count,
         "stale_frames": stale_count,
         "inactive_frames": lost_count,
@@ -412,8 +445,9 @@ def run(
         "detector_bbox_top_in_sky": len(sky_bbox),
         "chest_band_violations": len(body_violations),
         "pass_red_dot_sky": len(sky_dot) == 0,
+        "pass_no_implausible_lock": env_tracked == 0,
         "pass_strict": len(sky_dot) == 0 and len(body_violations) == 0,
-        "pass": len(sky_dot) == 0,
+        "pass": len(sky_dot) == 0 and env_tracked == 0,
         "worst_red_dot_sky": sky_dot[:8],
         "worst_bbox_in_sky": sky_bbox[:8],
         "worst_body": body_violations[:8],
