@@ -19,7 +19,7 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         self.assertIn("bbox_w=target.bbox_w", text)
         self.assertIn("bbox_h=target.bbox_h", text)
         self.assertIn("_smooth_aim", text)
-        self.assertIn("_target_for_pull", text)
+        self.assertIn("_frame_overlay_point", text)
         self.assertIn("motion.overlay_xy()", text)
         self.assertIn("_frame_overlay_point", text)
         self.assertIn("monitor_overlay", text)

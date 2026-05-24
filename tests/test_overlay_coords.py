@@ -25,6 +25,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from capture import CaptureRegion, build_capture_region, to_monitor_coords
+from motion import TargetMotion, TargetTracker
+from runtime import AssistRuntime
 
 
 def _clamp_overlay_dot(
@@ -33,23 +35,22 @@ def _clamp_overlay_dot(
     cap_region: CaptureRegion,
     center_x: float,
     center_y: float,
+    detect_fov: float,
     display_fov: float,
 ) -> tuple[float, float]:
-    """Mirror of the runtime overlay handoff in `runtime.py` lines ~1121-1136.
-
-    Keeping the implementation in lockstep is the whole point of this test —
-    if `runtime.py` drifts, this helper will be the failing fixture.
-    """
-    ox, oy = to_monitor_coords(motion_x, motion_y, cap_region)
-    odx = ox - float(center_x)
-    ody = oy - float(center_y)
-    odist = math.hypot(odx, ody)
-    fov_limit = max(1.0, float(display_fov)) * 0.96
-    if math.isfinite(odist) and odist > fov_limit and odist > 0.0:
-        s = fov_limit / odist
-        ox = float(center_x) + odx * s
-        oy = float(center_y) + ody * s
-    return ox, oy
+    """Production path: AssistRuntime._frame_overlay_point (not a duplicate helper)."""
+    tr = TargetTracker()
+    m = TargetMotion(motion_x, motion_y, overlay_x=motion_x, overlay_y=motion_y)
+    pt = AssistRuntime._frame_overlay_point(
+        m,
+        cap_region,
+        center_x=center_x,
+        center_y=center_y,
+        detect_fov=detect_fov,
+        display_fov=display_fov,
+    )
+    assert pt is not None
+    return to_monitor_coords(pt[0], pt[1], cap_region)
 
 
 class ToMonitorCoordsTests(unittest.TestCase):
@@ -91,7 +92,7 @@ class OverlayClampTests(unittest.TestCase):
         cap = build_capture_region(mon, 960.0, 540.0, fov_radius=200)
         frame_cx = 960.0 - cap.offset_x
         frame_cy = 540.0 - cap.offset_y
-        ox, oy = _clamp_overlay_dot(frame_cx, frame_cy, cap, 960.0, 540.0, 168.0)
+        ox, oy = _clamp_overlay_dot(frame_cx, frame_cy, cap, 960.0, 540.0, 200.0, 168.0)
         self.assertAlmostEqual(ox, 960.0, places=5)
         self.assertAlmostEqual(oy, 540.0, places=5)
 
@@ -101,7 +102,7 @@ class OverlayClampTests(unittest.TestCase):
         # Hypothetical detector reports a target near the frame edge.
         far_x = 0.0
         far_y = 0.0
-        ox, oy = _clamp_overlay_dot(far_x, far_y, cap, 960.0, 540.0, 168.0)
+        ox, oy = _clamp_overlay_dot(far_x, far_y, cap, 960.0, 540.0, 200.0, 168.0)
         # Dot must be inside display_fov * 0.96 of monitor center.
         dist = math.hypot(ox - 960.0, oy - 540.0)
         self.assertLessEqual(dist, 168.0 * 0.96 + 1e-6)
@@ -110,7 +111,7 @@ class OverlayClampTests(unittest.TestCase):
         # Pin the divide-by-zero guard introduced in 86e410a.
         mon = {"left": 0, "top": 0, "width": 1920, "height": 1080}
         cap = build_capture_region(mon, 960.0, 540.0, fov_radius=200)
-        ox, oy = _clamp_overlay_dot(0.0, 0.0, cap, 960.0, 540.0, 0.0)
+        ox, oy = _clamp_overlay_dot(0.0, 0.0, cap, 960.0, 540.0, 200.0, 0.0)
         self.assertTrue(math.isfinite(ox))
         self.assertTrue(math.isfinite(oy))
         dist = math.hypot(ox - 960.0, oy - 540.0)
@@ -131,7 +132,7 @@ class OverlayClampTests(unittest.TestCase):
         )
         # motion.x/y is FRAME coords — small numbers inside [0, frame_size].
         # The target is at monitor (950, 520) → frame (90, 80).
-        ox, oy = _clamp_overlay_dot(90.0, 80.0, cap, 960.0, 540.0, 168.0)
+        ox, oy = _clamp_overlay_dot(90.0, 80.0, cap, 960.0, 540.0, 200.0, 168.0)
         self.assertAlmostEqual(ox, 950.0, places=5)
         self.assertAlmostEqual(oy, 520.0, places=5)
 

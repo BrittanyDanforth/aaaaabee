@@ -240,12 +240,6 @@ class AssistRuntime:
         return motion
 
     @staticmethod
-    def _target_for_pull(raw: Target, motion: TargetMotion) -> Target:
-        """Pull moves crosshair toward the visible dot (overlay follow anchor)."""
-        ox, oy = motion.overlay_xy()
-        return replace(raw, centroid_x=ox, centroid_y=oy)
-
-    @staticmethod
     def _frame_overlay_point(
         motion: TargetMotion,
         cap_region,
@@ -1129,9 +1123,8 @@ class AssistRuntime:
                     detect_fov = effective_detection_fov_radius(
                         cfg, ads_active=ads_for_assist
                     )
-                    cfg["_runtime_overlay_fov"] = min(
-                        float(detect_fov), float(display_fov)
-                    )
+                    ring_inner = min(float(detect_fov), float(display_fov)) * 0.96
+                    cfg["_runtime_overlay_fov"] = ring_inner
                     capture_fov = effective_capture_fov_radius(
                         cfg, ads_active=ads_for_assist
                     )
@@ -1148,9 +1141,7 @@ class AssistRuntime:
                         self._frame_cy = center_y - cap_region.offset_y
                         self._last_fov_radius = detect_fov
                         cfg["_runtime_detect_fov"] = detect_fov
-                        cfg["_runtime_overlay_fov"] = min(
-                            float(detect_fov), float(display_fov)
-                        )
+                        cfg["_runtime_overlay_fov"] = ring_inner
                         if self._pull is not None:
                             self._pull._tuning.fov_radius = float(detect_fov)
                     if self._overlay is not None and display_fov != self._last_display_fov:
@@ -1286,8 +1277,8 @@ class AssistRuntime:
                             gate_result = self._safe_mouse_move(pr.dx, pr.dy)
                             if gate_result.allowed:
                                 moved = (pr.dx, pr.dy)
-                        overlay_mon = None
-                        if motion is not None and cap_region is not None:
+                        overlay_mon = monitor_overlay
+                        if overlay_mon is None and motion is not None and cap_region is not None:
                             ovx, ovy = motion.overlay_xy()
                             overlay_mon = to_monitor_coords(ovx, ovy, cap_region)
                         loop_ms = (time.perf_counter() - t0) * 1000.0

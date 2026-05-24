@@ -462,6 +462,7 @@ class OverlayWindow:
             self._cx = cx
             self._cy = cy
         self._position_crosshair()
+        self._sync_fov_ring()
         self._request_redraw()
 
     def _fov_ring_alive(self) -> bool:
