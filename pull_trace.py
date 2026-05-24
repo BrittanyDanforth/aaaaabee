@@ -50,6 +50,20 @@ class PullTraceFrame:
     body_anchor_after_clamp: tuple[float, float] | None = None
     prediction_offset: tuple[float, float] | None = None
     pull_input: tuple[float, float] | None = None
+    body_shape_score: float = -1.0
+    red_coverage: float = -1.0
+    reject_reason: str = ""
+    candidate_id: str = ""
+    sticky_locked_id: str = ""
+    last_stable_bbox: tuple[int, int, int, int] | None = None
+    motion_body_bbox: tuple[int, int, int, int] | None = None
+    in_deadband: bool = False
+    meas_drift: float = -1.0
+    inst_speed: float = -1.0
+    overlay_inside_body: bool = False
+    pull_inside_body: bool = False
+    overlay_pull_delta_px: float = -1.0
+    motion_output: tuple[float, float] | None = None
 
 
 def format_trace_line(t: PullTraceFrame) -> str:
@@ -99,6 +113,35 @@ def format_trace_line(t: PullTraceFrame) -> str:
         lines.append(f"prediction_offset=({pdx:.1f},{pdy:.1f})")
     if t.pull_input is not None:
         lines.append(f"pull_input=({t.pull_input[0]:.1f},{t.pull_input[1]:.1f})")
+    if t.body_shape_score >= 0:
+        lines.append(f"body_shape_score={t.body_shape_score:.3f}")
+    if t.red_coverage >= 0:
+        lines.append(f"red_coverage={t.red_coverage:.3f}")
+    if t.reject_reason:
+        lines.append(f"reject_reason={t.reject_reason}")
+    if t.candidate_id:
+        lines.append(f"selected_candidate_id={t.candidate_id}")
+    if t.sticky_locked_id:
+        lines.append(f"sticky_locked_id={t.sticky_locked_id}")
+    if t.last_stable_bbox is not None:
+        sb = t.last_stable_bbox
+        lines.append(f"last_stable_bbox=({sb[0]},{sb[1]},{sb[2]},{sb[3]})")
+    if t.motion_body_bbox is not None:
+        bb = t.motion_body_bbox
+        lines.append(f"motion_body_bbox=({bb[0]},{bb[1]},{bb[2]},{bb[3]})")
+    lines.append(f"in_deadband={t.in_deadband}")
+    if t.meas_drift >= 0:
+        lines.append(f"meas_drift={t.meas_drift:.2f}")
+    if t.inst_speed >= 0:
+        lines.append(f"inst_speed={t.inst_speed:.1f}")
+    lines.append(f"overlay_inside_body={t.overlay_inside_body}")
+    lines.append(f"pull_inside_body={t.pull_inside_body}")
+    if t.overlay_pull_delta_px >= 0:
+        lines.append(f"overlay_pull_delta_px={t.overlay_pull_delta_px:.2f}")
+    if t.motion_output is not None:
+        lines.append(
+            f"motion_output=({t.motion_output[0]:.1f},{t.motion_output[1]:.1f})"
+        )
     if t.capture_ms >= 0:
         lines.append(f"capture_ms={t.capture_ms:.2f} detect_ms={t.detect_ms:.2f} total_loop_ms={t.total_loop_ms:.2f} fps={t.achieved_fps:.1f}")
     return "\n".join(lines) + "\n"

@@ -1,0 +1,4 @@
+frame=30
+stale=False
+target_lost_frames=3
+raw_active=False

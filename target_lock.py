@@ -30,6 +30,7 @@ from detector import (
     Target,
     _bbox_iou,
     bbox_mid_in_sky_band,
+    is_upward_fragment_vs_locked,
     target_is_background_clutter,
     target_is_viewmodel_column_fp,
 )
@@ -516,6 +517,7 @@ def apply_target_lock(
                 and new_t.red_coverage >= 0.05
                 and not weak_red_adopt
                 and not upward_sky_steal
+                and not is_upward_fragment_vs_locked(locked, new_t)
                 and not target_is_background_clutter(new_t)
                 and not new_is_env
                 and adopt_iou >= SWITCH_MIN_IOU
@@ -556,6 +558,13 @@ def apply_target_lock(
             state.new_lock_frames = 1
 
         if state.new_lock_frames >= confirm_frames:
+            if locked is not None and is_upward_fragment_vs_locked(locked, new_t):
+                state.new_lock_candidate = None
+                state.new_lock_frames = 0
+                return (
+                    DetectionResult(locked, result.candidates, locked.confidence),
+                    False,
+                )
             _commit_locked_target(state, new_t, is_new_lock=True)
             state.target_lost_frames = 0
             state.switch_candidate = None
@@ -591,6 +600,17 @@ def apply_target_lock(
             and bbox_mid_in_sky_band(locked.bbox_y, locked.bbox_h, center_y)
             and float(locked.red_coverage) < NEW_LOCK_MIN_RED * 1.5
         ):
+            state.reset()
+            if on_lock_expired is not None:
+                on_lock_expired()
+            return DetectionResult(None, result.candidates, 0.0), False
+        anchor_cy = state._lock_anchor_cy
+        if anchor_cy is not None and locked.centroid_y < anchor_cy - MAX_LOCK_UPWARD_DRIFT_PX:
+            state.reset()
+            if on_lock_expired is not None:
+                on_lock_expired()
+            return DetectionResult(None, result.candidates, 0.0), False
+        if bbox_mid_in_sky_band(locked.bbox_y, locked.bbox_h, center_y):
             state.reset()
             if on_lock_expired is not None:
                 on_lock_expired()
