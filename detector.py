@@ -1771,10 +1771,12 @@ def _lineup_display_anchor_cx(
         part_cx = peak_gx
     drift = part_cx - slot_cx
     drift_lim = frame_w * 0.02
+    if float(bw) < frame_w * 0.07:
+        return 0.84 * slot_cx + 0.16 * part_cx
     if drift > drift_lim:
         return 0.72 * slot_cx + 0.28 * part_cx
     if drift < -drift_lim:
-        return 0.74 * slot_cx + 0.26 * part_cx
+        return 0.78 * slot_cx + 0.22 * part_cx
     return 0.52 * slot_cx + 0.48 * part_cx
 
 
@@ -1924,16 +1926,17 @@ def _refine_lineup_display_bbox(
     if parts:
         part_bot = max(int(p.y + p.h) for p in parts)
         rby1 = min(frame_h, max(rby1, part_bot + pad_y))
-    if cluster_slot == 3 and rbw < int(frame_w * 0.08):
-        slot_cx = int(frame_w * _LINEUP_SLOT_X_FRACS[3])
-        x0m = max(0, slot_cx - int(frame_w * 0.07))
-        x1m = min(frame_w, slot_cx + int(frame_w * 0.07))
+    if rbw < int(frame_w * 0.08):
+        slot_cx_i = int(frame_w * _LINEUP_SLOT_X_FRACS[cluster_slot])
+        x0m = max(0, slot_cx_i - int(frame_w * 0.07))
+        x1m = min(frame_w, slot_cx_i + int(frame_w * 0.07))
         band = mask[rby:rby1, x0m:x1m]
         if band.any():
             xs = np.where(band > 0)[1] + x0m
             rbx = max(0, int(xs.min()) - pad_x)
             rbx1 = min(frame_w, int(xs.max()) + 1 + pad_x)
             rbw = min(max_col_w, max(8, rbx1 - rbx))
+            anchor_cx = _lineup_display_anchor_cx(parts, bx, by, bw, bh, frame_w, peak_gx)
             center_x = int(round(anchor_cx))
             rbx = max(0, min(frame_w - rbw, center_x - rbw // 2))
             rbx1 = rbx + rbw

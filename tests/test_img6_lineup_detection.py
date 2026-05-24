@@ -47,6 +47,13 @@ def test_img6_enumerates_multiple_characters_not_one_merge() -> None:
     )
     assert all(c.bbox_h >= h * 0.15 for c in accepted), "fragment height boxes"
     assert all(c.bbox_w <= w * 0.16 for c in accepted), "merged wide boxes"
-    assert all(c.bbox_w >= w * 0.04 for c in accepted), "sliver width boxes"
+    assert all(c.bbox_w >= w * 0.08 for c in accepted), "sliver width boxes"
     xs = sorted(c.bbox_x + c.bbox_w * 0.5 for c in accepted)
     assert xs[-1] - xs[0] >= 500
+    # Octane (6th box): column was a narrow left sliver before mask-width expand.
+    octane = sorted(accepted, key=lambda c: c.bbox_x)[5]
+    slot_cx = w * detector._LINEUP_SLOT_X_FRACS[5]
+    oct_cx = octane.bbox_x + octane.bbox_w * 0.5
+    assert abs(oct_cx - slot_cx) <= w * 0.02, (
+        f"octane overlay off column: cx={oct_cx:.0f} slot={slot_cx:.0f}"
+    )
