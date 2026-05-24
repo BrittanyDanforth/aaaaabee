@@ -696,8 +696,16 @@ def _is_sparse_rim_fp(
     fov_radius: float,
     *,
     rim_dist_frac: float = 0.40,
+    part_count: int = 0,
+    body_shape_score: float = 0.0,
 ) -> bool:
-    """Motion sand / rock FP (img2): sparse fill, low solidity, far from crosshair."""
+    """Motion sand / rock FP (img2): sparse fill, low solidity, far from crosshair.
+
+  Edge lineup characters (img6) are outline-heavy but still multi-part humanoids —
+  do not drop when body score and part count already confirm structure.
+    """
+    if part_count >= 5 and body_shape_score >= 0.65:
+        return False
     return (
         fill_ratio < 0.32
         and solidity < 0.16
@@ -742,6 +750,11 @@ def _should_isolate_crosshair_body(
     if fov_cx is None or fov_cy is None or len(parts) < 8:
         return False
     if bw < frame_w * 0.26 or bh < frame_h * 0.14:
+        return False
+    # Wide cluster centered on crosshair (lineup) — not img2 HUD column merge.
+    fov_r = _fov_radius_estimate(frame_w, frame_h)
+    bcx = bx + bw * 0.5
+    if bw > frame_w * 0.22 and abs(bcx - fov_cx) < fov_r * 0.12:
         return False
     if not (bx <= fov_cx <= bx + bw and by <= fov_cy <= by + bh):
         return False
@@ -1200,6 +1213,9 @@ def _cluster_parts(parts: list[_RedPart], frame_w: int, frame_h: int | None = No
         return []
     fh = frame_h if frame_h is not None else int(max(p.y + p.h for p in parts))
     x_tol = max(22.0, 0.16 * float(np.median([p.w for p in parts])))
+    # Dense multi-character scenes (img6): keep columns separate.
+    if len(parts) > 50:
+        x_tol = min(x_tol, max(12.0, 0.05 * float(frame_w)))
     clusters: list[list[_RedPart]] = []
     for part in sorted(parts, key=lambda p: p.cx):
         placed = False
@@ -1228,6 +1244,70 @@ def _cluster_parts(parts: list[_RedPart], frame_w: int, frame_h: int | None = No
     return _merge_nearby_clusters(clusters, frame_w, fh)
 
 
+def _split_parts_by_kmeans_columns(
+    parts: list[_RedPart],
+    frame_w: int,
+) -> list[list[_RedPart]]:
+    """Split a wide merged cluster into ~one column per character (img6 lineup)."""
+    if len(parts) < 8:
+        return [parts]
+    bx, _by, bw, _bh = _cluster_bbox(parts)
+    if bw < frame_w * 0.12:
+        return [parts]
+    char_w = max(65.0, frame_w * 0.065)
+    k = max(2, min(8, int(round(bw / char_w))))
+    cxs = np.array([p.cx for p in parts], dtype=np.float32)
+    centers = np.linspace(bx + bw * 0.1, bx + bw * 0.9, k, dtype=np.float32)
+    labels = np.zeros(len(parts), dtype=np.int32)
+    for _ in range(10):
+        labels = np.argmin(np.abs(cxs[:, None] - centers[None, :]), axis=1).astype(
+            np.int32
+        )
+        for j in range(k):
+            sel = cxs[labels == j]
+            if sel.size:
+                centers[j] = float(sel.mean())
+    groups: list[list[_RedPart]] = [[] for _ in range(k)]
+    for p, lab in zip(parts, labels):
+        groups[int(lab)].append(p)
+    valid = [
+        g for g in groups if len(g) >= 2 and sum(pt.area for pt in g) >= 180.0
+    ]
+    return valid if len(valid) >= 2 else [parts]
+
+
+def _expand_lineup_clusters(
+    clusters: list[list[_RedPart]],
+    frame_w: int,
+    frame_h: int,
+    mask: np.ndarray | None = None,
+    *,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
+) -> list[list[_RedPart]]:
+    out: list[list[_RedPart]] = []
+    for cluster in clusters:
+        bx, by, bw, bh = _cluster_bbox(cluster)
+        if fov_cx is not None and _should_isolate_crosshair_body(
+            cluster, bx, by, bw, bh, frame_w, frame_h, fov_cx, fov_cy
+        ):
+            out.append(cluster)
+            continue
+        if len(cluster) >= 15 and bw > frame_w * 0.18:
+            subs = _split_parts_by_kmeans_columns(cluster, frame_w)
+            if len(subs) >= 2:
+                refined: list[list[_RedPart]] = []
+                for sub in subs:
+                    _sbx, _sby, sbw, _sbh = _cluster_bbox(sub)
+                    if len(sub) >= 6 and sbw > frame_w * 0.13:
+                        sub2 = _split_parts_by_kmeans_columns(sub, frame_w)
+                        refined.extend(sub2 if len(sub2) >= 2 else [sub])
+                    else:
+                        refined.append(sub)
+                out.extend(refined)
+                continue
+        out.append(cluster)
+    return out
 
 
 def _clusters_should_merge(
@@ -2532,7 +2612,9 @@ def enumerate_candidates(
     mask = cv2.bitwise_and(mask, mask, mask=fov)
     mask = cv2.bitwise_and(mask, mask, mask=vm)
     parts = _extract_parts(mask, w, h, fov_cx=cx, fov_cy=cy)
-    clusters = _cluster_parts(parts, w, h)
+    clusters = _expand_lineup_clusters(
+        _cluster_parts(parts, w, h), w, h, mask=mask, fov_cx=cx, fov_cy=cy
+    )
     max_area = float(h * w) * _MAX_AREA_RATIO
     out: list[CandidateInfo] = []
     scale = _scale(w, h)
@@ -2646,7 +2728,12 @@ def enumerate_candidates(
             accepted = False
             reason = RejectReason.OUTSIDE_FOV.value
         if accepted and _is_sparse_rim_fp(
-            fig.fill_ratio, fig.solidity, dist, float(fov_radius)
+            fig.fill_ratio,
+            fig.solidity,
+            dist,
+            float(fov_radius),
+            part_count=fig.part_count,
+            body_shape_score=fig.body_shape_score,
         ):
             accepted = False
             reason = "sparse_rim_fp"
@@ -2655,6 +2742,10 @@ def enumerate_candidates(
         ):
             accepted = False
             reason = "damage_glyph"
+        lineup_wide_fov = float(fov_radius) >= min(w, h) * 0.45
+        if accepted and lineup_wide_fov and fig.bw > w * 0.14:
+            accepted = False
+            reason = "lineup_merge"
 
         out.append(
             CandidateInfo(
@@ -2841,7 +2932,9 @@ def _collect_candidates(
     )
 
     parts = _extract_parts(mask, w, h, fov_cx=cx, fov_cy=cy)
-    clusters = _cluster_parts(parts, w, h)
+    clusters = _expand_lineup_clusters(
+        _cluster_parts(parts, w, h), w, h, mask=mask, fov_cx=cx, fov_cy=cy
+    )
     max_area = float(h * w) * _MAX_AREA_RATIO
     targets: list[Target] = []
     lines: list[str] = []
@@ -2919,7 +3012,14 @@ def _collect_candidates(
 
         aim_x, aim_y = clamp_point_to_fov(fig.aim_x, fig.aim_y, cx, cy, float(fov_radius))
         dist = float(np.hypot(aim_x - cx, aim_y - cy))
-        if _is_sparse_rim_fp(fig.fill_ratio, fig.solidity, dist, float(fov_radius)):
+        if _is_sparse_rim_fp(
+            fig.fill_ratio,
+            fig.solidity,
+            dist,
+            float(fov_radius),
+            part_count=fig.part_count,
+            body_shape_score=fig.body_shape_score,
+        ):
             if debug:
                 lines.append(
                     f"cand[{idx}] drop sparse_rim_fp fill={fig.fill_ratio:.2f} "

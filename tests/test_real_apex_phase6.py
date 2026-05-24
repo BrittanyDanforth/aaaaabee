@@ -254,9 +254,18 @@ def test_real_apex_body_image_detects(
             body_shape_min_score=float(test_cfg.get("body_shape_min_score", 0.40)),
         )
         accepted = [c for c in cands if c.accepted]
-        assert len(accepted) >= 3, (
+        assert len(accepted) >= 6, (
             f"{filename}: only {len(accepted)} of {len(cands)} candidates accepted; "
-            f"expected >= 3 for the 7-character lineup"
+            f"expected >= 6 for the 7-character lineup"
+        )
+        wide = [c for c in accepted if c.bbox_w > w * 0.15]
+        assert len(wide) <= 2, (
+            f"{filename}: {len(wide)} merged wide boxes (>{0.15*w:.0f}px): "
+            f"{[(c.bbox_x, c.bbox_w) for c in wide]}"
+        )
+        xs = [c.bbox_x + c.bbox_w * 0.5 for c in accepted if c.bbox_w > 0]
+        assert xs and max(xs) - min(xs) >= 200, (
+            f"{filename}: accepted targets do not span the lineup"
         )
         # Don't enforce per-target chest band on the lineup — the wide
         # FOV selection picks one of the many bodies and that's fine

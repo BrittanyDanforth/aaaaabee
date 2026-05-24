@@ -53,9 +53,9 @@
       "reject_reason": "no_body_structure",
       "bbox": [
         68,
-        125,
+        131,
         10,
-        38
+        32
       ],
       "body_shape_score": 0.6499979156327543,
       "head_score": 0.42,
@@ -64,7 +64,7 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.78125,
       "max_circularity": 0.2208156042738272,
-      "aspect": 3.8,
+      "aspect": 3.2,
       "part_count": 1,
       "total_area": 98.5,
       "distance_to_center": 106.46590487099616,

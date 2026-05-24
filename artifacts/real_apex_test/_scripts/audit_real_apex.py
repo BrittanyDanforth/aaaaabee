@@ -259,10 +259,38 @@ def audit_one(
         )
     _safe_imwrite(out_dir / "06_candidates_overlay.png", overlay)
 
-    # 07_selected_bbox
+    # 07_selected_bbox — img6 lineup draws every accepted candidate, not one merge.
     sel = img.copy()
     _draw_fov(sel, int(cx), int(cy), int(fov_r))
-    if result.active and result.target is not None:
+    if name.startswith("img6"):
+        n_acc = 0
+        for c in cands:
+            if not c.accepted or c.bbox_w <= 0 or c.bbox_h <= 0:
+                continue
+            n_acc += 1
+            cv2.rectangle(
+                sel,
+                (c.bbox_x, c.bbox_y),
+                (c.bbox_x + c.bbox_w, c.bbox_y + c.bbox_h),
+                (0, 0, 255),
+                2,
+            )
+        label = (
+            f"LINEUP accepted={n_acc}/{len(cands)}"
+            if n_acc
+            else "LINEUP: no accepted candidates"
+        )
+        cv2.putText(
+            sel,
+            label,
+            (8, h - 12),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 0, 255),
+            1,
+            cv2.LINE_AA,
+        )
+    elif result.active and result.target is not None:
         t = result.target
         cv2.rectangle(
             sel,

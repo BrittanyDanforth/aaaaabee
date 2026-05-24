@@ -20,62 +20,116 @@
     "fused": 16105
   },
   "parts": 16,
-  "cluster_count": 3,
+  "cluster_count": 5,
   "active": true,
-  "best_score": 0.5157944113053274,
+  "best_score": 0.6141036648179765,
   "selected": {
     "bbox": [
-      130,
-      165,
-      95,
-      107
+      147,
+      104,
+      78,
+      156
     ],
     "centroid": [
-      205.0,
-      220.64
+      172.59000000000003,
+      178.88
     ],
-    "body_shape_score": 0.6614750030409926,
+    "body_shape_score": 0.7229916824444087,
     "head_score": 0.0,
-    "torso_score": 0.5979807809268946,
+    "torso_score": 0.7169989224137931,
     "limb_stack_score": 1.0,
-    "part_count": 10,
-    "red_coverage": 0.4070831283817019,
-    "fill_ratio": 0.32203391194343567,
-    "max_circularity": 0.605569928403576,
-    "confidence": 0.5157944113053274,
-    "distance_to_center": 16.108680889508005,
+    "part_count": 5,
+    "red_coverage": 0.3165680473372781,
+    "fill_ratio": 0.3461538553237915,
+    "max_circularity": 0.5574501775921057,
+    "confidence": 0.6141036648179765,
+    "distance_to_center": 68.94202274375185,
     "reject_reason": "ok"
   },
   "candidates": [
     {
       "idx": 0,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "no_torso",
       "bbox": [
-        130,
-        165,
-        95,
-        107
+        74,
+        91,
+        88,
+        142
       ],
-      "body_shape_score": 0.6614750030409926,
-      "head_score": 0.0,
-      "torso_score": 0.5979807809268946,
-      "limb_stack_score": 1.0,
-      "vertical_profile_score": 1.0,
-      "fill_ratio": 0.32203391194343567,
-      "max_circularity": 0.605569928403576,
-      "aspect": 1.1263157894736842,
-      "part_count": 10,
-      "total_area": 4110.5,
-      "distance_to_center": 16.108680889508005,
+      "body_shape_score": 0.0,
+      "head_score": 0.2071678321678322,
+      "torso_score": 0.0,
+      "limb_stack_score": 0.35,
+      "vertical_profile_score": 0.72,
+      "fill_ratio": 0.11971831321716309,
+      "max_circularity": 0.25131134993856313,
+      "aspect": 1.6136363636363635,
+      "part_count": 2,
+      "total_area": 628.5,
+      "distance_to_center": 132.88316070894763,
       "aim": [
-        205.0,
-        220.64
+        118.0,
+        142.12
       ],
-      "debug_detail": "parts=10 head=0.00 torso=0.60 limb=1.00 vert=1.00 geom=0.30 align=0.15 circ=0.61 fill=0.32"
+      "debug_detail": "no_torso circ=0.25 align=0.00 head=0.21 torso=0.00 limb=0.35 vert=0.72"
     },
     {
       "idx": 1,
+      "accepted": true,
+      "reject_reason": "ok",
+      "bbox": [
+        147,
+        104,
+        78,
+        156
+      ],
+      "body_shape_score": 0.7229916824444087,
+      "head_score": 0.0,
+      "torso_score": 0.7169989224137931,
+      "limb_stack_score": 1.0,
+      "vertical_profile_score": 1.0,
+      "fill_ratio": 0.3461538553237915,
+      "max_circularity": 0.5574501775921057,
+      "aspect": 2.0,
+      "part_count": 5,
+      "total_area": 1856.0,
+      "distance_to_center": 68.94202274375185,
+      "aim": [
+        172.59000000000003,
+        178.88
+      ],
+      "debug_detail": "parts=5 head=0.00 torso=0.72 limb=1.00 vert=1.00 geom=0.55 align=0.34 circ=0.56 fill=0.35"
+    },
+    {
+      "idx": 2,
+      "accepted": false,
+      "reject_reason": "no_body_stack",
+      "bbox": [
+        172,
+        219,
+        110,
+        108
+      ],
+      "body_shape_score": 0.0,
+      "head_score": 0.8155998185835801,
+      "torso_score": 0.0,
+      "limb_stack_score": 1.0,
+      "vertical_profile_score": 1.0,
+      "fill_ratio": 0.31481480598449707,
+      "max_circularity": 0.605569928403576,
+      "aspect": 0.9818181818181818,
+      "part_count": 3,
+      "total_area": 1626.0,
+      "distance_to_center": 27.1892331631475,
+      "aim": [
+        227.0,
+        257.88
+      ],
+      "debug_detail": "no_body_stack circ=0.61 align=0.00 head=0.82 torso=0.00 limb=1.00 vert=1.00"
+    },
+    {
+      "idx": 3,
       "accepted": false,
       "reject_reason": "no_body_structure",
       "bbox": [
@@ -102,7 +156,7 @@
       "debug_detail": "parts=4 head=1.00 torso=0.00 limb=1.00 vert=0.72 geom=0.56 align=0.15 circ=0.62 fill=0.13"
     },
     {
-      "idx": 2,
+      "idx": 4,
       "accepted": false,
       "reject_reason": "no_torso",
       "bbox": [
