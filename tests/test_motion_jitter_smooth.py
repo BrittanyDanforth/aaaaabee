@@ -1,8 +1,4 @@
-"""Motion smoothing pins: stationary-target deadband + overlay EMA helper.
-
-Together these prevent the 'glitchy / swimming dot' on stationary or
-slowly-tracking enemies reported by the user in real Apex gameplay.
-"""
+"""Motion smoothing: deadband + production overlay follow (_advance_overlay_follow)."""
 
 from __future__ import annotations
 
@@ -14,14 +10,8 @@ from motion import TargetTracker
 
 class StationaryDeadbandTests(unittest.TestCase):
     def test_stationary_target_jitter_within_2px_is_absorbed(self) -> None:
-        """When the smoothed velocity is near zero and a measurement lands
-        within 2 px of the smoothed position, the smoother should NOT update.
-        Without this, the user sees the dot 'swim' on a still enemy as the
-        detector centroid jitters 1-3 px every frame."""
         tracker = TargetTracker()
-        # Seed the tracker at (500, 400).
         m0 = tracker.observe(500.0, 400.0, 0.0)
-        # Several frames of small jitter ±1 px around (500, 400) at 60 FPS.
         positions = []
         dt = 1.0 / 60.0
         for i in range(1, 30):
@@ -31,72 +21,98 @@ class StationaryDeadbandTests(unittest.TestCase):
             positions.append(m.overlay_xy())
         xs = [p[0] for p in positions]
         ys = [p[1] for p in positions]
-        # Pull deadband pins; overlay on bare observe uses the same smooth anchor.
         self.assertLess(max(abs(x - 500.0) for x in xs), 1.0)
         self.assertLess(max(abs(y - 400.0) for y in ys), 1.0)
 
     def test_slow_moving_target_still_tracks(self) -> None:
-        """A target moving > 50 px/s must escape the deadband — the smoother
-        must follow it, not freeze."""
         tracker = TargetTracker()
         tracker.observe(500.0, 400.0, 0.0)
         dt = 1.0 / 60.0
-        # 120 px/s lateral motion: 2 px per frame.
-        last_x = 500.0
         for i in range(1, 20):
             x = 500.0 + i * 2.0
             tracker.observe(x, 400.0, i * dt)
-            last_x = x
         m = tracker._last
         assert m is not None
-        # Smoothed x should track meaningfully toward the moving measurement.
         self.assertGreater(m.x, 510.0, "smoother must follow a 120 px/s target")
 
 
-class OverlayEMATests(unittest.TestCase):
-    def test_overlay_smoother_dampens_pop(self) -> None:
-        """The post-FOV-clamp EMA must reduce a one-frame jump."""
-        tracker = TargetTracker()
-        first = tracker.smooth_overlay_point(100.0, 100.0)
-        self.assertEqual(first, (100.0, 100.0), "first sample should pass through")
-        # Apply a 50 px jump.
-        second = tracker.smooth_overlay_point(150.0, 100.0)
-        # Step-cap + EMA drag — must move toward 150 but not snap.
-        self.assertGreater(second[0], 102.0)
-        self.assertLess(second[0], 130.0)
+class OverlayFollowBehaviorTests(unittest.TestCase):
+    """Production overlay drag via observe_target → _advance_overlay_follow (not smooth_overlay_point)."""
 
-    def test_overlay_smoother_reset_clears_state(self) -> None:
-        tracker = TargetTracker()
-        tracker.smooth_overlay_point(100.0, 100.0)
-        tracker.reset_overlay_smoothing()
-        # After reset the next call should re-seed at the new point.
-        out = tracker.smooth_overlay_point(500.0, 500.0)
-        self.assertEqual(out, (500.0, 500.0))
+    def _observe(
+        self,
+        tr: TargetTracker,
+        x: float,
+        y: float,
+        t: float,
+        *,
+        bh: int = 140,
+    ):
+        return tr.observe_target(
+            x,
+            y,
+            t,
+            bbox_x=int(x) - 30,
+            bbox_y=int(y) - 70,
+            bbox_w=60,
+            bbox_h=bh,
+            aim_is_body_anchor=True,
+        )
 
-    def test_overlay_smoother_passes_through_non_finite(self) -> None:
-        tracker = TargetTracker()
-        out = tracker.smooth_overlay_point(float("nan"), 100.0)
-        # Smoother must return the input as-is when not finite so the
-        # downstream Tk renderer can guard before drawing.
+    def test_overlay_follow_dampens_single_frame_jump(self) -> None:
+        tr = TargetTracker()
+        tr.configure_overlay_dot_alpha(0.45)
+        dt = 1.0 / 60.0
+        self._observe(tr, 100.0, 100.0, 0.0)
+        m1 = self._observe(tr, 150.0, 100.0, dt)
+        ox, _ = m1.overlay_xy()
+        self.assertGreater(ox, 102.0)
+        self.assertLess(ox, 145.0)
+
+    def test_reset_overlay_smoothing_clears_follow_state(self) -> None:
+        tr = TargetTracker()
+        self._observe(tr, 100.0, 100.0, 0.0)
+        self.assertIsNotNone(tr._overlay_follow_x)
+        self.assertIsNotNone(tr._overlay_follow_y)
+        tr.reset_overlay_smoothing()
+        self.assertIsNone(tr._overlay_follow_x)
+        self.assertIsNone(tr._overlay_follow_y)
+
+    def test_follow_caps_upward_teleport_per_body_height(self) -> None:
+        tr = TargetTracker()
+        tr.configure_fov_clamp(400.0, 500.0, 400.0)
+        dt = 1.0 / 60.0
+        bh = 140
+        m0 = self._observe(tr, 400.0, 500.0, 0.0, bh=bh)
+        m1 = self._observe(tr, 400.0, 420.0, dt, bh=bh)
+        _, oy0 = m0.overlay_xy()
+        _, oy1 = m1.overlay_xy()
+        step = abs(oy1 - oy0)
+        cap = max(36.0, bh * 0.55)
+        self.assertLess(step, cap + 3.0)
+
+    def test_follow_allows_lateral_strafe(self) -> None:
+        tr = TargetTracker()
+        dt = 1.0 / 60.0
+        m0 = self._observe(tr, 400.0, 500.0, 0.0, bh=120)
+        m1 = self._observe(tr, 430.0, 502.0, dt, bh=120)
+        ox0, _ = m0.overlay_xy()
+        ox1, _ = m1.overlay_xy()
+        self.assertGreater(ox1 - ox0, 3.0)
+
+
+class LegacySmoothOverlayPointTests(unittest.TestCase):
+    """Legacy API kept for compatibility; not called by AssistRuntime."""
+
+    def test_legacy_helper_still_exists_for_compat(self) -> None:
+        tr = TargetTracker()
+        out = tr.smooth_overlay_point(100.0, 100.0)
+        self.assertEqual(out, (100.0, 100.0))
+
+    def test_legacy_passes_through_non_finite(self) -> None:
+        tr = TargetTracker()
+        out = tr.smooth_overlay_point(float("nan"), 100.0)
         self.assertTrue(math.isnan(out[0]))
-
-
-class OverlayDisplayCapTests(unittest.TestCase):
-    def test_drag_smooth_blocks_sky_teleport(self) -> None:
-        tracker = TargetTracker()
-        tracker.smooth_overlay_point(400.0, 500.0, alpha=0.4, bbox_h=140, dt=1.0 / 60.0)
-        _, y = tracker.smooth_overlay_point(
-            400.0, 420.0, alpha=0.4, bbox_h=140, dt=1.0 / 60.0
-        )
-        self.assertGreater(y, 500.0 - 8.0, "upward drag step must be capped per body height")
-
-    def test_drag_smooth_allows_lateral_strafe(self) -> None:
-        tracker = TargetTracker()
-        tracker.smooth_overlay_point(400.0, 500.0, alpha=0.4, bbox_h=120, dt=1.0 / 60.0)
-        x, _ = tracker.smooth_overlay_point(
-            430.0, 502.0, alpha=0.4, bbox_h=120, dt=1.0 / 60.0
-        )
-        self.assertGreater(x, 403.0)
 
 
 if __name__ == "__main__":
