@@ -97,15 +97,11 @@ def _save_violation_png(
     if aim.target is not None:
         t = aim.target
         color = (0, 255, 0) if aim.active else (0, 200, 200)
-        cv2.rectangle(
-            vis,
-            (t.bbox_x, t.bbox_y),
-            (t.bbox_x + t.bbox_w, t.bbox_y + t.bbox_h),
-            color,
-            2,
-        )
-        _draw_chest_band(vis, t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
-    if aim.active:
+        bb = aim.bbox_used or (t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+        bx, by, bw, bh = bb
+        cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), color, 2)
+        _draw_chest_band(vis, bx, by, bw, bh)
+    if aim.active and aim.overlay_x is not None and aim.overlay_y is not None:
         _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
     cv2.putText(
         vis,
@@ -360,15 +356,23 @@ def run(
                 box_color = (0, 255, 0) if show_dot else (0, 120, 255)
                 if not plausible:
                     box_color = (0, 80, 255)
+                # Match live runtime: bbox_used is what observe_target / pull use.
+                bb = aim.bbox_used or (
+                    t.bbox_x,
+                    t.bbox_y,
+                    t.bbox_w,
+                    t.bbox_h,
+                )
+                bx, by, bw, bh = bb
                 cv2.rectangle(
                     vis,
-                    (t.bbox_x, t.bbox_y),
-                    (t.bbox_x + t.bbox_w, t.bbox_y + t.bbox_h),
+                    (bx, by),
+                    (bx + bw, by + bh),
                     box_color,
                     2,
                 )
-                _draw_chest_band(vis, t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
-            if show_dot:
+                _draw_chest_band(vis, bx, by, bw, bh)
+            if show_dot and aim.overlay_x is not None and aim.overlay_y is not None:
                 _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
             if aim.is_stale:
                 tag = "STALE" if plausible else "STALE_BAD"

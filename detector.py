@@ -2262,6 +2262,122 @@ def _clamp_aim_to_body_bbox(
     return ax, ay
 
 
+def _bbox_has_detached_upper_fringe(
+    mask: np.ndarray,
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+) -> bool:
+    """True when sparse HUD/scope pixels sit above a gap-separated body band."""
+    if bw <= 0 or bh < 16:
+        return False
+    roi = mask[by : by + bh, bx : bx + bw]
+    if roi.size == 0:
+        return False
+    row_d = (roi > 0).sum(axis=1).astype(np.float32)
+    peak = float(row_d.max()) if row_d.size else 0.0
+    if peak < 2.0:
+        return False
+    thr = max(2.5, peak * 0.18)
+    dense = row_d >= thr
+    if not bool(dense.any()):
+        return False
+    idx = np.flatnonzero(dense)
+    y0 = int(idx[0])
+    y1 = int(idx[-1])
+    if y0 > bh * 0.14:
+        return True
+    gap_allow = max(5, int(round(bh * 0.10)))
+    gap = 0
+    max_gap = 0
+    for i in range(1, len(idx)):
+        gap = int(idx[i] - idx[i - 1] - 1)
+        if gap > max_gap:
+            max_gap = gap
+    return max_gap >= gap_allow and y0 < bh * 0.22
+
+
+def _anchor_bbox_bottom_dense_band(
+    mask: np.ndarray,
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    scale: float,
+) -> tuple[int, int, int, int]:
+    """Drop gap-separated HUD fringes; anchor bbox on the lower body column."""
+    if bw <= 0 or bh < 12:
+        return bx, by, bw, bh
+    roi = mask[by : by + bh, bx : bx + bw]
+    if roi.size == 0:
+        return bx, by, bw, bh
+    row_d = (roi > 0).sum(axis=1).astype(np.float32)
+    peak = float(row_d.max()) if row_d.size else 0.0
+    if peak < 2.0:
+        return bx, by, bw, bh
+    thr = max(2.5, peak * 0.18)
+    dense = row_d >= thr
+    if not bool(dense.any()):
+        return bx, by, bw, bh
+    last = int(np.flatnonzero(dense)[-1])
+    first = last
+    gap_allow = max(5, int(round(bh * 0.10)))
+    gap = 0
+    for i in range(last - 1, -1, -1):
+        if dense[i]:
+            first = i
+            gap = 0
+        else:
+            gap += 1
+            if gap > gap_allow:
+                break
+    dense_h = last - first + 1
+    min_bh = max(
+        dense_h,
+        int(round(78 * scale)),
+        int(round(bw * 2.05)),
+        48,
+    )
+    y0 = first
+    y1 = last
+    if y1 - y0 + 1 < min_bh:
+        faint_thr = max(1.5, peak * 0.08)
+        bridge_gap = max(12, int(round(bh * 0.62)))
+        extra = min_bh - (y1 - y0 + 1)
+        i = y0 - 1
+        empty_run = 0
+        while i >= 0 and extra > 0:
+            if row_d[i] >= faint_thr:
+                y0 = i
+                extra -= 1
+                empty_run = 0
+            elif row_d[i] <= 0.5:
+                empty_run += 1
+                if empty_run > bridge_gap:
+                    break
+            else:
+                empty_run += 1
+                if empty_run > bridge_gap:
+                    break
+            i -= 1
+    new_by = by + y0
+    new_bh = max(12, y1 - y0 + 1)
+
+    sub = roi[y0 : y1 + 1]
+    col_d = (sub > 0).sum(axis=0).astype(np.float32)
+    cp = float(col_d.max()) if col_d.size else 0.0
+    new_bx, new_bw = bx, bw
+    if cp >= 2.0:
+        ct = max(2.5, cp * 0.18)
+        dx = np.flatnonzero(col_d >= ct)
+        if dx.size >= 2:
+            new_bx = bx + int(dx[0])
+            new_bw = max(4, int(dx[-1] - dx[0] + 1))
+
+    return new_bx, new_by, new_bw, new_bh
+
+
 def _tighten_bbox_around_aim(
     mask: np.ndarray,
     bx: int,
@@ -2918,6 +3034,16 @@ def analyze_figure(
     reason = RejectReason.OK if accepted else RejectReason.NO_BODY_STRUCTURE
     if accepted and body_shape < min_accept:
         reason = RejectReason.LOW_SCORE
+
+    if accepted and (
+        close_fov_humanoid
+        or _bbox_has_detached_upper_fringe(mask, bx, by, bw, bh)
+    ):
+        abx, aby, abw, abh = _anchor_bbox_bottom_dense_band(
+            mask, bx, by, bw, bh, scale
+        )
+        if abw >= 4 and abh >= 12:
+            bx, by, bw, bh = abx, aby, abw, abh
 
     ax, ay = _figure_aim_point(
         parts, mask, bx, by, bw, bh, torso_aim_fraction,
