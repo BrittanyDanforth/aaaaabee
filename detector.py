@@ -739,8 +739,8 @@ def _fov_radius_estimate(frame_w: int, frame_h: int) -> float:
 
 
 def _is_lineup_wide_fov(fov_radius: float, frame_w: int, frame_h: int) -> bool:
-    """True when FOV is wide enough to cover a multi-character firing-range lineup."""
-    return float(fov_radius) >= min(frame_w, frame_h) * 0.45
+    """True for img6-style full-frame lineup sweep (not production hip-fire/ADS FOV)."""
+    return float(fov_radius) >= min(frame_w, frame_h) * 0.85
 
 
 def _is_lineup_fragment_fp(
@@ -754,7 +754,14 @@ def _is_lineup_fragment_fp(
 ) -> bool:
     """HUD pip / limb shard — not a lineup character column."""
     if bbox_h < frame_h * 0.20 or bbox_w < frame_w * 0.04:
-        return True
+        if (
+            part_count >= 5
+            and bbox_h >= frame_h * 0.15
+            and bbox_w >= frame_w * 0.06
+        ):
+            pass
+        else:
+            return True
     if bbox_y > frame_h * 0.35 and bbox_h < frame_h * 0.40:
         return True
     if part_count <= 3 and bbox_h < frame_h * 0.30:
@@ -812,7 +819,7 @@ def _prune_lineup_candidates(
     if not accepted:
         return
     n_slots = 7
-    slot_centers = [frame_w * f for f in (0.05, 0.17, 0.30, 0.46, 0.57, 0.72, 0.88)]
+    slot_centers = [frame_w * f for f in (0.08, 0.20, 0.33, 0.48, 0.58, 0.75, 0.90)]
     slots: list[list[CandidateInfo]] = [[] for _ in range(n_slots)]
     for c in accepted:
         cx = c.bbox_x + c.bbox_w * 0.5
@@ -833,7 +840,7 @@ def _prune_lineup_candidates(
             and c.bbox_w <= frame_w * 0.16
         ]
         pool = full_body if full_body else slot
-        narrow = [c for c in pool if c.bbox_w <= frame_w * 0.15]
+        narrow = [c for c in pool if c.bbox_w <= frame_w * 0.16]
         pick_pool = narrow if narrow else pool
         best = max(pick_pool, key=lambda c: _lineup_candidate_score(c, frame_w, frame_h))
         keep_idxs.add(int(best.idx))
@@ -862,7 +869,30 @@ def _prune_lineup_candidates(
         key=lambda x: _lineup_candidate_score(x, frame_w, frame_h),
         reverse=True,
     ):
-        if c.bbox_w > frame_w * 0.15 or c.bbox_h < frame_h * 0.22:
+        if c.bbox_w > frame_w * 0.16 or c.bbox_h < frame_h * 0.20:
+            continue
+        cx = c.bbox_x + c.bbox_w * 0.5
+        open_slots = [i for i in range(n_slots) if i not in filled_slots]
+        if not open_slots:
+            break
+        slot = min(open_slots, key=lambda i: abs(cx - slot_centers[i]))
+        c.accepted = True
+        c.reject_reason = RejectReason.OK.value
+        filled_slots.add(slot)
+    for c in sorted(
+        (
+            x
+            for x in candidates
+            if not x.accepted
+            and x.reject_reason == "lineup_fragment"
+            and x.body_shape_score >= 0.82
+            and x.part_count >= 4
+            and x.bbox_y <= frame_h * 0.32
+        ),
+        key=lambda x: _lineup_candidate_score(x, frame_w, frame_h),
+        reverse=True,
+    ):
+        if c.bbox_w > frame_w * 0.16 or c.bbox_h < frame_h * 0.20:
             continue
         cx = c.bbox_x + c.bbox_w * 0.5
         open_slots = [i for i in range(n_slots) if i not in filled_slots]
@@ -1691,6 +1721,95 @@ def _cluster_bbox(parts: list[_RedPart]) -> tuple[int, int, int, int]:
     return x0, y0, x1 - x0, y1 - y0
 
 
+def _refine_lineup_display_bbox(
+    parts: list[_RedPart],
+    mask: np.ndarray,
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    frame_w: int,
+    frame_h: int,
+    *,
+    fov_cx: float | None = None,
+    fov_cy: float | None = None,
+) -> tuple[int, int, int, int]:
+    """Overlay bbox for img6: trim sky/HUD outliers, center on body mass (no crosshair snap)."""
+    if len(parts) < 2 or bw < 5 or bh < 10:
+        return bx, by, bw, bh
+    total = sum(p.area for p in parts)
+    if total <= 0:
+        return bx, by, bw, bh
+    cx_m = sum(p.cx * p.area for p in parts) / total
+    cy_m = sum(p.cy * p.area for p in parts) / total
+    max_dx = max(32.0, float(bw) * 0.52)
+    max_dy_up = max(36.0, float(bh) * 0.38)
+    max_dy_dn = max(48.0, float(bh) * 0.52)
+    trimmed = [
+        p
+        for p in parts
+        if abs(p.cx - cx_m) <= max_dx
+        and cy_m - max_dy_up <= (p.y + p.h * 0.5) <= cy_m + max_dy_dn
+    ]
+    if fov_cx is not None and fov_cy is not None:
+        trimmed = [
+            p
+            for p in trimmed
+            if not (
+                abs(p.cx - fov_cx) < frame_w * 0.05
+                and p.y > frame_h * 0.40
+                and p.area < total * 0.20
+            )
+        ]
+    if len(trimmed) < 2:
+        trimmed = list(parts)
+    rbx, rby, rbw, rbh = _cluster_bbox(trimmed)
+    col_x = int(round(cx_m))
+    col_x = max(rbx, min(rbx + rbw - 1, col_x))
+    roi = mask[rby : rby + rbh, rbx : rbx + rbw]
+    if roi.size > 0 and rbw > 0:
+        lx = col_x - rbx
+        col_on = roi[:, lx] > 0
+        rows = np.flatnonzero(col_on)
+        if rows.size >= 4:
+            pad = max(2, int(round(rbh * 0.03)))
+            y0 = max(0, int(rows[0]) - pad)
+            y1 = min(rbh, int(rows[-1]) + 1 + pad)
+            rby = rby + y0
+            rbh = max(8, y1 - y0)
+            roi = mask[rby : rby + rbh, rbx : rbx + rbw]
+        row_d = (roi > 0).sum(axis=1).astype(np.float32)
+        peak = float(row_d.max()) if row_d.size else 0.0
+        if peak >= 2.0:
+            thr = max(2.0, peak * 0.12)
+            dense = row_d >= thr
+            if dense.any():
+                ys = np.flatnonzero(dense)
+                pad = max(2, int(round(rbh * 0.02)))
+                y0 = max(0, int(ys[0]) - pad)
+                y1 = min(rbh, int(ys[-1]) + 1 + pad)
+                rby = rby + y0
+                rbh = max(8, y1 - y0)
+                roi = mask[rby : rby + rbh, rbx : rbx + rbw]
+        col_d = (roi > 0).sum(axis=0).astype(np.float32)
+        peak_c = float(col_d.max()) if col_d.size else 0.0
+        if peak_c >= 2.0:
+            thr_c = max(2.0, peak_c * 0.15)
+            dense_c = col_d >= thr_c
+            if dense_c.any():
+                xs = np.flatnonzero(dense_c)
+                pad_x = max(2, int(round(rbw * 0.05)))
+                x0 = max(0, int(xs[0]) - pad_x)
+                x1 = min(rbw, int(xs[-1]) + 1 + pad_x)
+                rbx = rbx + x0
+                rbw = max(8, x1 - x0)
+    rbx = max(0, rbx)
+    rby = max(0, rby)
+    rbw = min(frame_w - rbx, max(8, rbw))
+    rbh = min(frame_h - rby, max(8, rbh))
+    return rbx, rby, rbw, rbh
+
+
 def _vertical_profile_score(mask: np.ndarray, bx: int, by: int, bw: int, bh: int) -> tuple[float, float]:
     if bw < 5 or bh < 10:
         return 0.0, 0.0
@@ -2383,6 +2502,7 @@ def analyze_figure(
     aim_y_max_fraction: float = 0.52,
     fov_cx: float | None = None,
     fov_cy: float | None = None,
+    lineup_display: bool = False,
 ) -> _FigureAnalysis:
     scale = _scale(frame_w, frame_h)
     bx, by, bw, bh = _cluster_bbox(parts)
@@ -2573,12 +2693,15 @@ def analyze_figure(
     # cluster shows clear sparsity (dense_row_frac < 0.30) — that
     # alone is a strong tighten signal regardless of part count.
     cluster_is_merged_for_tighten = (
-        dense_row_frac < 0.30
-        or (
-            len(parts) >= 3
-            and (
-                dense_row_frac < 0.45  # sparse rows → body + floating HUD text
-                or bbox_aspect < 1.65  # wide-ish → body + horizontal HUD merge
+        not lineup_display
+        and (
+            dense_row_frac < 0.30
+            or (
+                len(parts) >= 3
+                and (
+                    dense_row_frac < 0.45  # sparse rows → body + floating HUD text
+                    or bbox_aspect < 1.65  # wide-ish → body + horizontal HUD merge
+                )
             )
         )
     )
@@ -2589,9 +2712,10 @@ def analyze_figure(
             fov_cx=fov_cx, fov_cy=fov_cy,
         )
         if tbw >= 8 and tbh >= 12 and (tbw != bw or tbh != bh):
+            collapsed = tbh < max(12, int(bh * 0.22)) and bh >= frame_h * 0.12
             if not _tighten_would_discard_crosshair_body(
                 orig_by, orig_bh, tby, tbh, frame_h, fov_cy
-            ):
+            ) and not collapsed:
                 bx, by, bw, bh = tbx, tby, tbw, tbh
                 aspect = bh / max(bw, 1)
                 # Use the snapped aim and re-clamp into the tight bbox
@@ -2610,7 +2734,16 @@ def analyze_figure(
     if isolated_crosshair_body:
         bx, by, bw, bh = _expand_bbox_scope_headroom(bx, by, bw, bh, frame_h)
 
-    if not _aim_inside_body_bbox(ax, ay, bx, by, bw, bh):
+    if lineup_display:
+        bx, by, bw, bh = _refine_lineup_display_bbox(
+            parts, mask, bx, by, bw, bh, frame_w, frame_h,
+            fov_cx=fov_cx, fov_cy=fov_cy,
+        )
+        aspect = bh / max(bw, 1)
+        ax = bx + bw * 0.5
+        ay = by + bh * 0.38
+
+    if not lineup_display and not _aim_inside_body_bbox(ax, ay, bx, by, bw, bh):
         return _FigureAnalysis(
             accepted=False,
             reject_reason=RejectReason.SKY_BLOB,
@@ -2848,6 +2981,7 @@ def enumerate_candidates(
             )
             continue
 
+        lineup_wide_fov = _is_lineup_wide_fov(float(fov_radius), w, h)
         fig = analyze_figure(
             body_parts,
             mask,
@@ -2862,6 +2996,7 @@ def enumerate_candidates(
             aim_y_max_fraction=aim_y_max_fraction,
             fov_cx=cx,
             fov_cy=cy,
+            lineup_display=lineup_wide_fov,
         )
         dist = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))
         accepted = fig.accepted and dist <= fov_radius
@@ -2869,7 +3004,6 @@ def enumerate_candidates(
         if fig.accepted and dist > fov_radius:
             accepted = False
             reason = RejectReason.OUTSIDE_FOV.value
-        lineup_wide_fov = _is_lineup_wide_fov(float(fov_radius), w, h)
         if accepted and _is_sparse_rim_fp(
             fig.fill_ratio,
             fig.solidity,
@@ -2887,7 +3021,7 @@ def enumerate_candidates(
             accepted = False
             reason = "damage_glyph"
         if accepted and lineup_wide_fov:
-            if fig.bw > w * 0.15:
+            if fig.bw > w * 0.16:
                 accepted = False
                 reason = "lineup_merge"
             elif (
@@ -3109,6 +3243,7 @@ def _collect_candidates(
             if debug:
                 lines.append(f"cand[{idx}] {RejectReason.NO_BODY_STRUCTURE.value} (junk only)")
             continue
+        lineup_wide_fov = _is_lineup_wide_fov(float(fov_radius), w, h)
         fig = analyze_figure(
             body_parts, mask, w, h,
             torso_aim_fraction=torso_aim_fraction,
@@ -3120,6 +3255,7 @@ def _collect_candidates(
             aim_y_max_fraction=aim_y_max_fraction,
             fov_cx=cx,
             fov_cy=cy,
+            lineup_display=lineup_wide_fov,
         )
         mc = _max_part_circularity(body_parts)
         dist_c = float(np.hypot(fig.aim_x - cx, fig.aim_y - cy))

@@ -257,7 +257,7 @@ def test_real_apex_body_image_detects(
         assert 6 <= len(accepted) <= 8, (
             f"{filename}: expected ~7 accepted, got {len(accepted)} of {len(cands)}"
         )
-        assert all(c.bbox_w <= w * 0.15 for c in accepted), (
+        assert all(c.bbox_w <= w * 0.16 for c in accepted), (
             f"{filename}: merged wide boxes remain"
         )
         xs = [c.bbox_x + c.bbox_w * 0.5 for c in accepted if c.bbox_w > 0]

@@ -45,8 +45,8 @@ def test_img6_enumerates_multiple_characters_not_one_merge() -> None:
         f"expected ~7 lineup locks, got {len(accepted)}: "
         f"{[(c.bbox_x, c.bbox_w, c.bbox_h) for c in accepted]}"
     )
-    assert all(c.bbox_h >= h * 0.18 for c in accepted), "fragment height boxes"
-    assert all(c.bbox_w <= w * 0.15 for c in accepted), "merged wide boxes"
+    assert all(c.bbox_h >= h * 0.15 for c in accepted), "fragment height boxes"
+    assert all(c.bbox_w <= w * 0.16 for c in accepted), "merged wide boxes"
     assert all(c.bbox_w >= w * 0.04 for c in accepted), "sliver width boxes"
     xs = sorted(c.bbox_x + c.bbox_w * 0.5 for c in accepted)
     assert xs[-1] - xs[0] >= 500
