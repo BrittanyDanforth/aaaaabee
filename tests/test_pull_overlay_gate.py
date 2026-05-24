@@ -125,6 +125,27 @@ class BuildFrameOverlayBehaviorTests(unittest.TestCase):
             )
         )
 
+    def test_fresh_frame1_may_pull_false_without_frame_overlay(self) -> None:
+        """may_assist_pull alone must not enable pull before overlay confirm."""
+        state = TargetLockState()
+        t = _humanoid()
+        assist = may_assist_pull_target(
+            t,
+            detection_fresh=True,
+            center_y=360.0,
+            target_lost_frames=0,
+            stale_grace_frames=12,
+        )
+        build = _build_frame_overlay(
+            show_for_overlay=False,
+            may_assist_pull=assist,
+            detection_fresh=True,
+        )
+        self.assertTrue(assist)
+        self.assertFalse(build)
+        may_pull = build and assist  # pull_target requires frame_overlay
+        self.assertFalse(may_pull)
+
     def test_stale_past_grace_no_build(self) -> None:
         t = _humanoid()
         assist = may_assist_pull_target(

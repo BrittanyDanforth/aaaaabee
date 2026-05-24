@@ -598,8 +598,8 @@ class AbaApplication:
         hip = self.config.get("fov_radius_pixels", "?")
         ads = self.config.get("fov_radius_ads_pixels", "?")
         self._fov_summary_var.set(
-            f"FOV ring: {hip} px (hip) / {ads} px (ADS) — set in config.json or Advanced, "
-            "then Stop→Start to resize ring"
+            f"FOV ring: {hip} px (hip) / {ads} px (ADS) — edit config.json; "
+            "ring hot-reloads while running (no Stop→Start)"
         )
 
     def _sync_controls_from_config(self) -> None:
@@ -1119,10 +1119,10 @@ class AbaApplication:
                 return
         self._stop_debug_hud()
         try:
-            self._controller.save_config(self.config)
-            self.config = self._controller.reload_config()
             self.config["show_debug_window"] = False
             self.config["enable_overlay"] = bool(self.config.get("enable_overlay", False))
+            self._controller.save_config(self.config)
+            self.config = self._controller.reload_config()
             self._configured_fps = effective_capture_fps(self.config)
             self._process_name = str(self.config.get("target_process_name", APEX_PROCESS_NAME))
             self._process_required = bool(self.config.get("target_process_required", False))

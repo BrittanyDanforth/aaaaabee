@@ -19,6 +19,17 @@ class WiringScriptsParityTests(unittest.TestCase):
         text = (ROOT / "runtime.py").read_text(encoding="utf-8")
         self.assertNotIn("smooth_overlay_point", text)
 
+    def test_pull_stale_decay_uses_stale_grace_frames(self) -> None:
+        text = (ROOT / "pull.py").read_text(encoding="utf-8")
+        self.assertIn("stale_grace_frames", text)
+        self.assertIn("self._tuning.stale_grace_frames", text)
+        self.assertNotIn("self._stale_count > 12", text)
+
+    def test_save_config_syncs_live_runtime(self) -> None:
+        text = (ROOT / "runtime_controller.py").read_text(encoding="utf-8")
+        block = text[text.find("def save_config") : text.find("def apply_config_patch")]
+        self.assertIn("live.config = dict(data)", block)
+
 
 if __name__ == "__main__":
     unittest.main()

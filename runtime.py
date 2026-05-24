@@ -961,6 +961,7 @@ class AssistRuntime:
                 jitter_enabled=bool(cfg.get("jitter_enabled", False)),
                 jitter_amplitude_pixels=float(cfg.get("jitter_amplitude_pixels", 0.0)),
                 jitter_frequency_hz=float(cfg.get("jitter_frequency_hz", 6.0)),
+                stale_grace_frames=int(cfg.get("mouse_gate_stale_grace_frames", 12)),
             )
         )
 
@@ -1527,9 +1528,6 @@ class AssistRuntime:
                                 int(pull_target.centroid_x),
                                 int(pull_target.centroid_y),
                             )
-                        elif motion is not None:
-                            ox, oy = motion.overlay_xy()
-                            aim_pt = (int(ox), int(oy))
                         if aim_pt is not None:
                             cv2.drawMarker(
                                 dbg,

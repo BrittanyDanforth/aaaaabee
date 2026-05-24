@@ -43,8 +43,10 @@ def trace_one_preset(name: str, cfg: dict) -> dict:
     if target is None:
         return {"preset": name, "error": "no target detected"}
 
+    display_fov = float(cfg.get("fov_radius_pixels", DETECT_FOV))
+    ring_inner = min(float(DETECT_FOV), display_fov) * 0.96
     tracker = TargetTracker()
-    tracker.configure_fov_clamp(CX, CY, DETECT_FOV)
+    tracker.configure_fov_clamp(CX, CY, ring_inner)
     tracker.configure_body_clamp(
         cfg.get("aim_body_y_min_fraction", 0.28),
         cfg.get("aim_body_y_max_fraction", 0.50),
@@ -88,7 +90,6 @@ def trace_one_preset(name: str, cfg: dict) -> dict:
 
     mon = {"left": 0, "top": 0, "width": FRAME_W, "height": FRAME_H}
     cap = build_capture_region(mon, float(CX), float(CY), DETECT_FOV, use_crop=True)
-    display_fov = float(cfg.get("fov_radius_pixels", DETECT_FOV))
     frame_overlay = AssistRuntime._frame_overlay_point(
         motion,
         cap,

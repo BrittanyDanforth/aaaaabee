@@ -48,6 +48,9 @@ class RuntimeController:
             self._config = dict(data)
         payload = {k: v for k, v in data.items() if not str(k).startswith("_")}
         self.config_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        live = self._runtime
+        if live is not None and getattr(live, "running", False):
+            live.config = dict(data)
 
     def apply_config_patch(self, patch: dict[str, Any], *, persist: bool = True) -> dict[str, Any]:
         with self._lock:
@@ -131,6 +134,9 @@ class RuntimeController:
                         merged.get("fov_edge_min_pull_scale", 0.85)
                     ),
                     smoothing_curve=str(merged.get("smoothing_curve", "linear")),
+                    stale_grace_frames=int(
+                        merged.get("mouse_gate_stale_grace_frames", 12)
+                    ),
                 )
         # PHASE-7 AUDIT FIX (MED11): hot-apply verbose_logging changes
         # so the user can flip the toggle without restarting the

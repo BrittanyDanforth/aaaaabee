@@ -53,6 +53,8 @@ class PullTuning:
     jitter_enabled: bool = False
     jitter_amplitude_pixels: float = 0.0
     jitter_frequency_hz: float = 6.0
+    # Match mouse_gate_stale_grace_frames / may_assist_pull_target grace window.
+    stale_grace_frames: int = 12
 
 
 @dataclass
@@ -321,7 +323,8 @@ class PullController:
             self._stale_count += 1
             if not self._tuning.aim_pre_smoothed and self._stale_count == 1:
                 self._tracker.reset()
-            if self._stale_count > 12:
+            grace = max(0, int(self._tuning.stale_grace_frames))
+            if grace > 0 and self._stale_count > grace:
                 decay = alpha_from_tau(dt, 0.08)
                 self._vel_x *= 1.0 - decay
                 self._vel_y *= 1.0 - decay

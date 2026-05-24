@@ -12,8 +12,9 @@ M1 (audit) fixes:
   short-circuits and returns ``_last_motion`` unchanged.
 * The runtime loop passes ``stale=stale_det`` to ``_smooth_aim`` so
   the smoother sees fresh observations only when detection is fresh.
-* The overlay dot is hidden when detection is not fresh (``target_lost_frames >= 1``)
-  user doesn't see the dot parked on the last-known position.
+* Overlay uses ``build_frame_overlay``: 2-frame confirm when fresh; stale grace
+  (``may_assist_pull``) can keep dot/pull on brief gaps; hold-last when
+  ``monitor_overlay`` is None during lock grace.
 
 This test drives ``_smooth_aim`` directly from a minimal runtime
 fixture and verifies the contract:
@@ -21,8 +22,8 @@ fixture and verifies the contract:
 1. ``_smooth_aim(target, t, stale=False)`` advances ``_last_motion``.
 2. ``_smooth_aim(target, t, stale=True)`` returns ``_last_motion`` and
    does NOT call ``observe_target``.
-3. Source check: the runtime loop passes ``stale=stale_det`` and hides
-   the overlay when detection is not fresh.
+3. Source check: the runtime loop passes ``stale=stale_det`` and gates overlay
+   via ``build_frame_overlay`` / hold-last (not unconditional hide on stale).
 """
 
 from __future__ import annotations
