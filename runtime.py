@@ -1314,9 +1314,6 @@ class AssistRuntime:
                                 pull_target.centroid_y,
                                 cap_region,
                             )
-                        elif overlay_mon is None and motion is not None and cap_region is not None:
-                            ovx, ovy = motion.overlay_xy()
-                            overlay_mon = to_monitor_coords(ovx, ovy, cap_region)
                         loop_ms = (time.perf_counter() - t0) * 1000.0
                         ach_fps = 1000.0 / loop_ms if loop_ms > 0.1 else 0.0
                         if self._trace_pull:

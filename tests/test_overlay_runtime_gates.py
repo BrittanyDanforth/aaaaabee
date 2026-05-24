@@ -39,6 +39,13 @@ class RuntimeBuildFrameOverlayAstTests(unittest.TestCase):
         self.assertIn("pull_target.centroid_x", dbg)
         self.assertNotIn("motion.overlay_xy()", dbg)
 
+    def test_pull_trace_no_unclamped_overlay_mon_fallback(self) -> None:
+        text = RUNTIME.read_text(encoding="utf-8")
+        block = text[text.find("overlay_mon = monitor_overlay") :]
+        block = block[: block.find("if self._trace_pull:")]
+        self.assertIn("pull_target.centroid_x", block)
+        self.assertNotIn("motion.overlay_xy()", block)
+
 
 class HoldLastOverlayLogicTests(unittest.TestCase):
     def test_hold_last_fills_when_monitor_none_and_lock_grace(self) -> None:
