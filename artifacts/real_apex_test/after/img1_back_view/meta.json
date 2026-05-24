@@ -26,9 +26,9 @@
   "selected": {
     "bbox": [
       325,
-      262,
+      256,
       45,
-      41
+      47
     ],
     "centroid": [
       342.0,
@@ -39,7 +39,7 @@
     "torso_score": 0.696731609613984,
     "limb_stack_score": 1.0,
     "part_count": 13,
-    "red_coverage": 0.751219512195122,
+    "red_coverage": 0.6817966903073286,
     "fill_ratio": 0.21985815465450287,
     "max_circularity": 0.6465340556506903,
     "confidence": 0.8379303571428572,
@@ -161,9 +161,9 @@
       "reject_reason": "ok",
       "bbox": [
         215,
-        257,
+        251,
         9,
-        36
+        42
       ],
       "body_shape_score": 0.8291040035987405,
       "head_score": 1.0,
@@ -172,7 +172,7 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.6388888955116272,
       "max_circularity": 0.6203411461650057,
-      "aspect": 4.0,
+      "aspect": 4.666666666666667,
       "part_count": 2,
       "total_area": 94.5,
       "distance_to_center": 122.82214782912577,
@@ -188,9 +188,9 @@
       "reject_reason": "ok",
       "bbox": [
         325,
-        262,
+        256,
         45,
-        41
+        47
       ],
       "body_shape_score": 1.0,
       "head_score": 1.0,
@@ -199,7 +199,7 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.21985815465450287,
       "max_circularity": 0.6465340556506903,
-      "aspect": 0.9111111111111111,
+      "aspect": 1.0444444444444445,
       "part_count": 13,
       "total_area": 8238.0,
       "distance_to_center": 15.319999999999993,
@@ -242,9 +242,9 @@
       "reject_reason": "ok",
       "bbox": [
         469,
-        159,
+        150,
         56,
-        65
+        74
       ],
       "body_shape_score": 1.0,
       "head_score": 1.0,
@@ -253,7 +253,7 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.4444444477558136,
       "max_circularity": 0.4236627943308252,
-      "aspect": 1.1607142857142858,
+      "aspect": 1.3214285714285714,
       "part_count": 5,
       "total_area": 1307.5,
       "distance_to_center": 153.90308119072859,

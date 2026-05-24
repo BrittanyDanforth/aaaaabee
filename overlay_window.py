@@ -592,6 +592,8 @@ class OverlayWindow:
             disp = self._dot_disp
 
         try:
+            # Purge before sync so slider/center moves cannot stack ghost rings.
+            self._purge_orphan_fov_rings()
             self._sync_fov_ring()
 
             if dest is not None:

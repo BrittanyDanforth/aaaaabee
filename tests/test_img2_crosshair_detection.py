@@ -44,14 +44,17 @@ def test_img2_target_near_crosshair_not_rim_sand() -> None:
     assert r.active and r.target is not None
     t = r.target
     dist = math.hypot(t.centroid_x - cx, t.centroid_y - cy)
-    assert dist < fov_r * 0.35, (
-        f"img2 centroid must stay near crosshair (dist={dist:.0f}, fov={fov_r})"
+    assert dist < fov_r * 0.12, (
+        f"img2 centroid must stay on scoped enemy (dist={dist:.0f}, fov={fov_r})"
+    )
+    assert t.bbox_w <= w * 0.22, (
+        f"img2 bbox too wide for scoped target (bbox_w={t.bbox_w})"
     )
     assert t.bbox_x < w * 0.55, (
         f"img2 bbox must not be rim sand blob (bbox_x={t.bbox_x})"
     )
-    assert t.bbox_h >= h * 0.18, (
-        f"img2 must lock full body not damage glyph (bbox_h={t.bbox_h})"
+    assert t.bbox_h >= 60, (
+        f"img2 scoped bbox too short (bbox_h={t.bbox_h})"
     )
     assert t.bbox_x <= cx <= t.bbox_x + t.bbox_w, (
         f"img2 bbox must span crosshair X (bbox_x={t.bbox_x}, w={t.bbox_w}, cx={cx})"

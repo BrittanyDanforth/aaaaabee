@@ -22,28 +22,28 @@
   "parts": 27,
   "cluster_count": 3,
   "active": true,
-  "best_score": 0.8098724807609476,
+  "best_score": 0.6031761098965092,
   "selected": {
     "bbox": [
-      141,
-      79,
-      198,
-      266
+      246,
+      214,
+      80,
+      88
     ],
     "centroid": [
-      234.00000000000003,
-      202.79389694733308
+      298.33000000000004,
+      246.68618213399503
     ],
-    "body_shape_score": 1.0,
-    "head_score": 0.9010390093514606,
-    "torso_score": 0.7449631601758405,
+    "body_shape_score": 0.7768947808622391,
+    "head_score": 0.3439285714285714,
+    "torso_score": 0.7883837021046951,
     "limb_stack_score": 1.0,
-    "part_count": 21,
-    "red_coverage": 0.16499582289055972,
-    "fill_ratio": 0.29323309659957886,
+    "part_count": 4,
+    "red_coverage": 0.29829545454545453,
+    "fill_ratio": 0.5584415793418884,
     "max_circularity": 0.6082147753945781,
-    "confidence": 0.8098724807609476,
-    "distance_to_center": 69.47102593204117,
+    "confidence": 0.6031761098965092,
+    "distance_to_center": 10.33167768501417,
     "reject_reason": "ok"
   },
   "candidates": [
@@ -52,27 +52,27 @@
       "accepted": true,
       "reject_reason": "ok",
       "bbox": [
-        141,
-        79,
-        198,
-        266
+        246,
+        214,
+        80,
+        88
       ],
-      "body_shape_score": 1.0,
-      "head_score": 0.9010390093514606,
-      "torso_score": 0.7449631601758405,
+      "body_shape_score": 0.7768947808622391,
+      "head_score": 0.3439285714285714,
+      "torso_score": 0.7883837021046951,
       "limb_stack_score": 1.0,
       "vertical_profile_score": 1.0,
-      "fill_ratio": 0.29323309659957886,
+      "fill_ratio": 0.5584415793418884,
       "max_circularity": 0.6082147753945781,
-      "aspect": 1.3434343434343434,
-      "part_count": 21,
-      "total_area": 8075.5,
-      "distance_to_center": 69.47102593204117,
+      "aspect": 1.1,
+      "part_count": 4,
+      "total_area": 1853.0,
+      "distance_to_center": 10.33167768501417,
       "aim": [
-        234.00000000000003,
-        202.79389694733308
+        298.33000000000004,
+        246.68618213399503
       ],
-      "debug_detail": "parts=21 head=0.90 torso=0.74 limb=1.00 vert=1.00 geom=0.36 align=0.20 circ=0.61 fill=0.29"
+      "debug_detail": "parts=4 head=0.34 torso=0.79 limb=1.00 vert=1.00 geom=0.10 align=0.30 circ=0.42 fill=0.56"
     },
     {
       "idx": 1,

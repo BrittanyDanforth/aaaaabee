@@ -723,6 +723,69 @@ def _is_damage_glyph_fp(
     return float(bbox_y) + float(bbox_h) * 0.35 > float(fov_cy) + frame_h * 0.04
 
 
+def _fov_radius_estimate(frame_w: int, frame_h: int) -> float:
+    return max(80.0, min(frame_w, frame_h) * 0.36)
+
+
+def _should_isolate_crosshair_body(
+    parts: list[_RedPart],
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    frame_w: int,
+    frame_h: int,
+    fov_cx: float | None,
+    fov_cy: float | None,
+) -> bool:
+    """Wide merged cluster whose bbox centroid is left/right of the crosshair (img2 ADS)."""
+    if fov_cx is None or fov_cy is None or len(parts) < 8:
+        return False
+    if bw < frame_w * 0.26 or bh < frame_h * 0.14:
+        return False
+    if not (bx <= fov_cx <= bx + bw and by <= fov_cy <= by + bh):
+        return False
+    bcx = bx + bw * 0.5
+    fov_r = _fov_radius_estimate(frame_w, frame_h)
+    # img2 ADS: bbox centroid sits clearly left/right of crosshair (HUD merge).
+    return abs(bcx - fov_cx) > fov_r * 0.25
+
+
+def _isolate_crosshair_body_parts(
+    parts: list[_RedPart],
+    frame_w: int,
+    frame_h: int,
+    fov_cx: float,
+    fov_cy: float,
+) -> list[_RedPart]:
+    """Keep mask fragments near the crosshair; drop distant HUD/ammo columns."""
+    fov_r = _fov_radius_estimate(frame_w, frame_h)
+    max_d = fov_r * 0.42
+    near = [p for p in parts if math.hypot(p.cx - fov_cx, p.cy - fov_cy) <= max_d]
+    if len(near) < 3:
+        return parts
+    total = sum(p.area for p in parts)
+    if total <= 0 or sum(p.area for p in near) < total * 0.10:
+        return parts
+    return near
+
+
+def _expand_bbox_scope_headroom(
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    frame_h: int,
+) -> tuple[int, int, int, int]:
+    """Scope/ADS crops: extend top slightly so helmet is not clipped by a tight box."""
+    if bh >= frame_h * 0.22:
+        return bx, by, bw, bh
+    pad_top = max(6, int(round(bh * 0.14)))
+    by_new = max(0, by - pad_top)
+    bh_new = min(frame_h - by_new, bh + (by - by_new))
+    return bx, by_new, bw, bh_new
+
+
 def _tighten_would_discard_crosshair_body(
     orig_by: int,
     orig_bh: int,
@@ -2101,6 +2164,17 @@ def analyze_figure(
 ) -> _FigureAnalysis:
     scale = _scale(frame_w, frame_h)
     bx, by, bw, bh = _cluster_bbox(parts)
+    isolated_crosshair_body = False
+    if _should_isolate_crosshair_body(
+        parts, bx, by, bw, bh, frame_w, frame_h, fov_cx, fov_cy
+    ):
+        isolated = _isolate_crosshair_body_parts(
+            parts, frame_w, frame_h, float(fov_cx), float(fov_cy)  # type: ignore[arg-type]
+        )
+        if len(isolated) < len(parts):
+            parts = isolated
+            bx, by, bw, bh = _cluster_bbox(parts)
+            isolated_crosshair_body = True
     total_area = sum(p.area for p in parts)
     _classify_parts(parts, bh, scale)
 
@@ -2310,6 +2384,9 @@ def analyze_figure(
                 x_hi = tbx + tbw - tbw * 0.13
                 ax = max(x_lo, min(x_hi, snap_ax))
                 ay = max(chest_y_lo, min(chest_y_hi, snap_ay))
+
+    if isolated_crosshair_body:
+        bx, by, bw, bh = _expand_bbox_scope_headroom(bx, by, bw, bh, frame_h)
 
     if not _aim_inside_body_bbox(ax, ay, bx, by, bw, bh):
         return _FigureAnalysis(
@@ -2615,6 +2692,8 @@ def render_debug_artifacts(
     fov_center_x: float,
     fov_center_y: float,
     mask: np.ndarray | None = None,
+    *,
+    display_fov_radius: int | None = None,
 ) -> np.ndarray:
     """Composite: original + mask tint + candidate bboxes + upper-chest aim point."""
     out = frame_bgr.copy()
@@ -2626,7 +2705,8 @@ def render_debug_artifacts(
         tint[:, :] = (0, 255, 0)
         out = np.where(mask[:, :, None] > 0, cv2.addWeighted(out, 0.55, tint, 0.45, 0), out)
 
-    cv2.circle(out, (cx, cy), fov_radius, (0, 255, 0), 2)
+    ring_r = int(display_fov_radius) if display_fov_radius is not None else int(fov_radius)
+    cv2.circle(out, (cx, cy), ring_r, (0, 255, 0), 2)
     cv2.drawMarker(out, (cx, cy), (255, 255, 255), cv2.MARKER_CROSS, 14, 2)
 
     for c in candidates:

@@ -188,9 +188,9 @@
       "reject_reason": "ok",
       "bbox": [
         682,
-        293,
+        284,
         23,
-        63
+        72
       ],
       "body_shape_score": 1.0,
       "head_score": 1.0,
@@ -199,7 +199,7 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.21511627733707428,
       "max_circularity": 0.6710150573647033,
-      "aspect": 2.739130434782609,
+      "aspect": 3.130434782608696,
       "part_count": 4,
       "total_area": 335.5,
       "distance_to_center": 61.50250157513921,
@@ -350,9 +350,9 @@
       "reject_reason": "ok",
       "bbox": [
         754,
-        360,
+        354,
         18,
-        36
+        42
       ],
       "body_shape_score": 0.5869344642526679,
       "head_score": 0.42,
@@ -361,7 +361,7 @@
       "vertical_profile_score": 0.72,
       "fill_ratio": 0.6388888955116272,
       "max_circularity": 0.3323868746774257,
-      "aspect": 2.0,
+      "aspect": 2.3333333333333335,
       "part_count": 1,
       "total_area": 202.5,
       "distance_to_center": 147.45265941719828,
@@ -431,9 +431,9 @@
       "reject_reason": "sparse_rim_fp",
       "bbox": [
         824,
-        416,
+        397,
         32,
-        134
+        153
       ],
       "body_shape_score": 0.8425340369388281,
       "head_score": 0.9826730360712669,
@@ -442,7 +442,7 @@
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.21641790866851807,
       "max_circularity": 0.5390120952601716,
-      "aspect": 4.1875,
+      "aspect": 4.78125,
       "part_count": 4,
       "total_area": 374.0,
       "distance_to_center": 266.5137314994816,
