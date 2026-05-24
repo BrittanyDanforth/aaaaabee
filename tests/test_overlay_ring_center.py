@@ -11,15 +11,15 @@ from runtime import AssistRuntime
 
 
 class OverlayRingCenterTests(unittest.TestCase):
-    def test_runtime_wires_set_fov_center(self) -> None:
+    def test_runtime_wires_update_fov(self) -> None:
         text = Path("runtime.py").read_text(encoding="utf-8")
-        self.assertIn("set_fov_center", text)
+        self.assertIn("update_fov(", text)
         self.assertIn("crosshair_offset_x", text)
 
     def test_overlay_has_crosshair_and_ring_at_same_center(self) -> None:
         text = Path("overlay_window.py").read_text(encoding="utf-8")
         self.assertIn("_position_crosshair", text)
-        self.assertIn("set_fov_center", text)
+        self.assertIn("def update_fov", text)
         self.assertIn("_cross_h", text)
         self.assertIn("_cross_v", text)
         idx = text.find("create_oval")
