@@ -1,4 +1,4 @@
-"""Pull must use the same gate as the red dot — no ghost assist."""
+"""Pull shares ring-clamped frame overlay with the dot; stale grace via may_assist."""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ RUNTIME = Path(__file__).resolve().parents[1] / "runtime.py"
 
 
 class PullOverlayGateTests(unittest.TestCase):
-    def test_runtime_pull_requires_overlay_may_show(self) -> None:
+    def test_runtime_pull_uses_shared_frame_overlay_and_assist_gate(self) -> None:
         text = RUNTIME.read_text(encoding="utf-8")
-        self.assertIn("show_for_pull = overlay_may_show_target", text)
-        self.assertIn("and show_for_pull", text)
+        self.assertIn("show_for_overlay = overlay_may_show_target", text)
+        self.assertIn("may_assist_pull = may_assist_pull_target", text)
+        self.assertIn("show_for_overlay or may_assist_pull", text)
+        self.assertIn("and may_assist_pull", text)
 
     def test_runtime_refreshes_motion_memory_while_locked(self) -> None:
         text = RUNTIME.read_text(encoding="utf-8")

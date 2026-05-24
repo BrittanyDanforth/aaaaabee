@@ -20,11 +20,15 @@ class OverlayAuditFixesTests(unittest.TestCase):
         self.assertIn("set_fov_center(center_x, center_y)", rt)
         self.assertIn("ring_inner = min(float(detect_fov), float(display_fov)) * 0.96", rt)
         self.assertIn("overlay_mon = monitor_overlay", rt)
+        self.assertIn("center_moved", rt)
+        self.assertIn("configure_overlay_dot_alpha(dot_alpha)", rt)
         self.assertNotIn("def _target_for_pull", rt)
 
         self.assertIn("ads_active=ads_active", rc)
+        self.assertIn("configure_overlay_dot_alpha", rc)
         self.assertIn("crosshair_offset_x", rc)
         self.assertIn("set_fov_center(cx, cy)", rc)
+        self.assertIn("_last_fov_radius = -1", rc)
 
 
 if __name__ == "__main__":

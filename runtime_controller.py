@@ -82,6 +82,9 @@ class RuntimeController:
                     float(merged.get("smoothing_tau_still", 0.062)),
                     float(merged.get("smoothing_tau_moving", 0.028)),
                 )
+                live._aim_tracker.configure_overlay_dot_alpha(
+                    float(merged.get("overlay_dot_smooth_alpha", 0.52))
+                )
             # R1 (audit): propagate detection-motion settings to the live
             # detection context. Without this, toggling motion_assist or
             # motion_threshold in the GUI required a full Stop -> Start to
@@ -167,8 +170,13 @@ class RuntimeController:
                             merged.get("crosshair_offset_y", 0.0)
                         )
                         live._overlay.set_fov_center(cx, cy)
+                        live._last_fov_radius = -1
                     except Exception:
                         logger.exception("hot-reload crosshair center failed")
+            if "overlay_dot_smooth_alpha" in patch and getattr(live, "_overlay", None) is not None:
+                live._overlay.set_dot_glide_alpha(
+                    float(merged.get("overlay_dot_smooth_alpha", 0.52))
+                )
         return merged
 
     def set_benchmark_summary(self, text: str) -> None:

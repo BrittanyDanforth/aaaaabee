@@ -204,9 +204,9 @@ class AssistRuntime:
         Fix: when we have a ``_last_motion`` cached (lock just
         expired but the tracker still carries an anchor), return that
         frozen anchor for one frame instead of hard-resetting. The
-        overlay logic already hides the dot after ``>=2`` stale frames
-        (``hide_overlay_stale``), and the next observed target will
-        step-cap from this anchor rather than teleport.
+        overlay may hold-last via ``peek_overlay_smooth`` during lock
+        grace; pull uses the same ring-clamped frame point when
+        ``may_assist_pull_target`` allows stale grace.
         """
         if target is None:
             # CRIT2 pull anchor only — never feed a ghost dot when detection
@@ -383,6 +383,7 @@ class AssistRuntime:
         stale_det: bool,
         ads_active: bool,
         overlay_dot: tuple[float, float] | None = None,
+        pull_frame_xy: tuple[float, float] | None = None,
         capture_ms: float = -1.0,
         detect_ms: float = -1.0,
         total_loop_ms: float = -1.0,
@@ -393,7 +394,9 @@ class AssistRuntime:
         from pull_trace import PullTraceFrame, log_trace_frame
 
         self._trace_frame += 1
-        if motion is not None:
+        if pull_frame_xy is not None:
+            mx, my = float(pull_frame_xy[0]), float(pull_frame_xy[1])
+        elif motion is not None:
             mx, my = motion.x, motion.y
         elif target is not None:
             mx, my = target.centroid_x, target.centroid_y
@@ -736,7 +739,10 @@ class AssistRuntime:
     ) -> None:
         from overlay_window import OverlayWindow
 
-        radius = effective_fov_radius(self.config, ads_active=False)
+        ads_active = (
+            bool(self._ads.is_ads_active()) if self._ads is not None else False
+        )
+        radius = effective_fov_radius(self.config, ads_active=ads_active)
         cfg = self.config
         self._overlay = OverlayWindow(
             width,
@@ -891,6 +897,8 @@ class AssistRuntime:
         self._last_fov_radius = -1
         self._last_display_fov = -1
         self._last_overlay_fps = -1
+        self._last_capture_center_x: float | None = None
+        self._last_capture_center_y: float | None = None
         if self._dry:
             print(
                 f"[ABA] DRY-RUN @ {fps} FPS (capped): mask/detection sanity — NOT flick/reacquire/combat proof."
@@ -1051,6 +1059,8 @@ class AssistRuntime:
                     )
                     if self._overlay is not None:
                         self._overlay.set_fov_center(center_x, center_y)
+                    dot_alpha = float(cfg.get("overlay_dot_smooth_alpha", 0.52))
+                    self._aim_tracker.configure_overlay_dot_alpha(dot_alpha)
 
                     # PHASE-5 AUDIT FIX (D-LOW hot-reload): re-read
                     # ``enable_overlay`` and ``trace_pull`` each frame so
@@ -1128,7 +1138,16 @@ class AssistRuntime:
                     capture_fov = effective_capture_fov_radius(
                         cfg, ads_active=ads_for_assist
                     )
-                    if cap_region is None or detect_fov != self._last_fov_radius:
+                    center_moved = (
+                        self._last_capture_center_x is None
+                        or abs(center_x - self._last_capture_center_x) > 0.25
+                        or abs(center_y - self._last_capture_center_y) > 0.25
+                    )
+                    if (
+                        cap_region is None
+                        or detect_fov != self._last_fov_radius
+                        or center_moved
+                    ):
                         cap_region = build_capture_region(
                             mon,
                             center_x,
@@ -1139,6 +1158,8 @@ class AssistRuntime:
                         )
                         self._frame_cx = center_x - cap_region.offset_x
                         self._frame_cy = center_y - cap_region.offset_y
+                        self._last_capture_center_x = center_x
+                        self._last_capture_center_y = center_y
                         self._last_fov_radius = detect_fov
                         cfg["_runtime_detect_fov"] = detect_fov
                         cfg["_runtime_overlay_fov"] = ring_inner
@@ -1197,11 +1218,18 @@ class AssistRuntime:
                     stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
                     with self._lock:
                         firing_now = self._is_firing
-                    show_for_pull = overlay_may_show_target(
+                    show_for_overlay = overlay_may_show_target(
                         target,
                         detection_fresh=detection_fresh,
                         center_y=frame_cy,
                         lock_state=self._target_lock,
+                    )
+                    may_assist_pull = may_assist_pull_target(
+                        target,
+                        detection_fresh=detection_fresh,
+                        center_y=frame_cy,
+                        target_lost_frames=self._target_lost_frames,
+                        stale_grace_frames=stale_grace,
                     )
                     frame_overlay: tuple[float, float] | None = None
                     monitor_overlay: tuple[float, float] | None = None
@@ -1209,7 +1237,7 @@ class AssistRuntime:
                         motion is not None
                         and target is not None
                         and cap_region is not None
-                        and show_for_pull
+                        and (show_for_overlay or may_assist_pull)
                     ):
                         frame_overlay = self._frame_overlay_point(
                             motion,
@@ -1242,14 +1270,7 @@ class AssistRuntime:
                     may_pull = (
                         pull_target is not None
                         and target is not None
-                        and show_for_pull
-                        and may_assist_pull_target(
-                            target,
-                            detection_fresh=detection_fresh,
-                            center_y=frame_cy,
-                            target_lost_frames=self._target_lost_frames,
-                            stale_grace_frames=stale_grace,
-                        )
+                        and may_assist_pull
                     )
                     if (
                         not paused
@@ -1278,12 +1299,27 @@ class AssistRuntime:
                             if gate_result.allowed:
                                 moved = (pr.dx, pr.dy)
                         overlay_mon = monitor_overlay
-                        if overlay_mon is None and motion is not None and cap_region is not None:
+                        if (
+                            overlay_mon is None
+                            and pull_target is not None
+                            and cap_region is not None
+                        ):
+                            overlay_mon = to_monitor_coords(
+                                pull_target.centroid_x,
+                                pull_target.centroid_y,
+                                cap_region,
+                            )
+                        elif overlay_mon is None and motion is not None and cap_region is not None:
                             ovx, ovy = motion.overlay_xy()
                             overlay_mon = to_monitor_coords(ovx, ovy, cap_region)
                         loop_ms = (time.perf_counter() - t0) * 1000.0
                         ach_fps = 1000.0 / loop_ms if loop_ms > 0.1 else 0.0
                         if self._trace_pull:
+                            trace_pull_xy = (
+                                (pull_target.centroid_x, pull_target.centroid_y)
+                                if pull_target is not None
+                                else None
+                            )
                             self._emit_pull_trace(
                                 cfg,
                                 frame_cx=frame_cx,
@@ -1302,6 +1338,7 @@ class AssistRuntime:
                                 stale_det=stale_det,
                                 ads_active=ads_for_assist,
                                 overlay_dot=overlay_mon,
+                                pull_frame_xy=trace_pull_xy,
                                 capture_ms=capture_ms,
                                 detect_ms=detect_ms,
                                 total_loop_ms=loop_ms,
@@ -1480,10 +1517,19 @@ class AssistRuntime:
                             detection_mode=str(cfg.get("detection_mode", "apex")),
                             exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
                         )
-                        if motion is not None:
+                        aim_pt = None
+                        if pull_target is not None:
+                            aim_pt = (
+                                int(pull_target.centroid_x),
+                                int(pull_target.centroid_y),
+                            )
+                        elif motion is not None:
+                            ox, oy = motion.overlay_xy()
+                            aim_pt = (int(ox), int(oy))
+                        if aim_pt is not None:
                             cv2.drawMarker(
                                 dbg,
-                                (int(motion.x), int(motion.y)),
+                                aim_pt,
                                 (255, 255, 0),
                                 cv2.MARKER_DIAMOND,
                                 12,

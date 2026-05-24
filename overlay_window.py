@@ -342,8 +342,8 @@ class OverlayWindow:
 
         fcx = self._fov_center_x
         fcy = self._fov_center_y
-        self._cx = int(round(fcx if fcx is not None else sw / 2))
-        self._cy = int(round(fcy if fcy is not None else sh / 2))
+        self._cx = float(fcx if fcx is not None else sw / 2)
+        self._cy = float(fcy if fcy is not None else sh / 2)
 
         # The FOV ring is tagged so we can defensively prove only ONE such
         # oval ever exists on the canvas. Live-game reports of a "ghost"
@@ -452,15 +452,18 @@ class OverlayWindow:
 
     def set_fov_center(self, x: float, y: float) -> None:
         """Move ring + crosshair to monitor-local aim center (matches runtime clamp)."""
-        cx = int(round(float(x)))
-        cy = int(round(float(y)))
+        fx, fy = float(x), float(y)
         with self._lock:
-            if cx == self._cx and cy == self._cy:
+            if (
+                self._fov_center_x is not None
+                and abs(fx - self._fov_center_x) < 0.01
+                and abs(fy - self._fov_center_y) < 0.01
+            ):
                 return
-            self._fov_center_x = float(x)
-            self._fov_center_y = float(y)
-            self._cx = cx
-            self._cy = cy
+            self._fov_center_x = fx
+            self._fov_center_y = fy
+            self._cx = fx
+            self._cy = fy
         self._position_crosshair()
         self._sync_fov_ring()
         self._request_redraw()
