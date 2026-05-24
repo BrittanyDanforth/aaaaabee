@@ -1,0 +1,388 @@
+#!/usr/bin/env python3
+"""Full GIF sequence audit: 100+ frames, red overlay dot, sky/body violations.
+
+Replays the entire recording with ONE TargetingRuntime session (lock + motion
+memory carried across frames — same as live play). Writes:
+
+  artifacts/audit_gif_full_sequence/
+    summary.json
+    summary.csv
+    drift_chart.png
+    violations/   worst frames with red dot + bbox + chest band
+    frames/       optional every-N annotated PNGs
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import csv
+import json
+import math
+import sys
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+import motion as motion_mod
+import profiles
+from motion import TargetTracker
+from profiles import PROFILE_APEX_STYLE_LIVE_TRACE
+from targeting_runtime import TargetingRuntime
+
+GIF_PATH = REPO / "artifacts" / "real_apex_test" / "_gif_frames" / "source.gif"
+FRAMES_ALL = REPO / "artifacts" / "real_apex_test" / "_gif_frames_all"
+FRAMES_SPARSE = REPO / "artifacts" / "real_apex_test" / "_gif_frames"
+OUT = REPO / "artifacts" / "audit_gif_full_sequence"
+
+SKY_FRAC = 0.12
+CHEST_HI = motion_mod._body_y_hi_frac
+CHEST_LO = motion_mod._body_y_lo_frac
+
+
+def _live_cfg() -> dict:
+    cfg = copy.deepcopy(profiles.PROFILE_DEFAULTS[PROFILE_APEX_STYLE_LIVE_TRACE])
+    cfg.update(
+        {
+            "body_shape_min_score": 0.42,
+            "new_lock_confirm_frames": 1,
+            "detection_motion_assist": True,
+            "detection_mode": "apex",
+            "_ads_active": True,
+        }
+    )
+    return cfg
+
+
+def _frame_paths() -> list[Path]:
+    if FRAMES_ALL.exists() and any(FRAMES_ALL.glob("frame_*.png")):
+        return sorted(FRAMES_ALL.glob("frame_*.png"))
+    if FRAMES_SPARSE.exists():
+        sparse = sorted(FRAMES_SPARSE.glob("frame_*.png"))
+        if sparse:
+            return sparse
+    return []
+
+
+def _draw_red_dot(img: np.ndarray, x: float, y: float) -> None:
+    ix, iy = int(round(x)), int(round(y))
+    cv2.circle(img, (ix, iy), 6, (0, 0, 255), -1)
+    cv2.circle(img, (ix, iy), 8, (255, 255, 255), 1)
+
+
+def _draw_chest_band(
+    img: np.ndarray, bx: int, by: int, bw: int, bh: int
+) -> None:
+    y_lo = int(by + bh * CHEST_LO)
+    y_hi = int(by + bh * CHEST_HI)
+    cv2.line(img, (bx, y_lo), (bx + bw, y_lo), (255, 200, 0), 1)
+    cv2.line(img, (bx, y_hi), (bx + bw, y_hi), (255, 200, 0), 1)
+
+
+def _save_violation_png(
+    viol_dir: Path,
+    img: np.ndarray,
+    aim,
+    violation: str,
+    frame_idx: int,
+    h: int,
+) -> None:
+    vis = img.copy()
+    _sky_line(vis, h)
+    if aim.target is not None:
+        t = aim.target
+        color = (0, 255, 0) if aim.active else (0, 200, 200)
+        cv2.rectangle(
+            vis,
+            (t.bbox_x, t.bbox_y),
+            (t.bbox_x + t.bbox_w, t.bbox_y + t.bbox_h),
+            color,
+            2,
+        )
+        _draw_chest_band(vis, t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+    _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
+    cv2.putText(
+        vis,
+        f"{violation} RED oy={aim.overlay_y:.0f}",
+        (8, 22),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (0, 0, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.imwrite(str(viol_dir / f"viol_{frame_idx:04d}_{violation}.png"), vis)
+
+
+def _sky_line(img: np.ndarray, h: int) -> None:
+    y = int(h * SKY_FRAC)
+    cv2.line(img, (0, y), (img.shape[1], y), (200, 100, 255), 1)
+    cv2.putText(
+        img,
+        "sky band",
+        (4, max(12, y - 4)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.4,
+        (200, 100, 255),
+        1,
+        cv2.LINE_AA,
+    )
+
+
+def run(
+    *,
+    save_every: int = 0,
+    max_violation_dumps: int = 24,
+) -> int:
+    paths = _frame_paths()
+    if not paths:
+        print("No frames — run: python3 scripts/extract_gif_frames.py")
+        return 1
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    viol_dir = OUT / "violations"
+    viol_dir.mkdir(exist_ok=True)
+    if save_every > 0:
+        (OUT / "frames").mkdir(exist_ok=True)
+
+    cfg = _live_cfg()
+    rt = TargetingRuntime()
+    fps = 30.0
+    dt = 1.0 / fps
+
+    rows: list[dict] = []
+    sky_violations: list[dict] = []
+    body_violations: list[dict] = []
+    active_count = 0
+    stale_count = 0
+    lost_count = 0
+    seen_idx_for_dump: set[int] = set()
+
+    for i, fp in enumerate(paths):
+        img = cv2.imread(str(fp))
+        if img is None:
+            continue
+        h, w = img.shape[:2]
+        cfg["fov_center_x"] = w / 2.0
+        cfg["fov_center_y"] = h / 2.0
+        t = float(i) * dt
+        aim = rt.process_frame(img, cfg, time_sec=t, debug=False)
+
+        row: dict = {
+            "frame_idx": i,
+            "file": fp.name,
+            "active": aim.active,
+            "is_stale": aim.is_stale,
+            "aim_x": round(aim.aim_x, 1),
+            "aim_y": round(aim.aim_y, 1),
+            "overlay_x": round(aim.overlay_x, 1),
+            "overlay_y": round(aim.overlay_y, 1),
+            "lost_frames": rt.lock_state.target_lost_frames,
+        }
+
+        has_target = aim.target is not None
+        if has_target:
+            if aim.active:
+                active_count += 1
+            if aim.is_stale:
+                stale_count += 1
+            bb = aim.bbox_used or (
+                (
+                    aim.target.bbox_x,
+                    aim.target.bbox_y,
+                    aim.target.bbox_w,
+                    aim.target.bbox_h,
+                )
+                if aim.target
+                else None
+            )
+            if bb:
+                bx, by, bw, bh = bb
+                y_lo = by + bh * CHEST_LO
+                y_hi = by + bh * CHEST_HI
+                row["bbox_y"] = by
+                row["bbox_h"] = bh
+                row["bbox_top_frac"] = round(by / h, 3)
+                row["chest_y_lo"] = round(y_lo, 1)
+                row["chest_y_hi"] = round(y_hi, 1)
+
+                ox, oy = aim.overlay_x, aim.overlay_y
+                in_body = TargetTracker.point_inside_body_bbox(
+                    ox, oy, bx, by, bw, bh
+                )
+                row["overlay_in_body"] = in_body
+
+                sky_aim = oy < h * SKY_FRAC
+                sky_bbox_top = by < h * SKY_FRAC
+                soft_tol = max(4.0, bh * 0.06)
+                above_chest = oy > y_hi + soft_tol
+                below_chest = oy < y_lo - soft_tol
+
+                if sky_aim:
+                    row["violation"] = "sky_aim"
+                    sky_violations.append({**row})
+                    if len(seen_idx_for_dump) < max_violation_dumps:
+                        _save_violation_png(
+                            viol_dir, img, aim, "sky_aim", i, h
+                        )
+                        seen_idx_for_dump.add(i)
+                elif sky_bbox_top:
+                    row["violation"] = "bbox_in_sky"
+                    sky_violations.append({**row})
+                elif above_chest or below_chest:
+                    row["violation"] = (
+                        "above_chest" if above_chest else "below_chest"
+                    )
+                    body_violations.append({**row})
+                    if len(seen_idx_for_dump) < max_violation_dumps:
+                        _save_violation_png(
+                            viol_dir,
+                            img,
+                            aim,
+                            row["violation"],
+                            i,
+                            h,
+                        )
+                        seen_idx_for_dump.add(i)
+        else:
+            lost_count += 1
+
+        rows.append(row)
+
+        if save_every > 0 and i % save_every == 0 and has_target:
+            vis = img.copy()
+            _sky_line(vis, h)
+            if aim.target is not None:
+                t = aim.target
+                cv2.rectangle(
+                    vis,
+                    (t.bbox_x, t.bbox_y),
+                    (t.bbox_x + t.bbox_w, t.bbox_y + t.bbox_h),
+                    (0, 255, 0) if not aim.is_stale else (0, 200, 200),
+                    2,
+                )
+                _draw_chest_band(vis, t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+            _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
+            tag = "STALE" if aim.is_stale else "LIVE"
+            cv2.putText(
+                vis,
+                f"{tag} oy={aim.overlay_y:.0f} lost={rt.lock_state.target_lost_frames}",
+                (8, 22),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 0, 255),
+                1,
+                cv2.LINE_AA,
+            )
+            cv2.imwrite(str(OUT / "frames" / f"{fp.stem}_red_dot.png"), vis)
+
+    # CSV
+    if rows:
+        keys = list(rows[0].keys())
+        with open(OUT / "summary.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=keys, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(rows)
+
+    # Drift chart: overlay_y vs frame when active
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        xs = [r["frame_idx"] for r in rows if r.get("active")]
+        ys = [r["overlay_y"] for r in rows if r.get("active")]
+        if xs and ys:
+            fig, ax = plt.subplots(figsize=(12, 4))
+            ax.plot(xs, ys, "r-", linewidth=1, label="red dot overlay_y")
+            ax.axhline(
+                rows[0].get("chest_y_hi", 0) if rows else 0,
+                color="orange",
+                linestyle="--",
+                alpha=0.3,
+            )
+            for v in sky_violations:
+                ax.axvline(v["frame_idx"], color="purple", alpha=0.25)
+            ax.set_xlabel("frame")
+            ax.set_ylabel("overlay_y (px)")
+            ax.set_title(f"GIF full sequence ({len(paths)} frames)")
+            ax.legend()
+            fig.tight_layout()
+            fig.savefig(OUT / "drift_chart.png", dpi=120)
+            plt.close(fig)
+    except Exception as e:
+        print(f"chart skip: {e}")
+
+    tracked = sum(1 for r in rows if r.get("bbox_y") is not None)
+    sky_dot = [v for v in sky_violations if v.get("violation") == "sky_aim"]
+    sky_bbox = [v for v in sky_violations if v.get("violation") == "bbox_in_sky"]
+    summary = {
+        "total_frames": len(rows),
+        "tracked_frames": tracked,
+        "active_frames": active_count,
+        "stale_frames": stale_count,
+        "inactive_frames": lost_count,
+        "sky_aim_violations": len(sky_dot),
+        "detector_bbox_top_in_sky": len(sky_bbox),
+        "chest_band_violations": len(body_violations),
+        "pass_red_dot_sky": len(sky_dot) == 0,
+        "pass_strict": len(sky_dot) == 0 and len(body_violations) == 0,
+        "pass": len(sky_dot) == 0,
+        "worst_red_dot_sky": sky_dot[:8],
+        "worst_bbox_in_sky": sky_bbox[:8],
+        "worst_body": body_violations[:8],
+    }
+    (OUT / "summary.json").write_text(
+        json.dumps({"summary": summary, "rows": rows}, indent=2),
+        encoding="utf-8",
+    )
+    # Human-readable track timeline
+    lines = ["frame\tstate\toverlay_y\tviolation"]
+    for r in rows:
+        if r.get("violation"):
+            st = r["violation"]
+        elif r.get("is_stale"):
+            st = "stale"
+        elif r.get("active"):
+            st = "fresh"
+        elif r.get("bbox_y") is not None:
+            st = "locked_lost"
+        else:
+            st = "no_target"
+        oy = r.get("overlay_y", "")
+        lines.append(f"{r['frame_idx']}\t{st}\t{oy}\t{r.get('violation', '')}")
+    (OUT / "timeline.tsv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    print(json.dumps(summary, indent=2))
+    return 0 if summary["pass_red_dot_sky"] else 1
+
+
+def main() -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument(
+        "--save-every",
+        type=int,
+        default=10,
+        help="Write annotated PNG every N frames (0=off)",
+    )
+    p.add_argument("--extract", action="store_true", help="Extract all GIF frames first")
+    args = p.parse_args()
+    if args.extract and GIF_PATH.exists():
+        import subprocess
+
+        r = subprocess.run(
+            [sys.executable, str(REPO / "scripts" / "extract_gif_frames.py")],
+            check=False,
+        )
+        if r.returncode != 0:
+            return 1
+    return run(save_every=args.save_every)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
