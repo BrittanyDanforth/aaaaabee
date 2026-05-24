@@ -689,6 +689,58 @@ def build_detection_mask(
     return shape_m
 
 
+def _is_sparse_rim_fp(
+    fill_ratio: float,
+    solidity: float,
+    dist: float,
+    fov_radius: float,
+    *,
+    rim_dist_frac: float = 0.40,
+) -> bool:
+    """Motion sand / rock FP (img2): sparse fill, low solidity, far from crosshair."""
+    return (
+        fill_ratio < 0.32
+        and solidity < 0.16
+        and dist > float(fov_radius) * rim_dist_frac
+    )
+
+
+def _is_damage_glyph_fp(
+    part_count: int,
+    bbox_y: int,
+    bbox_h: int,
+    frame_h: int,
+    fov_cy: float | None,
+    *,
+    min_parts: int = 14,
+    max_bh_frac: float = 0.15,
+) -> bool:
+    """Floating combat text: many fragments, short bbox, mostly below the crosshair."""
+    if fov_cy is None or part_count < min_parts:
+        return False
+    if bbox_h >= frame_h * max_bh_frac:
+        return False
+    return float(bbox_y) + float(bbox_h) * 0.35 > float(fov_cy) + frame_h * 0.04
+
+
+def _tighten_would_discard_crosshair_body(
+    orig_by: int,
+    orig_bh: int,
+    tight_by: int,
+    tight_bh: int,
+    frame_h: int,
+    fov_cy: float | None,
+) -> bool:
+    """True when bbox tighten drops the body mass the player is aiming at (img2)."""
+    if fov_cy is None or orig_bh < frame_h * 0.18:
+        return False
+    if tight_bh >= orig_bh * 0.55:
+        return False
+    if float(fov_cy) < float(orig_by) or float(fov_cy) > float(orig_by + orig_bh):
+        return False
+    return float(fov_cy) > float(tight_by + tight_bh)
+
+
 def clamp_point_to_fov(
     x: float,
     y: float,
@@ -2235,25 +2287,29 @@ def analyze_figure(
         )
     )
     if cluster_is_merged_for_tighten:
+        orig_by, orig_bh = by, bh
         tbx, tby, tbw, tbh, snap_ax, snap_ay = _tighten_bbox_around_aim(
             mask, bx, by, bw, bh, ax, ay,
             fov_cx=fov_cx, fov_cy=fov_cy,
         )
         if tbw >= 8 and tbh >= 12 and (tbw != bw or tbh != bh):
-            bx, by, bw, bh = tbx, tby, tbw, tbh
-            aspect = bh / max(bw, 1)
-            # Use the snapped aim and re-clamp into the tight bbox
-            # chest band so the chest-band invariant (28-52 %) holds.
-            # The clamp margins must match ``_aim_inside_body_bbox``
-            # (margin_x=0.12, margin_y_top=0.08, margin_y_bot=0.12) so
-            # the next-line sky-blob check doesn't reject the aim by a
-            # one-pixel rounding error.
-            chest_y_lo = tby + tbh * 0.28
-            chest_y_hi = tby + tbh * 0.52
-            x_lo = tbx + tbw * 0.13
-            x_hi = tbx + tbw - tbw * 0.13
-            ax = max(x_lo, min(x_hi, snap_ax))
-            ay = max(chest_y_lo, min(chest_y_hi, snap_ay))
+            if not _tighten_would_discard_crosshair_body(
+                orig_by, orig_bh, tby, tbh, frame_h, fov_cy
+            ):
+                bx, by, bw, bh = tbx, tby, tbw, tbh
+                aspect = bh / max(bw, 1)
+                # Use the snapped aim and re-clamp into the tight bbox
+                # chest band so the chest-band invariant (28-52 %) holds.
+                # The clamp margins must match ``_aim_inside_body_bbox``
+                # (margin_x=0.12, margin_y_top=0.08, margin_y_bot=0.12) so
+                # the next-line sky-blob check doesn't reject the aim by a
+                # one-pixel rounding error.
+                chest_y_lo = tby + tbh * 0.28
+                chest_y_hi = tby + tbh * 0.52
+                x_lo = tbx + tbw * 0.13
+                x_hi = tbx + tbw - tbw * 0.13
+                ax = max(x_lo, min(x_hi, snap_ax))
+                ay = max(chest_y_lo, min(chest_y_hi, snap_ay))
 
     if not _aim_inside_body_bbox(ax, ay, bx, by, bw, bh):
         return _FigureAnalysis(
@@ -2512,6 +2568,16 @@ def enumerate_candidates(
         if fig.accepted and dist > fov_radius:
             accepted = False
             reason = RejectReason.OUTSIDE_FOV.value
+        if accepted and _is_sparse_rim_fp(
+            fig.fill_ratio, fig.solidity, dist, float(fov_radius)
+        ):
+            accepted = False
+            reason = "sparse_rim_fp"
+        if accepted and _is_damage_glyph_fp(
+            fig.part_count, fig.by, fig.bh, h, fov_cy=cy
+        ):
+            accepted = False
+            reason = "damage_glyph"
 
         out.append(
             CandidateInfo(
@@ -2739,6 +2805,16 @@ def _collect_candidates(
         if not fig.accepted:
             continue
 
+        if _is_damage_glyph_fp(
+            len(body_parts), fig.by, fig.bh, h, fov_cy=cy
+        ):
+            if debug:
+                lines.append(
+                    f"cand[{idx}] drop damage_glyph parts={len(body_parts)} "
+                    f"bh={fig.bh} y={fig.by}"
+                )
+            continue
+
         # D7 (audit): apply profile-supplied aspect / solidity filters.
         if fig.bw > 0 and fig.bh > 0:
             asp = fig.bh / float(max(1, fig.bw))
@@ -2763,12 +2839,7 @@ def _collect_candidates(
 
         aim_x, aim_y = clamp_point_to_fov(fig.aim_x, fig.aim_y, cx, cy, float(fov_radius))
         dist = float(np.hypot(aim_x - cx, aim_y - cy))
-        # Motion sand / rock FP (img2): sparse fill, low solidity, far from crosshair.
-        if (
-            fig.fill_ratio < 0.32
-            and fig.solidity < 0.16
-            and dist > float(fov_radius) * 0.40
-        ):
+        if _is_sparse_rim_fp(fig.fill_ratio, fig.solidity, dist, float(fov_radius)):
             if debug:
                 lines.append(
                     f"cand[{idx}] drop sparse_rim_fp fill={fig.fill_ratio:.2f} "

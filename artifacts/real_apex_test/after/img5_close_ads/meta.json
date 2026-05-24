@@ -9,6 +9,7 @@
     213.5
   ],
   "fov_radius": 179,
+  "display_fov_radius": 172,
   "min_area_floor": 40.0,
   "ads_hint": true,
   "mask_pixels": {
@@ -21,7 +22,7 @@
   "parts": 14,
   "cluster_count": 5,
   "active": true,
-  "best_score": 0.8055405982695606,
+  "best_score": 0.8114547740927005,
   "selected": {
     "bbox": [
       184,
@@ -41,7 +42,7 @@
     "red_coverage": 0.5414088529271776,
     "fill_ratio": 0.5720164775848389,
     "max_circularity": 0.46414930616171546,
-    "confidence": 0.8055405982695606,
+    "confidence": 0.8114547740927005,
     "distance_to_center": 72.62198289774248,
     "reject_reason": "ok"
   },
@@ -157,7 +158,7 @@
     {
       "idx": 4,
       "accepted": false,
-      "reject_reason": "floating_cluster",
+      "reject_reason": "sky_blob",
       "bbox": [
         387,
         133,
@@ -165,9 +166,9 @@
         25
       ],
       "body_shape_score": 0.0,
-      "head_score": 0.0,
-      "torso_score": 0.0,
-      "limb_stack_score": 0.0,
+      "head_score": 0.42,
+      "torso_score": 0.95,
+      "limb_stack_score": 0.2,
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.8399999737739563,
       "max_circularity": 0.46888671114320213,
@@ -179,7 +180,7 @@
         395.5,
         142.0
       ],
-      "debug_detail": "floating_cluster"
+      "debug_detail": "sky_blob circ=0.47 align=0.00 head=0.42 torso=0.95 limb=0.20 vert=1.00"
     }
   ]
 }

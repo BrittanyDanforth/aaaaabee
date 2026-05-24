@@ -3,11 +3,11 @@ FOV center=(214,234) radius=179  min_area=40.0
 MASK_PX red_enemy=16105  shape=91121  chroma=31337  motion=50039  fused=16105
 PARTS=16  CLUSTERS=3
   cand[0] accepted=True reject=ok bbox=(130,165,95x107) body=0.66 head=0.00 torso=0.60 limb=1.00 vert=1.00 fill=0.32 circ=0.61 aspect=1.13 parts=10 area=4110 dist=16 | parts=10 head=0.00 torso=0.60 limb=1.00 vert=1.00 geom=0.30 align=0.15 circ=0.61 fill=0.32
-  cand[1] accepted=True reject=ok bbox=(278,215,48x106) body=0.76 head=1.00 torso=0.00 limb=1.00 vert=0.72 fill=0.13 circ=0.62 aspect=2.21 parts=4 area=370 dist=83 | parts=4 head=1.00 torso=0.00 limb=1.00 vert=0.72 geom=0.56 align=0.15 circ=0.62 fill=0.13
-  cand[2] accepted=True reject=ok bbox=(360,195,17x33) body=0.88 head=0.45 torso=0.83 limb=0.62 vert=1.00 fill=0.27 circ=0.69 aspect=1.94 parts=2 area=109 dist=154 | parts=2 head=0.45 torso=0.83 limb=0.62 vert=1.00 geom=0.68 align=0.80 circ=0.69 fill=0.27
-SELECTED active=True body=0.76 conf=0.62 red_cov=0.098 bbox=(278,215,48x106) centroid=(295.8,246.6) dist=82.8
+  cand[1] accepted=False reject=no_body_structure bbox=(278,215,48x106) body=0.76 head=1.00 torso=0.00 limb=1.00 vert=0.72 fill=0.13 circ=0.62 aspect=2.21 parts=4 area=370 dist=83 | parts=4 head=1.00 torso=0.00 limb=1.00 vert=0.72 geom=0.56 align=0.15 circ=0.62 fill=0.13
+  cand[2] accepted=False reject=no_torso bbox=(360,195,17x33) body=0.00 head=1.00 torso=0.18 limb=0.62 vert=1.00 fill=0.27 circ=0.69 aspect=1.94 parts=2 area=109 dist=157 | no_torso circ=0.69 align=0.80 head=1.00 torso=0.18 limb=0.62 vert=1.00
+SELECTED active=True body=0.66 conf=0.52 red_cov=0.407 bbox=(130,165,95x107) centroid=(205.0,220.6) dist=16.1
   DBG cand[0] reject=ok body=0.66 head=0.00 torso=0.60 limb=1.00 aspect=1.13 fill=0.32 circ=0.61 bbox=(130,165,95x107) area=4110 dist=16 parts=10 | parts=10 head=0.00 torso=0.60 limb=1.00 vert=1.00 geom=0.30 align=0.15 circ=0.61 fill=0.32
-  DBG cand[1] reject=ok body=0.76 head=1.00 torso=0.00 limb=1.00 aspect=2.21 fill=0.13 circ=0.62 bbox=(278,215,48x106) area=370 dist=83 parts=4 | parts=4 head=1.00 torso=0.00 limb=1.00 vert=0.72 geom=0.56 align=0.15 circ=0.62 fill=0.13
-  DBG cand[2] reject=ok body=0.88 head=0.45 torso=0.83 limb=0.62 aspect=1.94 fill=0.27 circ=0.69 bbox=(360,195,17x33) area=109 dist=154 parts=2 | parts=2 head=0.45 torso=0.83 limb=0.62 vert=1.00 geom=0.68 align=0.80 circ=0.69 fill=0.27
-  DBG accepted=3 from 3 clusters / 16 parts
-  DBG SELECTED body=0.76 head=1.00 dist=83 bbox=48x106
+  DBG cand[1] reject=no_body_structure body=0.76 head=1.00 torso=0.00 limb=1.00 aspect=2.21 fill=0.13 circ=0.62 bbox=(278,215,48x106) area=370 dist=83 parts=4 | parts=4 head=1.00 torso=0.00 limb=1.00 vert=0.72 geom=0.56 align=0.15 circ=0.62 fill=0.13
+  DBG cand[2] reject=no_torso body=0.00 head=1.00 torso=0.18 limb=0.62 aspect=1.94 fill=0.27 circ=0.69 bbox=(360,195,17x33) area=109 dist=157 parts=2 | no_torso circ=0.69 align=0.80 head=1.00 torso=0.18 limb=0.62 vert=1.00
+  DBG accepted=1 from 3 clusters / 16 parts
+  DBG SELECTED body=0.66 head=0.00 dist=16 bbox=95x107

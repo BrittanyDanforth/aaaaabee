@@ -123,8 +123,23 @@ def _tint(mask: np.ndarray) -> np.ndarray:
     return mask
 
 
-def _draw_fov(img: np.ndarray, cx: int, cy: int, radius: int) -> None:
-    cv2.circle(img, (cx, cy), radius, (0, 255, 0), 1)
+def _display_fov_radius(detect_radius: int) -> int:
+    """Match runtime overlay ring: min(detect, display) * 0.96 display cone."""
+    return max(1, int(round(float(detect_radius) * 0.96)))
+
+
+def _draw_fov(
+    img: np.ndarray,
+    cx: int,
+    cy: int,
+    detect_radius: int,
+    *,
+    draw_detect_ring: bool = False,
+) -> None:
+    display_r = _display_fov_radius(detect_radius)
+    if draw_detect_ring and display_r != detect_radius:
+        cv2.circle(img, (cx, cy), detect_radius, (255, 180, 0), 1)
+    cv2.circle(img, (cx, cy), display_r, (0, 255, 0), 1)
     cv2.drawMarker(img, (cx, cy), (255, 255, 255), cv2.MARKER_CROSS, 12, 1)
 
 
@@ -306,6 +321,7 @@ def audit_one(
         "frame_size": [w, h],
         "fov_center": [cx, cy],
         "fov_radius": fov_r,
+        "display_fov_radius": _display_fov_radius(fov_r),
         "min_area_floor": min_area_floor,
         "ads_hint": ads_hint,
         "mask_pixels": {

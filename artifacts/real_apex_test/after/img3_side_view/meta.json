@@ -9,6 +9,7 @@
     234.0
   ],
   "fov_radius": 179,
+  "display_fov_radius": 172,
   "min_area_floor": 40.0,
   "ads_hint": true,
   "mask_pixels": {
@@ -21,28 +22,28 @@
   "parts": 16,
   "cluster_count": 3,
   "active": true,
-  "best_score": 0.6200628222384313,
+  "best_score": 0.5157944113053274,
   "selected": {
     "bbox": [
-      278,
-      215,
-      48,
-      106
+      130,
+      165,
+      95,
+      107
     ],
     "centroid": [
-      295.795,
-      246.623125
+      205.0,
+      220.64
     ],
-    "body_shape_score": 0.75795966930266,
-    "head_score": 1.0,
-    "torso_score": 0.0,
+    "body_shape_score": 0.6614750030409926,
+    "head_score": 0.0,
+    "torso_score": 0.5979807809268946,
     "limb_stack_score": 1.0,
-    "part_count": 4,
-    "red_coverage": 0.09768081761006289,
-    "fill_ratio": 0.1320754736661911,
-    "max_circularity": 0.6157572537341306,
-    "confidence": 0.6200628222384313,
-    "distance_to_center": 82.76330895853323,
+    "part_count": 10,
+    "red_coverage": 0.4070831283817019,
+    "fill_ratio": 0.32203391194343567,
+    "max_circularity": 0.605569928403576,
+    "confidence": 0.5157944113053274,
+    "distance_to_center": 16.108680889508005,
     "reject_reason": "ok"
   },
   "candidates": [
@@ -75,8 +76,8 @@
     },
     {
       "idx": 1,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "no_body_structure",
       "bbox": [
         278,
         215,
@@ -102,17 +103,17 @@
     },
     {
       "idx": 2,
-      "accepted": true,
-      "reject_reason": "ok",
+      "accepted": false,
+      "reject_reason": "no_torso",
       "bbox": [
         360,
         195,
         17,
         33
       ],
-      "body_shape_score": 0.8815546348567985,
-      "head_score": 0.45,
-      "torso_score": 0.8323394495412844,
+      "body_shape_score": 0.0,
+      "head_score": 1.0,
+      "torso_score": 0.17916666666666667,
       "limb_stack_score": 0.62,
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.27272728085517883,
@@ -120,12 +121,12 @@
       "aspect": 1.9411764705882353,
       "part_count": 2,
       "total_area": 109.0,
-      "distance_to_center": 154.30267915434715,
+      "distance_to_center": 156.86218282301186,
       "aim": [
-        365.45500000000004,
-        204.49237777777773
+        368.5,
+        206.88
       ],
-      "debug_detail": "parts=2 head=0.45 torso=0.83 limb=0.62 vert=1.00 geom=0.68 align=0.80 circ=0.69 fill=0.27"
+      "debug_detail": "no_torso circ=0.69 align=0.80 head=1.00 torso=0.18 limb=0.62 vert=1.00"
     }
   ]
 }

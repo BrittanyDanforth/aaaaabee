@@ -9,6 +9,7 @@
     268.0
   ],
   "fov_radius": 192,
+  "display_fov_radius": 184,
   "min_area_floor": 40.0,
   "ads_hint": false,
   "mask_pixels": {
@@ -21,7 +22,7 @@
   "parts": 27,
   "cluster_count": 9,
   "active": true,
-  "best_score": 0.8393493303571429,
+  "best_score": 0.8379303571428572,
   "selected": {
     "bbox": [
       325,
@@ -41,7 +42,7 @@
     "red_coverage": 0.751219512195122,
     "fill_ratio": 0.21985815465450287,
     "max_circularity": 0.6465340556506903,
-    "confidence": 0.8393493303571429,
+    "confidence": 0.8379303571428572,
     "distance_to_center": 15.319999999999993,
     "reject_reason": "ok"
   },
@@ -76,7 +77,7 @@
     {
       "idx": 1,
       "accepted": false,
-      "reject_reason": "floating_cluster",
+      "reject_reason": "no_body_stack",
       "bbox": [
         162,
         157,
@@ -85,8 +86,8 @@
       ],
       "body_shape_score": 0.0,
       "head_score": 0.0,
-      "torso_score": 0.0,
-      "limb_stack_score": 0.0,
+      "torso_score": 0.95,
+      "limb_stack_score": 0.2,
       "vertical_profile_score": 0.72,
       "fill_ratio": 0.7021276354789734,
       "max_circularity": 0.27724402765870987,
@@ -98,7 +99,7 @@
         177.5,
         173.92
       ],
-      "debug_detail": "floating_cluster"
+      "debug_detail": "no_body_stack circ=0.28 align=0.00 head=0.00 torso=0.95 limb=0.20 vert=0.72"
     },
     {
       "idx": 2,
@@ -164,9 +165,9 @@
         9,
         36
       ],
-      "body_shape_score": 0.8950246385193753,
-      "head_score": 0.45,
-      "torso_score": 0.7428571428571429,
+      "body_shape_score": 0.8291040035987405,
+      "head_score": 1.0,
+      "torso_score": 0.24700854700854702,
       "limb_stack_score": 0.62,
       "vertical_profile_score": 1.0,
       "fill_ratio": 0.6388888955116272,
@@ -174,12 +175,12 @@
       "aspect": 4.0,
       "part_count": 2,
       "total_area": 94.5,
-      "distance_to_center": 122.665056835151,
+      "distance_to_center": 122.82214782912577,
       "aim": [
-        219.33500000000004,
-        267.88191794871796
+        219.18000000000004,
+        268.726358974359
       ],
-      "debug_detail": "parts=2 head=0.45 torso=0.74 limb=0.62 vert=1.00 geom=0.99 align=0.98 circ=0.62 fill=0.64"
+      "debug_detail": "parts=2 head=1.00 torso=0.25 limb=0.62 vert=1.00 geom=0.99 align=0.98 circ=0.62 fill=0.64"
     },
     {
       "idx": 5,
