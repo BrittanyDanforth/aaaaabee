@@ -15,7 +15,8 @@ class OverlayDragIntegrationTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("set_monitor_overlay_point", text)
-        self.assertIn("overlay_motion.overlay_xy()", text)
+        self.assertIn("_frame_overlay_point", text)
+        self.assertIn("monitor_overlay", text)
         motion_src = Path(__file__).resolve().parents[1].joinpath("motion.py").read_text(
             encoding="utf-8"
         )
@@ -26,26 +27,29 @@ class OverlayDragIntegrationTests(unittest.TestCase):
         self.assertNotIn("cap_frame_display_step", text)
 
     def test_sixty_frame_jitter_has_bounded_step(self) -> None:
-        """Detector noise must not recreate the dot — per-frame travel stays capped."""
+        """Production overlay follow caps per-frame travel on detector noise."""
         tracker = TargetTracker()
-        tracker.smooth_overlay_point(500.0, 400.0, alpha=0.4, bbox_h=120, dt=1.0 / 60.0)
-        prev = tracker.peek_overlay_smooth()
-        assert prev is not None
+        dt = 1.0 / 60.0
+        m0 = tracker.observe_target(
+            500.0, 400.0, 0.0,
+            bbox_x=470, bbox_y=280, bbox_w=60, bbox_h=120,
+            aim_is_body_anchor=True,
+        )
+        prev = m0.overlay_xy()
         max_step = 0.0
         for i in range(1, 61):
             jx = 500.0 + (3.0 if i % 2 == 0 else -3.0)
             jy = 400.0 + (2.0 if i % 3 == 0 else -2.0)
-            x, y = tracker.smooth_overlay_point(
-                jx, jy, alpha=0.4, bbox_h=120, dt=1.0 / 60.0
+            m = tracker.observe_target(
+                jx, jy, i * dt,
+                bbox_x=470, bbox_y=280, bbox_w=60, bbox_h=120,
+                aim_is_body_anchor=True,
             )
-            step = math.hypot(x - prev[0], y - prev[1])
+            ox, oy = m.overlay_xy()
+            step = math.hypot(ox - prev[0], oy - prev[1])
             max_step = max(max_step, step)
-            prev = (x, y)
-        self.assertLess(
-            max_step,
-            28.0,
-            "monitor drag must cap per-frame travel (no teleport/recreate)",
-        )
+            prev = (ox, oy)
+        self.assertLess(max_step, 28.0)
 
     def test_ring_reclamp_syncs_follow_state(self) -> None:
         tracker = TargetTracker()
@@ -67,12 +71,39 @@ class OverlayDragIntegrationTests(unittest.TestCase):
     def test_hold_last_smooth_point_api(self) -> None:
         tracker = TargetTracker()
         self.assertIsNone(tracker.peek_overlay_smooth())
-        tracker.smooth_overlay_point(10.0, 20.0, alpha=0.4, bbox_h=80, dt=1.0 / 60.0)
+        tracker.set_monitor_overlay_point(10.0, 20.0)
         pt = tracker.peek_overlay_smooth()
         assert pt is not None
         self.assertAlmostEqual(pt[0], 10.0)
         tracker.reset_overlay_smoothing()
         self.assertIsNone(tracker.peek_overlay_smooth())
+
+    def test_frame_overlay_point_clamps_to_display_ring(self) -> None:
+        from runtime import AssistRuntime
+
+        tr = TargetTracker()
+        m = tr.observe_target(
+            550.0, 300.0, 0.0,
+            bbox_x=520, bbox_y=230, bbox_w=60, bbox_h=130,
+            aim_is_body_anchor=True,
+        )
+        class _Reg:
+            offset_x = 100
+            offset_y = 50
+
+        pt = AssistRuntime._frame_overlay_point(
+            m,
+            _Reg(),
+            center_x=500.0,
+            center_y=400.0,
+            detect_fov=200.0,
+            display_fov=140.0,
+        )
+        assert pt is not None
+        fx_c = 500.0 - 100.0
+        fy_c = 400.0 - 50.0
+        dist = math.hypot(pt[0] - fx_c, pt[1] - fy_c)
+        self.assertAlmostEqual(dist, 140.0 * 0.96, delta=3.0)
 
 
 if __name__ == "__main__":

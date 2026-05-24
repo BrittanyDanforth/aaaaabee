@@ -17,8 +17,9 @@ class DotSmoothnessWiringTests(unittest.TestCase):
         self.assertIn("set_dot_glide_alpha", text)
         self.assertIn("configure_overlay_dot_alpha", text)
         self.assertIn("sync_overlay_follow_frame", text)
+        self.assertIn("_frame_overlay_point", text)
         self.assertIn("set_monitor_overlay_point", text)
-        self.assertIn("overlay_motion.overlay_xy()", text)
+        self.assertIn("monitor_overlay", text)
         self.assertNotIn("set_dot_render_alpha", text)
         self.assertNotIn("cap_frame_display_step", text)
 
@@ -27,9 +28,9 @@ class DotSmoothnessWiringTests(unittest.TestCase):
         runtime = Path("runtime.py").read_text(encoding="utf-8")
         self.assertNotIn("jitter", overlay.lower())
         self.assertIn("overlay_glide_step", overlay)
-        idx = runtime.find("overlay_motion.overlay_xy()")
+        idx = runtime.find("_frame_overlay_point")
         self.assertGreater(idx, 0)
-        chunk = runtime[idx : idx + 700]
+        chunk = runtime[idx : idx + 900]
         self.assertNotIn("jitter", chunk.lower())
         self.assertNotIn("RecoilCompensator", chunk)
         self.assertNotIn("smooth_overlay_point", chunk)

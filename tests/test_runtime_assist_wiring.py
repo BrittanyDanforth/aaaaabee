@@ -21,7 +21,8 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         self.assertIn("_smooth_aim", text)
         self.assertIn("_target_for_pull", text)
         self.assertIn("motion.overlay_xy()", text)
-        self.assertIn("to_monitor_coords(motion.x, motion.y", text)
+        self.assertIn("_frame_overlay_point", text)
+        self.assertIn("monitor_overlay", text)
 
     def test_runtime_ast_has_smooth_aim_method(self) -> None:
         tree = ast.parse(RUNTIME_PATH.read_text(encoding="utf-8"))
@@ -33,23 +34,20 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         self.assertIn("_smooth_aim", methods)
 
     def test_overlay_dot_guards_against_nan_motion(self) -> None:
-        """Overlay handoff must skip non-finite motion coords or the Tk
-        renderer crashes inside int(round(NaN)) (uncaught ValueError)."""
+        """Overlay handoff must skip non-finite motion coords before Tk draw."""
         text = RUNTIME_PATH.read_text(encoding="utf-8")
-        # The overlay write must check finiteness of overlay_motion coords
-        # before passing them to to_monitor_coords + Tk overlay.
         self.assertIn(
-            "overlay_motion.overlay_xy()",
+            "_frame_overlay_point",
             text,
-            "overlay dot must use split overlay anchor",
+            "overlay dot uses ring-clamped frame helper",
         )
         self.assertIn(
-            "math.isfinite(ov_x)",
+            "motion.overlay_xy()",
             text,
-            "overlay dot must guard against non-finite motion coords",
+            "pull/trace use overlay anchor",
         )
         self.assertIn(
-            "math.isfinite(ov_y)",
+            "frame_overlay is not None",
             text,
         )
         # O2 (audit): clamp the overlay dot to the SMALLER of the

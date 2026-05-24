@@ -28,7 +28,7 @@ class GlidePointTests(unittest.TestCase):
         text = Path(__file__).resolve().parents[1].joinpath("runtime.py").read_text(
             encoding="utf-8"
         )
-        block = text[text.find("overlay_motion.overlay_xy") : text.find("overlay_pt = (ox, oy)")]
+        block = text[text.find("_frame_overlay_point") : text.find("set_state(ads_for_assist")]
         self.assertNotIn("smooth_overlay_point", block)
 
     def test_frame_follow_tracks_moving_target(self) -> None:

@@ -245,6 +245,33 @@ class AssistRuntime:
         ox, oy = motion.overlay_xy()
         return replace(raw, centroid_x=ox, centroid_y=oy)
 
+    @staticmethod
+    def _frame_overlay_point(
+        motion: TargetMotion,
+        cap_region,
+        *,
+        center_x: float,
+        center_y: float,
+        detect_fov: float,
+        display_fov: float,
+    ) -> tuple[float, float] | None:
+        """Ring-clamped overlay in frame space (same math as drawn dot + pull)."""
+        ov_x, ov_y = motion.overlay_xy()
+        if not (math.isfinite(ov_x) and math.isfinite(ov_y)):
+            return None
+        ox, oy = to_monitor_coords(ov_x, ov_y, cap_region)
+        fov_cx_mon = float(center_x)
+        fov_cy_mon = float(center_y)
+        odx = ox - fov_cx_mon
+        ody = oy - fov_cy_mon
+        odist = math.hypot(odx, ody)
+        fov_limit = max(1.0, min(float(detect_fov), float(display_fov))) * 0.96
+        if math.isfinite(odist) and odist > fov_limit and odist > 0.0:
+            s = fov_limit / odist
+            ox = fov_cx_mon + odx * s
+            oy = fov_cy_mon + ody * s
+        return frame_from_monitor(ox, oy, cap_region)
+
     def stop(self) -> None:
         with self._lock:
             self.running = False
@@ -694,18 +721,14 @@ class AssistRuntime:
             self._release_ads_inner()
 
     def _sync_ads_assist_state(self, ads_for_assist: bool) -> None:
-        """Clear lock/pull when ADS ends; reset motion memory on ADS start / long hold."""
+        """Clear lock on ADS end; reset overlay confirm counter on ADS start."""
         if ads_for_assist and not self._prev_ads_for_assist:
-            self._ads_hold_frames = 0
             self._detect_ctx._validated_bbox = None
             self._detect_ctx._validated_credit = 0
             with self._lock:
                 self._target_lock.overlay_confirm_frames = 0
         if self._prev_ads_for_assist and not ads_for_assist:
             self._release_ads_inner()
-            self._ads_hold_frames = 0
-        elif ads_for_assist:
-            self._ads_hold_frames += 1
         self._prev_ads_for_assist = ads_for_assist
 
     def _start_overlay(
@@ -1094,12 +1117,16 @@ class AssistRuntime:
                     ads_for_assist = ads_live if self._live else (self._force_detect or ads_live)
                     self._sync_ads_assist_state(ads_for_assist)
 
-                    display_fov = effective_fov_radius(cfg, ads_active=False)
-                    detect_fov = effective_detection_fov_radius(cfg, ads_active=False)
-                    cfg["_runtime_overlay_fov"] = (
-                        min(float(detect_fov), float(display_fov)) * 0.96
+                    display_fov = effective_fov_radius(cfg, ads_active=ads_for_assist)
+                    detect_fov = effective_detection_fov_radius(
+                        cfg, ads_active=ads_for_assist
                     )
-                    capture_fov = effective_capture_fov_radius(cfg, ads_active=False)
+                    cfg["_runtime_overlay_fov"] = min(
+                        float(detect_fov), float(display_fov)
+                    )
+                    capture_fov = effective_capture_fov_radius(
+                        cfg, ads_active=ads_for_assist
+                    )
                     if cap_region is None or detect_fov != self._last_fov_radius:
                         cap_region = build_capture_region(
                             mon,
@@ -1113,8 +1140,8 @@ class AssistRuntime:
                         self._frame_cy = center_y - cap_region.offset_y
                         self._last_fov_radius = detect_fov
                         cfg["_runtime_detect_fov"] = detect_fov
-                        cfg["_runtime_overlay_fov"] = (
-                            min(float(detect_fov), float(display_fov)) * 0.96
+                        cfg["_runtime_overlay_fov"] = min(
+                            float(detect_fov), float(display_fov)
                         )
                         if self._pull is not None:
                             self._pull._tuning.fov_radius = float(detect_fov)
@@ -1167,14 +1194,6 @@ class AssistRuntime:
                         stale=stale_det,
                         keep_motion_anchor=False,
                     )
-                    pull_target = (
-                        self._target_for_pull(target, motion)
-                        if target is not None and motion is not None
-                        else None
-                    )
-
-                    pull_px = 0.0
-                    pull_strength = 0.0
                     stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
                     with self._lock:
                         firing_now = self._is_firing
@@ -1184,6 +1203,44 @@ class AssistRuntime:
                         center_y=frame_cy,
                         lock_state=self._target_lock,
                     )
+                    frame_overlay: tuple[float, float] | None = None
+                    monitor_overlay: tuple[float, float] | None = None
+                    if (
+                        motion is not None
+                        and target is not None
+                        and cap_region is not None
+                        and show_for_pull
+                    ):
+                        frame_overlay = self._frame_overlay_point(
+                            motion,
+                            cap_region,
+                            center_x=float(center_x),
+                            center_y=float(center_y),
+                            detect_fov=float(detect_fov),
+                            display_fov=float(display_fov),
+                        )
+                        if frame_overlay is not None:
+                            fx, fy = frame_overlay
+                            self._aim_tracker.sync_overlay_follow_frame(fx, fy)
+                            monitor_overlay = to_monitor_coords(
+                                fx, fy, cap_region
+                            )
+                            self._aim_tracker.set_monitor_overlay_point(
+                                monitor_overlay[0], monitor_overlay[1]
+                            )
+                    pull_target = None
+                    if target is not None and motion is not None:
+                        if frame_overlay is not None:
+                            pull_target = replace(
+                                target,
+                                centroid_x=frame_overlay[0],
+                                centroid_y=frame_overlay[1],
+                            )
+                        elif show_for_pull:
+                            pull_target = self._target_for_pull(target, motion)
+
+                    pull_px = 0.0
+                    pull_strength = 0.0
                     may_pull = (
                         pull_target is not None
                         and target is not None
@@ -1224,8 +1281,8 @@ class AssistRuntime:
                                 moved = (pr.dx, pr.dy)
                         overlay_mon = None
                         if motion is not None and cap_region is not None:
-                            ox, oy = to_monitor_coords(motion.x, motion.y, cap_region)
-                            overlay_mon = (ox, oy)
+                            ovx, ovy = motion.overlay_xy()
+                            overlay_mon = to_monitor_coords(ovx, ovy, cap_region)
                         loop_ms = (time.perf_counter() - t0) * 1000.0
                         ach_fps = 1000.0 / loop_ms if loop_ms > 0.1 else 0.0
                         if self._trace_pull:
@@ -1365,62 +1422,9 @@ class AssistRuntime:
                             self._last_overlay_dot_alpha = want_dot_alpha
 
                     if self._overlay is not None and self._should_run():
-                        overlay_pt = None
-                        # M1 (audit): hide the overlay dot after >=2 stale
-                        # frames so the user does not see it parked on the
-                        # last-known position when the target has moved.
-                        show_overlay_dot = overlay_may_show_target(
-                            target,
-                            detection_fresh=detection_fresh,
-                            center_y=frame_cy,
-                            lock_state=self._target_lock,
-                        )
-                        overlay_motion = (
-                            motion
-                            if show_overlay_dot
-                            else None
-                        )
-                        if overlay_motion is not None:
-                            ov_x, ov_y = overlay_motion.overlay_xy()
-                        else:
-                            ov_x, ov_y = float("nan"), float("nan")
-                        if (
-                            overlay_motion is not None
-                            and math.isfinite(ov_x)
-                            and math.isfinite(ov_y)
-                        ):
-                            ox, oy = to_monitor_coords(ov_x, ov_y, cap_region)
-                            fov_cx_mon = float(center_x)
-                            fov_cy_mon = float(center_y)
-                            odx = ox - fov_cx_mon
-                            ody = oy - fov_cy_mon
-                            odist = math.hypot(odx, ody)
-                            # O2 (audit): clamp the overlay dot to the
-                            # SMALLER of (display_fov, detect_fov) so the
-                            # dot always stays inside the GREEN ring the
-                            # user sees on screen. The previous clamp used
-                            # detect_fov alone which is wider than the
-                            # display ring when detection_fov_margin_pixels
-                            # is non-zero — that's why the user saw the
-                            # dot pop outside the visible ring.
-                            fov_limit = max(
-                                1.0,
-                                min(float(detect_fov), float(display_fov)),
-                            ) * 0.96
-                            if math.isfinite(odist) and odist > fov_limit and odist > 0.0:
-                                s = fov_limit / odist
-                                ox = fov_cx_mon + odx * s
-                                oy = fov_cy_mon + ody * s
-                            if math.isfinite(ox) and math.isfinite(oy):
-                                # Frame follow is in motion.overlay_xy(); monitor
-                                # only needs ring clamp. Tk overlay thread glides
-                                # at overlay_fps between capture updates — do NOT
-                                # stack a second EMA here (caused snap/lag feel).
-                                overlay_pt = (ox, oy)
-                                fx, fy = frame_from_monitor(ox, oy, cap_region)
-                                self._aim_tracker.sync_overlay_follow_frame(fx, fy)
-                                self._aim_tracker.set_monitor_overlay_point(ox, oy)
-                                self._overlay_miss_frames = 0
+                        overlay_pt = monitor_overlay
+                        if overlay_pt is not None:
+                            self._overlay_miss_frames = 0
                         elif target is None or not detection_fresh:
                             self._overlay_miss_frames += 1
                             unlock_grace = int(
