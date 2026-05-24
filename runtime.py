@@ -139,6 +139,12 @@ class AssistRuntime:
         self._is_firing = False
         self._prev_loop_t: float | None = None
         self._overlay_miss_frames: int = 0
+        # FIX (Bug A): track whether we were in ADS last frame so the hard
+        # tracker reset in the non-ADS branch only fires on the TRANSITION
+        # frame (ads -> no-ads), not on every subsequent non-ADS frame.
+        # _sync_ads_assist_state already calls soft_reset() on transition;
+        # the else-branch hard reset() was undoing it on the same frame.
+        self._prev_ads_tracker_reset = False
 
     @property
     def _locked_target(self) -> Target | None:
@@ -1115,6 +1121,9 @@ class AssistRuntime:
                             self._pull.reset()
                         self._aim_tracker.reset()
                         self._detect_ctx.reset()
+                        # FIX (Bug A): reset the ADS tracker-reset flag too so
+                        # the first non-paused non-ADS frame doesn't skip its reset.
+                        self._prev_ads_tracker_reset = False
                         if self._overlay is not None:
                             self._aim_tracker.reset_overlay_smoothing()
                             hip_fov = int(
@@ -1212,20 +1221,47 @@ class AssistRuntime:
                             motion_lag_ms=detect_ms,
                         )
                         self._maybe_save_debug_frame(frame_bgr, det, cfg, frame_cx, frame_cy, detect_fov)
+                        # FIX (Bug A): we ran the detector this frame, so clear
+                        # the non-ADS reset flag — next time we go non-ADS we
+                        # need to reset once.
+                        self._prev_ads_tracker_reset = False
                     else:
                         det = DetectionResult(None, 0, 0.0)
-                        self._aim_tracker.reset()
-                        self._detect_ctx.reset()
+                        # FIX (Bug A): only hard-reset the tracker on the FIRST
+                        # non-ADS frame (the transition frame). On subsequent
+                        # non-ADS frames the tracker is already cleared so
+                        # additional resets are harmless for the smoother, but
+                        # they were also clearing _overlay_smooth every frame,
+                        # breaking hold-last. More importantly, on the ADS->noADS
+                        # transition _sync_ads_assist_state already called
+                        # soft_reset() above — the hard reset() immediately
+                        # afterward was undoing that soft_reset's preserved anchor.
+                        # By only resetting once (transition frame), we keep the
+                        # soft_reset's intent on that frame and avoid redundant
+                        # resets on all subsequent idle frames.
+                        if not self._prev_ads_tracker_reset:
+                            self._aim_tracker.reset()
+                            self._detect_ctx.reset()
+                            self._prev_ads_tracker_reset = True
                     target = det.target
                     stale_det = target is not None and self._target_lost_frames > 0
                     with self._lock:
                         self._frame_has_target = detection_fresh
 
+                    # FIX (Bug D): pass keep_motion_anchor=True when we have a
+                    # locked target but detection returned None (stale grace window).
+                    # The CRIT2 path in _smooth_aim preserves _last_motion as a
+                    # frozen anchor for one frame so pull/overlay don't teleport
+                    # on the exact frame the lock expires. Previously hardcoded
+                    # False made the entire CRIT2 block dead code.
                     motion = self._smooth_aim(
                         target,
                         t0,
                         stale=stale_det,
-                        keep_motion_anchor=False,
+                        keep_motion_anchor=(
+                            target is None
+                            and self._locked_target is not None
+                        ),
                     )
                     stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
                     with self._lock:
@@ -1246,7 +1282,14 @@ class AssistRuntime:
                     unlock_grace = int(
                         cfg.get("target_lost_frames_before_unlock", 18)
                     )
-                    locked_grace = (
+                    # FIX (Bug B): define locked_hold unconditionally here so it
+                    # is always available for the hold-last block below regardless
+                    # of which branch the overlay_pt if/elif/else takes.
+                    # Previously it was only defined inside the elif branch, so
+                    # the if-branch (overlay_pt set) and else-branch both left
+                    # locked_hold undefined, causing a NameError on first
+                    # occurrence or a stale value from the previous frame thereafter.
+                    locked_hold = (
                         self._locked_target is not None
                         and self._target_lost_frames < unlock_grace
                     )
@@ -1489,10 +1532,7 @@ class AssistRuntime:
                             self._overlay_miss_frames = 0
                         elif target is None or not detection_fresh:
                             self._overlay_miss_frames += 1
-                            locked_hold = (
-                                self._locked_target is not None
-                                and self._target_lost_frames < unlock_grace
-                            )
+                            # locked_hold already computed unconditionally above.
                             if self._overlay_miss_frames >= 10 and not locked_hold:
                                 self._aim_tracker.reset_overlay_smoothing()
                         else:
