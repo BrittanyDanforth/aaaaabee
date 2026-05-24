@@ -1738,6 +1738,28 @@ def _is_floating_cluster(
     return False
 
 
+def is_upward_fragment_vs_locked(locked: Target, cand: Target) -> bool:
+    """True when ``cand`` is a head/sky shard relative to a full-body lock."""
+    if cand.bbox_h < locked.bbox_h * 0.58 and cand.bbox_y < locked.bbox_y + locked.bbox_h * 0.22:
+        return True
+    if (
+        cand.bbox_y < locked.bbox_y - locked.bbox_h * 0.08
+        and cand.bbox_h < locked.bbox_h * 0.78
+    ):
+        return True
+    if cand.centroid_y < locked.centroid_y - 14.0 and cand.torso_score < max(
+        0.22, float(locked.torso_score) * 0.50
+    ):
+        return True
+    if (
+        cand.centroid_y < locked.centroid_y - 10.0
+        and cand.bbox_h < locked.bbox_h * 0.65
+        and cand.red_coverage < max(0.06, float(locked.red_coverage) * 0.72)
+    ):
+        return True
+    return False
+
+
 def _cluster_bbox(parts: list[_RedPart]) -> tuple[int, int, int, int]:
     x0 = min(p.x for p in parts)
     y0 = min(p.y for p in parts)
@@ -4075,6 +4097,8 @@ def find_best_target(
             if target_is_background_clutter(t):
                 continue
             if target_is_range_board_fp(t, motion_overlap=_live_motion(t)):
+                continue
+            if currently_locked and is_upward_fragment_vs_locked(sticky_target, t):
                 continue
             iou = _bbox_iou(
                 sticky_target.bbox_x, sticky_target.bbox_y, sticky_target.bbox_w, sticky_target.bbox_h,
