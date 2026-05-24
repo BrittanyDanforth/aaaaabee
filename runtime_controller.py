@@ -142,11 +142,33 @@ class RuntimeController:
             if any(k in patch for k in ("fov_radius_pixels", "fov_radius_ads_pixels")):
                 from profiles import effective_fov_radius
 
-                display_fov = int(effective_fov_radius(merged, ads_active=False))
+                ads_active = False
+                if getattr(live, "_ads", None) is not None:
+                    ads_active = bool(live._ads.is_ads_active())
+                display_fov = int(
+                    effective_fov_radius(merged, ads_active=ads_active)
+                )
                 if getattr(live, "_overlay", None) is not None:
                     live._overlay.set_fov_radius(display_fov)
                 live._last_display_fov = display_fov
                 live._last_fov_radius = -1
+            if any(k in patch for k in ("crosshair_offset_x", "crosshair_offset_y")):
+                if getattr(live, "_overlay", None) is not None:
+                    try:
+                        import mss
+
+                        mon = mss.mss().monitors[
+                            int(merged.get("monitor_index", 1))
+                        ]
+                        cx = mon["width"] / 2.0 + float(
+                            merged.get("crosshair_offset_x", 0.0)
+                        )
+                        cy = mon["height"] / 2.0 + float(
+                            merged.get("crosshair_offset_y", 0.0)
+                        )
+                        live._overlay.set_fov_center(cx, cy)
+                    except Exception:
+                        logger.exception("hot-reload crosshair center failed")
         return merged
 
     def set_benchmark_summary(self, text: str) -> None:

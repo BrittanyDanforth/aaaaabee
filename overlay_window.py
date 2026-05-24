@@ -350,17 +350,18 @@ class OverlayWindow:
         # outer ring trace back to ambiguity about whether set_fov_radius()
         # could leak a second oval; tagging + a guarded delete in _redraw
         # makes the invariant impossible to violate.
+        init_ring_color = "#446644"
         self._fov_id = self._canvas.create_oval(
             self._cx - fov_radius,
             self._cy - fov_radius,
             self._cx + fov_radius,
             self._cy + fov_radius,
-            outline="#00ff88",
+            outline=init_ring_color,
             width=2,
             tags=("fov_ring",),
         )
         self._drawn_fov_radius = fov_radius
-        self._drawn_ring_color = "#446644"
+        self._drawn_ring_color = init_ring_color
 
         self._cross_h = self._canvas.create_line(
             self._cx - 10,
@@ -426,6 +427,41 @@ class OverlayWindow:
             if new_r == self._fov_radius:
                 return
             self._fov_radius = new_r
+        self._request_redraw()
+
+    def _position_crosshair(self) -> None:
+        if self._canvas is None or self._cross_h is None or self._cross_v is None:
+            return
+        try:
+            self._canvas.coords(
+                self._cross_h,
+                self._cx - 10,
+                self._cy,
+                self._cx + 10,
+                self._cy,
+            )
+            self._canvas.coords(
+                self._cross_v,
+                self._cx,
+                self._cy - 10,
+                self._cx,
+                self._cy + 10,
+            )
+        except tk.TclError:
+            pass
+
+    def set_fov_center(self, x: float, y: float) -> None:
+        """Move ring + crosshair to monitor-local aim center (matches runtime clamp)."""
+        cx = int(round(float(x)))
+        cy = int(round(float(y)))
+        with self._lock:
+            if cx == self._cx and cy == self._cy:
+                return
+            self._fov_center_x = float(x)
+            self._fov_center_y = float(y)
+            self._cx = cx
+            self._cy = cy
+        self._position_crosshair()
         self._request_redraw()
 
     def _fov_ring_alive(self) -> bool:
@@ -515,9 +551,7 @@ class OverlayWindow:
         self, dest: tuple[float, float]
     ) -> tuple[float, float]:
         """Start glide from ring center so the dot does not pop onto the target."""
-        cx = float(self._cx) if self._cx else dest[0]
-        cy = float(self._cy) if self._cy else dest[1]
-        return cx, cy
+        return float(self._cx), float(self._cy)
 
     def set_state(self, ads: bool, target: tuple[float, float] | None) -> None:
         with self._lock:

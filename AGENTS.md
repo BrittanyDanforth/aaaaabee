@@ -53,7 +53,7 @@ The GUI (`aba_gui.py`) uses Basic/Advanced mode split:
 
 **Presets**: Stable, Responsive, Strong, Debug — apply via buttons on the Basic tab.
 
-**Overlay dot FPS**: `overlay_fps` (default 90) controls Tk redraw; `capture_fps` (60 on live trace) controls how often dot coordinates update. Frame drag: `_advance_overlay_follow` on chest-clamped aim (not deadband 2px cap); FOV uses `min(detect,display)*0.96`; `overlay_dot_smooth_alpha` tunes both capture follow (`configure_overlay_dot_alpha`) and Tk glide (`set_dot_glide_alpha`). After ring clamp, `sync_overlay_follow_frame` keeps follow state aligned. Pull uses `motion.overlay_xy()`.
+**Overlay dot FPS**: `overlay_fps` (default 90) controls Tk redraw; `capture_fps` (60 on live trace) controls how often dot coordinates update. Frame drag: `_advance_overlay_follow` on chest-clamped aim (not deadband 2px cap); FOV uses `min(detect,display)*0.96`; `overlay_dot_smooth_alpha` tunes both capture follow (`configure_overlay_dot_alpha`) and Tk glide (`set_dot_glide_alpha`). After ring clamp, `sync_overlay_follow_frame` keeps follow state aligned. Pull uses ring-clamped `frame_overlay` (same as dot). **Ring + white crosshair (+)** share `_cx/_cy` via `set_fov_center(center_x, center_y)` each frame (`crosshair_offset_*`); dot glides from that center on first show.
 
 **False detection guards**: `viewmodel_exclude_bottom_frac` (default 0.28) masks the gun HUD. Low `red_coverage` + sparse fill + viewmodel-column geometry reject scope/gun FPs (img7). Pan motion fusion disables above 18% frame coverage.
 

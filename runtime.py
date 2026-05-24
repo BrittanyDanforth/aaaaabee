@@ -1049,6 +1049,14 @@ class AssistRuntime:
                     cfg = self.config
                     hsv_ranges = cfg.get("hsv_ranges", [])
                     show_debug = bool(cfg.get("show_debug_window", False))
+                    center_x = mon["width"] / 2.0 + float(
+                        cfg.get("crosshair_offset_x", 0.0)
+                    )
+                    center_y = mon["height"] / 2.0 + float(
+                        cfg.get("crosshair_offset_y", 0.0)
+                    )
+                    if self._overlay is not None:
+                        self._overlay.set_fov_center(center_x, center_y)
 
                     # PHASE-5 AUDIT FIX (D-LOW hot-reload): re-read
                     # ``enable_overlay`` and ``trace_pull`` each frame so
@@ -1148,6 +1156,9 @@ class AssistRuntime:
                     if self._overlay is not None and display_fov != self._last_display_fov:
                         self._overlay.set_fov_radius(display_fov)
                         self._last_display_fov = display_fov
+                    if cap_region is not None:
+                        self._frame_cx = center_x - cap_region.offset_x
+                        self._frame_cy = center_y - cap_region.offset_y
                     frame_cx = self._frame_cx
                     frame_cy = self._frame_cy
 
