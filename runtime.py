@@ -1243,16 +1243,23 @@ class AssistRuntime:
                         target_lost_frames=self._target_lost_frames,
                         stale_grace_frames=stale_grace,
                     )
+                    unlock_grace = int(
+                        cfg.get("target_lost_frames_before_unlock", 18)
+                    )
                     locked_grace = (
                         self._locked_target is not None
-                        and self._target_lost_frames
-                        < int(cfg.get("target_lost_frames_before_unlock", 18))
+                        and self._target_lost_frames < unlock_grace
                     )
-                    # Stale grace: keep dot on frozen motion during brief detect gaps.
+                    # Overlay during brief detect gaps only (same window as pull
+                    # stale grace). Do NOT extend past stale_grace via lock grace —
+                    # that was ghost dot on screen with no fresh detection.
                     build_frame_overlay = (
                         show_for_overlay
-                        or (may_assist_pull and not detection_fresh)
-                        or (stale_det and locked_grace and motion is not None)
+                        or (
+                            may_assist_pull
+                            and not detection_fresh
+                            and motion is not None
+                        )
                     )
                     frame_overlay: tuple[float, float] | None = None
                     monitor_overlay: tuple[float, float] | None = None
@@ -1482,9 +1489,6 @@ class AssistRuntime:
                             self._overlay_miss_frames = 0
                         elif target is None or not detection_fresh:
                             self._overlay_miss_frames += 1
-                            unlock_grace = int(
-                                cfg.get("target_lost_frames_before_unlock", 18)
-                            )
                             locked_hold = (
                                 self._locked_target is not None
                                 and self._target_lost_frames < unlock_grace
@@ -1495,12 +1499,12 @@ class AssistRuntime:
                             self._overlay_miss_frames = 0
                         if overlay_pt is None and ads_for_assist:
                             held = self._aim_tracker.peek_overlay_smooth()
-                            if held is not None and locked_hold:
-                                overlay_pt = held
-                            elif (
+                            # Hold-last only inside pull stale grace (not full
+                            # lock grace) so the dot does not ghost after detect loss.
+                            if (
                                 held is not None
-                                and self._locked_target is not None
-                                and self._overlay_miss_frames < 6
+                                and locked_hold
+                                and self._target_lost_frames <= stale_grace
                             ):
                                 overlay_pt = held
                         self._overlay.set_state(ads_for_assist, overlay_pt)

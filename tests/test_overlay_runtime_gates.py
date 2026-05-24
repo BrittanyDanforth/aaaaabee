@@ -14,8 +14,9 @@ def _runtime_build_frame_overlay_expr() -> str | None:
     text = RUNTIME.read_text(encoding="utf-8")
     m = re.search(
         r"build_frame_overlay\s*=\s*\(\s*"
-        r"show_for_overlay\s+or\s*\(\s*may_assist_pull\s+and\s+not\s+detection_fresh\s*\)"
-        r"\s+or\s*\(\s*stale_det\s+and\s+locked_grace\s+and\s+motion\s+is\s+not\s+None\s*\)",
+        r"show_for_overlay\s+or\s*\(\s*"
+        r"may_assist_pull\s+and\s+not\s+detection_fresh\s+and\s+motion\s+is\s+not\s+None\s*"
+        r"\)",
         text,
         re.DOTALL,
     )
@@ -50,28 +51,34 @@ class RuntimeBuildFrameOverlayAstTests(unittest.TestCase):
 
 
 class HoldLastOverlayLogicTests(unittest.TestCase):
-    def test_hold_last_fills_when_monitor_none_and_lock_grace(self) -> None:
+    def test_hold_last_fills_when_monitor_none_and_stale_grace(self) -> None:
         monitor_overlay = None
         held = (1920.5, 1080.2)
         locked = object()
         target_lost_frames = 5
         unlock_grace = 18
+        stale_grace = 12
+        locked_hold = locked is not None and target_lost_frames < unlock_grace
         overlay_pt = monitor_overlay
         if overlay_pt is None:
             if (
                 held is not None
-                and locked is not None
-                and target_lost_frames < unlock_grace
+                and locked_hold
+                and target_lost_frames <= stale_grace
             ):
                 overlay_pt = held
         self.assertEqual(overlay_pt, held)
 
-    def test_hold_last_skipped_past_unlock_grace(self) -> None:
+    def test_hold_last_skipped_past_stale_grace_even_inside_lock_grace(self) -> None:
         overlay_pt = None
         held = (1.0, 2.0)
         locked = object()
-        if overlay_pt is None and held is not None and locked is not None:
-            if 20 < 18:
+        target_lost_frames = 14
+        unlock_grace = 18
+        stale_grace = 12
+        locked_hold = locked is not None and target_lost_frames < unlock_grace
+        if overlay_pt is None and held is not None and locked_hold:
+            if target_lost_frames <= stale_grace:
                 overlay_pt = held
         self.assertIsNone(overlay_pt)
 
