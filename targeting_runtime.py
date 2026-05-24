@@ -17,7 +17,10 @@ from typing import Any
 import detector
 from detector import DetectionResult, Target
 from motion import TargetMotion, TargetTracker
-from profiles import effective_detection_fov_radius
+from profiles import (
+    effective_detection_fov_radius,
+    effective_fov_radius,
+)
 from target_lock import (
     TargetLockState,
     apply_target_lock,
@@ -67,6 +70,23 @@ def _ring_clamp_frame(
         s = lim / dist
         return cx + dx * s, cy + dy * s
     return ox, oy
+
+
+def resolve_runtime_fov(
+    config: dict[str, Any], *, ads_active: bool
+) -> tuple[int, int]:
+    """Same FOV pair as ``AssistRuntime`` main loop (unified by default)."""
+    user_fov = int(effective_fov_radius(config, ads_active=ads_active))
+    detect_fov = int(
+        effective_detection_fov_radius(config, ads_active=ads_active)
+    )
+    if bool(config.get("unified_fov", True)):
+        detect_fov = user_fov
+    ring_inner = int(float(user_fov) * 0.96)
+    config["_runtime_fov"] = user_fov
+    config["_runtime_detect_fov"] = float(detect_fov)
+    config["_runtime_overlay_fov"] = float(ring_inner)
+    return user_fov, detect_fov
 
 
 def _motion_body_bbox(tracker: TargetTracker) -> tuple[int, int, int, int] | None:
@@ -127,8 +147,9 @@ class TargetingRuntime:
 
     def _apply_motion_config(self, config: dict[str, Any], cx: float, cy: float) -> None:
         fov_r = float(
-            config.get("_runtime_detect_fov")
-            or config.get("fov_radius_pixels")
+            config.get("_runtime_overlay_fov")
+            or config.get("_runtime_detect_fov")
+            or config.get("_runtime_fov")
             or 200
         )
         self.tracker.configure_fov_clamp(cx, cy, fov_r)
@@ -161,16 +182,13 @@ class TargetingRuntime:
         h, w = frame_bgr.shape[:2]
         cx = float(config.get("fov_center_x", w / 2.0))
         cy = float(config.get("fov_center_y", h / 2.0))
-        fov = int(
-            config.get("fov_radius_pixels")
-            or effective_detection_fov_radius(config, ads_active=True)
-        )
+        ads_active = bool(config.get("_ads_active", True))
+        _user_fov, fov = resolve_runtime_fov(config, ads_active=ads_active)
         min_area = float(
             config.get("min_target_area_pixels")
             or config.get("min_target_area")
             or 40.0
         )
-        config.setdefault("_runtime_detect_fov", float(fov))
         config.setdefault("target_lost_frames_before_unlock", 18)
         config.setdefault("viewmodel_exclude_bottom_frac", 0.28)
         self._apply_motion_config(config, cx, cy)

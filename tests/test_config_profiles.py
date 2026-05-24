@@ -76,8 +76,21 @@ class DefaultProfileTests(unittest.TestCase):
 
 
 class DetectionFovMarginTests(unittest.TestCase):
-    def test_detection_fov_larger_than_display(self) -> None:
+    def test_unified_fov_default_matches_display(self) -> None:
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
+        self.assertTrue(cfg.get("unified_fov"))
+        ads = effective_fov_radius(cfg, ads_active=True)
+        det_ads = effective_detection_fov_radius(cfg, ads_active=True)
+        self.assertEqual(det_ads, ads)
+
+    def test_detection_fov_larger_than_display_when_split(self) -> None:
+        cfg = apply_profile(
+            {
+                "profile": PROFILE_APEX_STYLE_LIVE_TRACE,
+                "unified_fov": False,
+                "detection_fov_margin_pixels": 30,
+            }
+        )
         idle = effective_fov_radius(cfg, ads_active=False)
         ads = effective_fov_radius(cfg, ads_active=True)
         det_ads = effective_detection_fov_radius(cfg, ads_active=True)

@@ -85,6 +85,7 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         cfg["hsv_ranges"] = cfg.get("hsv_ranges") or []
 
     cfg["fov_radius_pixels"] = int(_require_number(cfg, "fov_radius_pixels", minimum=1))
+    cfg["unified_fov"] = bool(cfg.get("unified_fov", True))
     cfg["max_pull_speed_pixels_per_frame"] = _require_number(
         cfg, "max_pull_speed_pixels_per_frame", minimum=0.1, maximum=80.0
     )

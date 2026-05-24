@@ -1107,8 +1107,6 @@ class AssistRuntime:
                     center_y = mon["height"] / 2.0 + float(
                         cfg.get("crosshair_offset_y", 0.0)
                     )
-                    if self._overlay is not None:
-                        self._overlay.set_fov_center(center_x, center_y)
                     dot_alpha = float(cfg.get("overlay_dot_smooth_alpha", 0.52))
                     self._aim_tracker.configure_overlay_dot_alpha(dot_alpha)
 
@@ -1170,6 +1168,12 @@ class AssistRuntime:
                         self._detect_ctx.reset()
                         if self._overlay is not None:
                             self._aim_tracker.reset_overlay_smoothing()
+                            hip_fov = int(
+                                effective_fov_radius(cfg, ads_active=False)
+                            )
+                            self._overlay.update_fov(
+                                hip_fov, False, center_x, center_y
+                            )
                             self._overlay.set_state(False, None)
                         sleep_time = frame_interval - (time.perf_counter() - t0)
                         self._sleep_interruptible(sleep_time)
@@ -1179,11 +1183,15 @@ class AssistRuntime:
                     ads_for_assist = ads_live if self._live else (self._force_detect or ads_live)
                     self._sync_ads_assist_state(ads_for_assist)
 
-                    display_fov = effective_fov_radius(cfg, ads_active=ads_for_assist)
+                    user_fov = effective_fov_radius(cfg, ads_active=ads_for_assist)
                     detect_fov = effective_detection_fov_radius(
                         cfg, ads_active=ads_for_assist
                     )
-                    ring_inner = min(float(detect_fov), float(display_fov)) * 0.96
+                    display_fov = user_fov
+                    if bool(cfg.get("unified_fov", True)):
+                        detect_fov = user_fov
+                    ring_inner = float(user_fov) * 0.96
+                    cfg["_runtime_fov"] = user_fov
                     cfg["_runtime_overlay_fov"] = ring_inner
                     capture_fov = effective_capture_fov_radius(
                         cfg, ads_active=ads_for_assist
@@ -1215,8 +1223,13 @@ class AssistRuntime:
                         cfg["_runtime_overlay_fov"] = ring_inner
                         if self._pull is not None:
                             self._pull._tuning.fov_radius = float(detect_fov)
-                    if self._overlay is not None and display_fov != self._last_display_fov:
-                        self._overlay.set_fov_radius(display_fov)
+                    if self._overlay is not None:
+                        self._overlay.update_fov(
+                            display_fov,
+                            ads_for_assist,
+                            center_x,
+                            center_y,
+                        )
                         self._last_display_fov = display_fov
                     if cap_region is not None:
                         self._frame_cx = center_x - cap_region.offset_x

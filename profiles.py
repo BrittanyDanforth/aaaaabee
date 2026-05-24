@@ -21,7 +21,12 @@ _APEX_TUNING: dict[str, Any] = {
     ],
     "fov_radius_pixels": 140,
     "fov_radius_ads_pixels": 185,
-    "detection_fov_margin_pixels": 30,
+    # Single user-visible FOV: overlay ring, detection mask, pull clamp, and
+    # capture crop all use effective_fov_radius() when unified_fov is True.
+    # Set unified_fov=False and detection_fov_margin_pixels>0 only if you
+    # need a hidden detection halo beyond the drawn ring.
+    "unified_fov": True,
+    "detection_fov_margin_pixels": 0,
     "capture_fov_crop": True,
     "capture_crop_padding": 1.34,
     "max_pull_speed_pixels_per_frame": 22.0,
@@ -242,10 +247,18 @@ def effective_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
 
 def effective_detection_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
     """
-    Detection + pull use this radius (larger than overlay ring).
-    Keeps enemies at screen edge inside the HSV/FOV mask so pull does not drop off.
+    Detection + pull FOV radius.
+
+    When ``unified_fov`` is True (default), this equals ``effective_fov_radius``
+    so the overlay ring, detector mask, pull clamp, and motion FOV all share
+    one radius — no phantom second ring or split-brain tuning.
+
+    Legacy split mode (``unified_fov=False``): adds ``detection_fov_margin_pixels``
+    or ``detection_fov_margin_scale`` on top of the display radius.
     """
     core = effective_fov_radius(config, ads_active=ads_active)
+    if bool(config.get("unified_fov", True)):
+        return min(400, max(80, core))
     margin = int(config.get("detection_fov_margin_pixels", 0))
     if margin <= 0:
         margin = int(core * float(config.get("detection_fov_margin_scale", 0.18)))

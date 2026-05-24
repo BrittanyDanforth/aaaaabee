@@ -422,12 +422,47 @@ class OverlayWindow:
             self._dot_max_step_per_tick = max(7.0, min(22.0, 7.0 + a * 22.0))
 
     def set_fov_radius(self, radius: int) -> None:
+        """Legacy entry — prefer :meth:`update_fov` from runtime (one call/frame)."""
         with self._lock:
-            new_r = max(40, int(radius))
-            if new_r == self._fov_radius:
-                return
-            self._fov_radius = new_r
+            self._fov_radius = max(40, int(radius))
         self._request_redraw()
+
+    def update_fov(
+        self,
+        radius: int,
+        ads: bool,
+        center_x: float,
+        center_y: float,
+    ) -> None:
+        """Single overlay FOV update (radius + ADS color + center) — one ring only."""
+        fx, fy = float(center_x), float(center_y)
+        new_r = max(40, int(radius))
+        with self._lock:
+            self._fov_radius = new_r
+            self._active = bool(ads)
+            self._fov_center_x = fx
+            self._fov_center_y = fy
+            self._cx = fx
+            self._cy = fy
+        self._position_crosshair()
+        # Sync immediately when canvas exists so ADS hip→zoom does not leave
+        # one frame with the old grey ring under the new cyan ring.
+        if self._canvas is not None:
+            try:
+                self._purge_orphan_fov_rings()
+                self._sync_fov_ring()
+            except (tk.TclError, RuntimeError):
+                pass
+        self._request_redraw()
+
+    def count_fov_ring_items(self) -> int:
+        """Test/audit helper: number of canvas ovals tagged ``fov_ring``."""
+        if self._canvas is None:
+            return 0
+        try:
+            return len(self._canvas.find_withtag("fov_ring"))
+        except tk.TclError:
+            return 0
 
     def _position_crosshair(self) -> None:
         if self._canvas is None or self._cross_h is None or self._cross_v is None:
@@ -451,26 +486,11 @@ class OverlayWindow:
             pass
 
     def set_fov_center(self, x: float, y: float) -> None:
-        """Move ring + crosshair to monitor-local aim center (matches runtime clamp)."""
-        fx, fy = float(x), float(y)
+        """Move ring + crosshair — does not create a second oval (use update_fov)."""
         with self._lock:
-            if (
-                self._fov_center_x is not None
-                and abs(fx - self._fov_center_x) < 0.01
-                and abs(fy - self._fov_center_y) < 0.01
-            ):
-                return
-            self._fov_center_x = fx
-            self._fov_center_y = fy
-            self._cx = fx
-            self._cy = fy
-        self._position_crosshair()
-        with self._lock:
-            radius = int(self._fov_radius)
             ads = self._active
-        color = "#00ff88" if ads else "#446644"
-        self._replace_fov_ring(radius, color)
-        self._request_redraw()
+            radius = int(self._fov_radius)
+        self.update_fov(radius, ads, x, y)
 
     def _fov_ring_alive(self) -> bool:
         if self._canvas is None or self._fov_id is None:
@@ -481,12 +501,19 @@ class OverlayWindow:
             return False
 
     def _purge_orphan_fov_rings(self) -> None:
-        """Delete extra center-screen ovals (slider hot-reload duplicate-ring bug)."""
+        """Delete every large center-screen oval except the canonical ``_fov_id``."""
         if self._canvas is None:
             return
+        keep = self._fov_id
         for item in list(self._canvas.find_all()):
             if item == self._target_id:
                 continue
+            try:
+                tags = self._canvas.gettags(item)
+                if "target_dot" in tags:
+                    continue
+            except tk.TclError:
+                tags = ()
             try:
                 if str(self._canvas.type(item)) != "oval":
                     continue
@@ -498,7 +525,9 @@ class OverlayWindow:
                 continue
             if radius < 25.0:
                 continue
-            if item == self._fov_id:
+            if abs(ocx - self._cx) > 48.0 or abs(ocy - self._cy) > 48.0:
+                continue
+            if item == keep and self._fov_ring_alive():
                 continue
             try:
                 self._canvas.delete(item)
@@ -528,7 +557,7 @@ class OverlayWindow:
         self._drawn_ring_color = color
 
     def _sync_fov_ring(self) -> None:
-        """Resize/recolor the single FOV ring in-place — never stack a second oval."""
+        """Ensure exactly one FOV oval matches radius, ADS color, and center."""
         if self._canvas is None:
             return
         with self._lock:
@@ -536,7 +565,13 @@ class OverlayWindow:
             ads = self._active
         color = "#00ff88" if ads else "#446644"
         self._purge_orphan_fov_rings()
-        if not self._fov_ring_alive():
+        # Never coords-resize across ADS/radius steps — that left the old grey
+        # hip-fire ring visible inside the new cyan ADS ring (double FOV bug).
+        if (
+            not self._fov_ring_alive()
+            or radius != self._drawn_fov_radius
+            or color != self._drawn_ring_color
+        ):
             self._replace_fov_ring(radius, color)
             return
         try:
@@ -547,9 +582,9 @@ class OverlayWindow:
                 self._cx + radius,
                 self._cy + radius,
             )
-            self._canvas.itemconfig(self._fov_id, outline=color, width=2, tags=("fov_ring",))
-            self._drawn_fov_radius = radius
-            self._drawn_ring_color = color
+            self._canvas.itemconfig(
+                self._fov_id, outline=color, width=2, tags=("fov_ring",)
+            )
         except tk.TclError:
             self._replace_fov_ring(radius, color)
 
