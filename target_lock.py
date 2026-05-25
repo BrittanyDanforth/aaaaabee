@@ -54,6 +54,14 @@ NEW_LOCK_MIN_PARTS = 2
 OVERLAY_CONFIRM_FRAMES = 2
 # Max centroid rise (screen y decreases) from the anchor set at lock-on.
 MAX_LOCK_UPWARD_DRIFT_PX = 28.0
+# Pool-hold dot continuation cap: how many consecutive sticky_pool_hold
+# frames may keep the overlay dot LIVE (active=True) before it transitions
+# to STALE (lock geometry preserved for later refresh, but the dot is
+# hidden so a phantom structural lock doesn't display indefinitely).
+# 8 frames @ 30fps ≈ 267ms — generous for brief enemy occlusion (peek/duck
+# behind cover) while bounding phantom dot duration when the player pans
+# off an enemy-free FOV but the detector keeps recycling a banner/rim FP.
+POOL_HOLD_DOT_ACTIVE_MAX = 8
 
 
 def viewmodel_exclude_bottom(cfg: dict[str, Any]) -> float:
@@ -519,7 +527,31 @@ def apply_target_lock(
                     )
                 )
             )
-            state.target_lost_frames = 0
+            # Pool-hold grace expiry: pool_hold means NO candidate IoU-matches
+            # the sticky lock — the detector is synthesising the previous
+            # frozen target rather than confirming it from the current frame.
+            # Always count this toward target_lost_frames so the natural
+            # 18-frame grace expires; otherwise a transient initial lock on
+            # any static structural FP (gun rim / banner edge / tower icon /
+            # cable / score-panel highlight) becomes an indefinite phantom
+            # (F62-F77 banner phantom, F102-F134 structural phantom in
+            # gif_166_proof) since the same shape keeps recycling each frame.
+            # Real enemies that occlude briefly recover in <=18 frames via
+            # genuine re-detection (which resets lost_frames=0 on the normal
+            # adopt/refine paths above).
+            state.target_lost_frames += 1
+            if state.target_lost_frames >= lost_max:
+                state.reset()
+                if on_lock_expired is not None:
+                    on_lock_expired()
+                return DetectionResult(None, 0, 0.0), False
+            # Dot continuation cap: keep the lock geometry alive for the full
+            # grace window (so a real enemy reappearing instantly re-adopts
+            # via _same_lock_identity), but hide the overlay dot after
+            # POOL_HOLD_DOT_ACTIVE_MAX consecutive pool_hold frames so the
+            # dot doesn't sit on a structural FP for the entire grace.
+            if state.target_lost_frames > POOL_HOLD_DOT_ACTIVE_MAX:
+                hold_active = False
             state.switch_candidate = None
             state.switch_frames = 0
             return DetectionResult(

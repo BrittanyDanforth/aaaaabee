@@ -217,5 +217,73 @@ class CentralTowerBannerPhantomLockTests(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(
+    (GIF / "frame_0095.png").exists(),
+    "need frame_0095",
+)
+class StructuralPhantomDotCapTests(unittest.TestCase):
+    """End-to-end regression: F95 + F111-F119 must NOT show LIVE dot.
+
+    F95 sits inside a long pool_hold streak that began when a transient lock
+    grabbed a red rim on the gun viewmodel/iron-sight at F84. Without the
+    pool_hold grace expiry + dot continuation cap, the dot stays glued at
+    (478, 283) for ~33 consecutive frames (F102-F134) while the player pans
+    across an enemy-free FOV — that's the visible bug in frame_0095_red_dot.
+
+    Contract:
+      - F95: dot hidden (pool_hold lost streak inside cap window of previous
+        lock, then transitioning to STALE)
+      - F111-F119: dot hidden (cap forces STALE after ~8 pool_hold frames
+        even though the lock geometry is preserved for refresh)
+      - F102-F108 are allowed to remain LIVE — they cover the immediate
+        ~8-frame brief-occlusion window where a real enemy could legitimately
+        reappear; the cap is the trade-off, not an absolute ban.
+    """
+
+    def _replay(self, last_frame: int) -> list:
+        cfg = copy.deepcopy(profiles.PROFILE_DEFAULTS[PROFILE_APEX_STYLE_LIVE_TRACE])
+        cfg.update({
+            "_ads_active": True,
+            "new_lock_confirm_frames": 1,
+            "body_shape_min_score": 0.42,
+            "detection_motion_assist": True,
+            "detection_mode": "apex",
+        })
+        rt = TargetingRuntime()
+        rows = []
+        for fi in range(0, last_frame + 1):
+            im = cv2.imread(str(GIF / f"frame_{fi:04d}.png"))
+            self.assertIsNotNone(im, f"frame {fi} missing")
+            hh, ww = im.shape[:2]
+            cfg["fov_center_x"] = ww / 2.0
+            cfg["fov_center_y"] = hh / 2.0
+            aim = rt.process_frame(im, cfg, time_sec=fi / 30.0)
+            rows.append((fi, aim))
+        return rows
+
+    def test_f95_dot_is_hidden(self) -> None:
+        rows = self._replay(95)
+        _, aim = rows[-1]
+        self.assertFalse(
+            aim.active,
+            f"F95 must NOT show LIVE dot (was phantom on gun-rim FP); "
+            f"got active={aim.active} target={aim.target}",
+        )
+
+    def test_long_pool_hold_dot_caps_at_eight_frames(self) -> None:
+        rows = self._replay(125)
+        # F111-F119 must all be active=False (cap kicked in after ~8 frames
+        # of pool_hold streak starting at F103).
+        live_in_cap_window = [
+            fi for fi, aim in rows
+            if 111 <= fi <= 119 and aim.active
+        ]
+        self.assertEqual(
+            [], live_in_cap_window,
+            f"pool_hold dot must hide after cap; LIVE frames in window: "
+            f"{live_in_cap_window}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
