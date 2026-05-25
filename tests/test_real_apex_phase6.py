@@ -484,9 +484,15 @@ def test_soft_reset_preserves_last_position() -> None:
     assert t._in_deadband is False
 
 
-def test_sticky_empty_pool_returns_none_when_locked() -> None:
-    """When currently_locked=True AND sticky pool is empty, find_best_target
-    returns active=False (no free-max fallback). This is the HIGH6 fix."""
+def test_sticky_locked_no_candidates_returns_sticky_via_pool_hold() -> None:
+    """When currently_locked=True AND no candidates pass post-filters,
+    find_best_target returns the sticky (locked) target via pool_hold rather
+    than None.  This keeps the overlay dot active during brief detection gaps
+    instead of forcing a STALE frame.  High6 fix extended to early-return path.
+
+    Crucially: the sticky target must NOT be a free-max fallback from an
+    unrelated blob — the blob in the opposite corner must NOT be selected.
+    """
     import numpy as np
 
     h, w = 600, 800
@@ -494,6 +500,7 @@ def test_sticky_empty_pool_returns_none_when_locked() -> None:
     img = np.zeros((h, w, 3), dtype=np.uint8)
     cv2.rectangle(img, (50, 50), (110, 200), (0, 0, 220), -1)
     # Sticky target is in the BOTTOM-RIGHT — no overlap with the bright blob.
+    # bbox_y=480 → top_frac=480/600=0.80 > 0.34, so high_close guard does NOT skip it.
     sticky = detector.Target(
         centroid_x=700.0, centroid_y=500.0, area=400.0,
         distance_to_center=50.0,
@@ -511,8 +518,14 @@ def test_sticky_empty_pool_returns_none_when_locked() -> None:
         min_height_px=20.0, min_aspect=0.5, max_aspect=5.5,
         debug=True,
     )
-    assert result.active is False, (
-        f"sticky-empty-pool with currently_locked should return active=False, got "
-        f"target={result.target}"
+    # Pool hold fires: returns sticky target with active=True (not the unrelated blob)
+    assert result.target is not None, "expected sticky target held via pool_hold"
+    assert result.target is sticky, "returned target must be the sticky lock, not the blob"
+    assert any("sticky_pool_hold" in l for l in result.debug_lines), (
+        "pool_hold debug line must be present"
     )
-    assert result.target is None
+    # The unrelated top-left blob must NOT be selected as active target
+    if result.target is not sticky:
+        assert result.target.centroid_x < 200, (
+            f"free-max fallback selected wrong target: {result.target}"
+        )

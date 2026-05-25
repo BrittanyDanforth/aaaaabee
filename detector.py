@@ -4492,6 +4492,59 @@ def find_best_target(
     if len(candidates) < before_env:
         dbg.append(f"environment_column filter: {before_env} -> {len(candidates)}")
     if not candidates:
+        # When locked on a plausible target, preserve the lock geometry even
+        # when all post-filter candidates dropped out.  This is the symmetric
+        # path to the existing PHASE-6 sticky_pool_hold (which is unreachable
+        # when candidates=[] because the code never enters the sticky block).
+        # Skip hold for tall-high-close FPs (top_frac<0.34, bbox_h>20% frame)
+        # that should be purged by apply_target_lock's close_upper stale gate.
+        _sph_top_frac = float(sticky_target.bbox_y) / float(h) if (currently_locked and sticky_target is not None and h > 0) else 1.0
+        _sph_high_close = (
+            currently_locked and sticky_target is not None
+            and _sph_top_frac < 0.34
+            and float(sticky_target.bbox_h) > float(h) * 0.20
+        )
+        if currently_locked and sticky_target is not None and not _sph_high_close:
+            _s_mov = (
+                context.motion_coverage_ratio(
+                    sticky_target.bbox_x, sticky_target.bbox_y,
+                    sticky_target.bbox_w, sticky_target.bbox_h,
+                )
+                if context is not None
+                else 0.0
+            )
+            _hold = (
+                sticky_target.body_shape_score >= 0.55
+                and sticky_target.bbox_h >= 26
+                and not target_is_close_skyline_structure_fp(
+                    sticky_target, frame_w=w, frame_h=h
+                )
+                and not target_is_viewmodel_column_fp(
+                    sticky_target,
+                    frame_w=w,
+                    frame_h=h,
+                    fov_cx=float(cx),
+                    fov_cy=float(cy),
+                )
+                and not target_is_central_tower_banner_fp(
+                    sticky_target,
+                    frame_w=w,
+                    frame_h=h,
+                    fov_cx=float(cx),
+                    motion_overlap=_s_mov,
+                )
+            )
+            dbg.append(
+                f"sticky_pool_hold dist={sticky_target.distance_to_center:.0f} "
+                f"h={sticky_target.bbox_h}"
+            )
+            return DetectionResult(
+                sticky_target,
+                0,
+                sticky_target.confidence,
+                debug_lines=dbg,
+                active=_hold,
+            )
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
 
     before_vm = len(candidates)
@@ -4505,6 +4558,53 @@ def find_best_target(
     if len(candidates) < before_vm:
         dbg.append(f"viewmodel_column filter: {before_vm} -> {len(candidates)}")
     if not candidates:
+        _sph_top_frac2 = float(sticky_target.bbox_y) / float(h) if (currently_locked and sticky_target is not None and h > 0) else 1.0
+        _sph_high_close2 = (
+            currently_locked and sticky_target is not None
+            and _sph_top_frac2 < 0.34
+            and float(sticky_target.bbox_h) > float(h) * 0.20
+        )
+        if currently_locked and sticky_target is not None and not _sph_high_close2:
+            _s_mov2 = (
+                context.motion_coverage_ratio(
+                    sticky_target.bbox_x, sticky_target.bbox_y,
+                    sticky_target.bbox_w, sticky_target.bbox_h,
+                )
+                if context is not None
+                else 0.0
+            )
+            _hold2 = (
+                sticky_target.body_shape_score >= 0.55
+                and sticky_target.bbox_h >= 26
+                and not target_is_close_skyline_structure_fp(
+                    sticky_target, frame_w=w, frame_h=h
+                )
+                and not target_is_viewmodel_column_fp(
+                    sticky_target,
+                    frame_w=w,
+                    frame_h=h,
+                    fov_cx=float(cx),
+                    fov_cy=float(cy),
+                )
+                and not target_is_central_tower_banner_fp(
+                    sticky_target,
+                    frame_w=w,
+                    frame_h=h,
+                    fov_cx=float(cx),
+                    motion_overlap=_s_mov2,
+                )
+            )
+            dbg.append(
+                f"sticky_pool_hold dist={sticky_target.distance_to_center:.0f} "
+                f"h={sticky_target.bbox_h}"
+            )
+            return DetectionResult(
+                sticky_target,
+                0,
+                sticky_target.confidence,
+                debug_lines=dbg,
+                active=_hold2,
+            )
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
 
     pool_max_h = max(int(t.bbox_h) for t in candidates)
