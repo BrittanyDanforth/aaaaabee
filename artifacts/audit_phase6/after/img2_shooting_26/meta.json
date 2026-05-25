@@ -1,0 +1,39 @@
+{
+  "input": "/workspace/artifacts/real_apex_test/_inputs/img2_shooting_26.png",
+  "frame_size": [
+    576,
+    493
+  ],
+  "fov_radius": 204,
+  "min_area": 20.0,
+  "ads_hint": false,
+  "motion_px": 71475,
+  "fused_px": 89910,
+  "motion_coverage_pct": 0.25170089587559163,
+  "pan_detected": false,
+  "candidate_count": 1,
+  "accepted_candidate_count": 0,
+  "pass1": {
+    "active": false,
+    "selected": null,
+    "debug_lines": [
+      "cand[0] reject=architecture_panel body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=0.80 fill=0.36 circ=0.88 bbox=(87,65,401x319) area=22218 dist=67 parts=71 | architecture_panel",
+      "accepted=0 from 1 clusters / 71 parts"
+    ]
+  },
+  "pass2_with_sticky": {
+    "active": false,
+    "selected": null,
+    "debug_lines": [
+      "cand[0] reject=architecture_panel body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=0.98 fill=0.30 circ=0.61 bbox=(87,79,312x305) area=12637 dist=73 parts=41 | architecture_panel",
+      "cand[1] reject=ok body=1.00 head=1.00 torso=0.81 limb=1.00 aspect=1.97 fill=0.26 circ=0.75 bbox=(390,101,98x193) area=2602 dist=147 parts=8 | parts=8 head=1.00 torso=0.81 limb=1.00 vert=1.00 geom=0.56 align=0.26 circ=0.75 fill=0.26",
+      "cand[1] drop solidity=0.14 < min=0.15",
+      "accepted=0 from 2 clusters / 49 parts"
+    ]
+  },
+  "y_top_frac": -1.0,
+  "y_mid_frac": -1.0,
+  "y_bot_frac": -1.0,
+  "IS_SKY": false,
+  "active_either_pass": false
+}

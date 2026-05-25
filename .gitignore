@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+logs/
+__pycache__/
+test_apex_characters.png
+test_apex_realistic.png

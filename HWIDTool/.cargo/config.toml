@@ -1,0 +1,10 @@
+[build]
+target = "x86_64-pc-windows-msvc"
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "-C", "target-cpu=x86-64-v2",
+  "-C", "target-feature=+crt-static",
+  "-C", "symbol-mangling-version=v0",
+  "-C", "link-arg=/threads"
+]

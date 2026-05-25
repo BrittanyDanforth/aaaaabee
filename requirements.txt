@@ -1,0 +1,9 @@
+numpy>=1.24
+opencv-python-headless>=4.8
+# Screen capture backend (mss is pure-Python).
+mss>=9.0
+# Process presence detection (Apex process check, no injection).
+psutil>=5.9
+# Global RMB/LMB listeners + kill-switch hotkey. Uses ctypes on Windows,
+# evdev on Linux; we do not need pywin32 here.
+pynput>=1.7

@@ -1,0 +1,12 @@
+INPUT img1_back_view.png  size=684x536  ads_hint=False
+FOV center=(342,268) radius=192  min_area=40.0
+MASK_PX red_enemy=35115  shape=166246  chroma=35808  motion=74912  fused=168953
+PARTS=4  CLUSTERS=3
+  cand[0] accepted=False reject=horizontal_stripe bbox=(151,216,37x36) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=0.72 fill=0.53 circ=0.66 aspect=0.97 parts=2 area=243 dist=177 | horizontal_stripe
+  cand[1] accepted=False reject=horizontal_stripe bbox=(214,107,26x19) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=0.72 fill=0.37 circ=0.26 aspect=0.73 parts=1 area=108 dist=192 | horizontal_stripe
+  cand[2] accepted=False reject=too_small bbox=(0,0,0x0) body=0.00 head=0.00 torso=0.00 limb=0.00 vert=0.00 fill=0.00 circ=0.00 aspect=0.00 parts=1 area=29 dist=0 | area=29 < min=40.0
+SELECTED active=False  reason=NO_TARGET
+  DBG cand[0] reject=horizontal_stripe body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=0.97 fill=0.53 circ=0.66 bbox=(151,216,37x36) area=243 dist=177 parts=2 | horizontal_stripe
+  DBG cand[1] reject=horizontal_stripe body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=0.73 fill=0.37 circ=0.26 bbox=(214,107,26x19) area=108 dist=192 parts=1 | horizontal_stripe
+  DBG cand[2] skip area=29
+  DBG accepted=0 from 3 clusters / 4 parts

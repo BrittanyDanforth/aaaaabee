@@ -1,0 +1,36 @@
+{
+  "scene": "scene_03_lineup",
+  "description": "7-character lineup of red apex chars at varied scale",
+  "active": true,
+  "candidates": 3,
+  "best_score": 0.3841351595037483,
+  "fov_radius": 220,
+  "fov_center": [
+    640,
+    360
+  ],
+  "red_mask_pixels": 38652,
+  "red_mask_pct": 0.041940104166666665,
+  "target": {
+    "centroid_x": 624.8,
+    "centroid_y": 356.5986813186813,
+    "bbox": [
+      602,
+      304,
+      76,
+      137
+    ],
+    "confidence": 0.3841351595037483,
+    "body_shape_score": 0.5074858805668017,
+    "red_coverage": 0.5099884748367268,
+    "fill_ratio": 0.44525548815727234,
+    "max_circularity": 0.5292585108800862,
+    "part_count": 1,
+    "area": 6263.0,
+    "distance_to_center": 15.575909885842588
+  },
+  "tracker_output": {
+    "x": 624.8,
+    "y": 356.5986813186813
+  }
+}

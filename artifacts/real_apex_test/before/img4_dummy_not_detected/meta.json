@@ -1,0 +1,27 @@
+{
+  "input": "/workspace/artifacts/real_apex_test/_inputs/img4_dummy_not_detected.webp",
+  "frame_size": [
+    310,
+    417
+  ],
+  "fov_center": [
+    155.0,
+    208.5
+  ],
+  "fov_radius": 111,
+  "min_area_floor": 40.0,
+  "ads_hint": false,
+  "mask_pixels": {
+    "red_enemy": 19196,
+    "shape": 70313,
+    "chroma": 14879,
+    "motion": 34047,
+    "fused": 73569
+  },
+  "parts": 0,
+  "cluster_count": 0,
+  "active": false,
+  "best_score": 0.0,
+  "selected": null,
+  "candidates": []
+}

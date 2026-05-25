@@ -1,0 +1,42 @@
+{
+  "name": "ref_ads_body_balloon",
+  "frame": [
+    1280,
+    720
+  ],
+  "active": false,
+  "selected": null,
+  "runtime_wired_bbox": null,
+  "runtime_aim": null,
+  "candidates": [
+    {
+      "idx": 0,
+      "accepted": false,
+      "reject": "round_non_body",
+      "body": 0.0,
+      "head": 0.0,
+      "torso": 0.95,
+      "limb": 0.2,
+      "vert": 0.72,
+      "aspect": 1.0263157894736843,
+      "fill": 0.8205128312110901,
+      "circ": 0.7712238479816471,
+      "bbox": [
+        624,
+        485,
+        38,
+        39
+      ],
+      "aim": [
+        643.0,
+        499.04
+      ],
+      "parts": 1,
+      "detail": "round_non_body circ=0.77 align=0.00 head=0.00 torso=0.95 limb=0.20 vert=0.72"
+    }
+  ],
+  "detection_debug": [
+    "cand[0] reject=round_non_body body=0.00 head=0.00 torso=0.95 limb=0.20 aspect=1.03 fill=0.82 circ=0.77 bbox=(624,485,38x39) area=1337 dist=139 parts=1 | round_non_body circ=0.77 align=0.00 head=0.00 torso=0.95 limb=0.20 vert=0.72",
+    "accepted=0 from 1 clusters / 1 parts"
+  ]
+}

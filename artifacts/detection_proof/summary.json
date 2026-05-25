@@ -1,0 +1,267 @@
+{
+  "cases": [
+    {
+      "name": "ref_standing",
+      "frame": [
+        1280,
+        720
+      ],
+      "active": true,
+      "selected": {
+        "body": 1.0,
+        "head": 1.0,
+        "torso": 0.6967832486154313,
+        "limb": 1.0,
+        "bbox": [
+          610,
+          313,
+          61,
+          181
+        ],
+        "aim": [
+          640.2360000000001,
+          382.0480839939789
+        ],
+        "parts": 4
+      },
+      "runtime_wired_bbox": [
+        610,
+        313,
+        61,
+        181
+      ],
+      "runtime_aim": [
+        640.2360000000001,
+        382.0480839939789
+      ],
+      "candidates": [
+        {
+          "idx": 0,
+          "accepted": true,
+          "reject": "ok",
+          "body": 1.0,
+          "head": 1.0,
+          "torso": 0.6967832486154313,
+          "limb": 1.0,
+          "vert": 1.0,
+          "aspect": 2.9672131147540983,
+          "fill": 0.9337016344070435,
+          "circ": 0.8601694833599481,
+          "bbox": [
+            610,
+            313,
+            61,
+            181
+          ],
+          "aim": [
+            640.2360000000001,
+            382.0480839939789
+          ],
+          "parts": 4,
+          "detail": "parts=4 head=1.00 torso=0.70 limb=1.00 vert=1.00 geom=0.76 align=0.96 circ=0.86 fill=0.93"
+        }
+      ],
+      "detection_debug": [
+        "cand[0] reject=ok body=1.00 head=1.00 torso=0.70 limb=1.00 aspect=2.97 fill=0.93 circ=0.86 bbox=(610,313,61x181) area=6590 dist=22 parts=4 | parts=4 head=1.00 torso=0.70 limb=1.00 vert=1.00 geom=0.76 align=0.96 circ=0.86 fill=0.93",
+        "accepted=1 from 1 clusters / 4 parts",
+        "SELECTED body=1.00 head=1.00 dist=22 bbox=61x181"
+      ]
+    },
+    {
+      "name": "ref_close_vertical",
+      "frame": [
+        1280,
+        720
+      ],
+      "active": true,
+      "selected": {
+        "body": 1.0,
+        "head": 1.0,
+        "torso": 0.7001388888888889,
+        "limb": 1.0,
+        "bbox": [
+          610,
+          383,
+          61,
+          178
+        ],
+        "aim": [
+          640.2360000000001,
+          451.1946988505747
+        ],
+        "parts": 4
+      },
+      "runtime_wired_bbox": [
+        610,
+        383,
+        61,
+        178
+      ],
+      "runtime_aim": [
+        640.2360000000001,
+        451.1946988505747
+      ],
+      "candidates": [
+        {
+          "idx": 0,
+          "accepted": true,
+          "reject": "ok",
+          "body": 1.0,
+          "head": 1.0,
+          "torso": 0.7001388888888889,
+          "limb": 1.0,
+          "vert": 1.0,
+          "aspect": 2.918032786885246,
+          "fill": 0.9438202381134033,
+          "circ": 0.8601694833599481,
+          "bbox": [
+            610,
+            383,
+            61,
+            178
+          ],
+          "aim": [
+            640.2360000000001,
+            451.1946988505747
+          ],
+          "parts": 4,
+          "detail": "parts=4 head=1.00 torso=0.70 limb=1.00 vert=1.00 geom=0.75 align=0.96 circ=0.86 fill=0.94"
+        }
+      ],
+      "detection_debug": [
+        "cand[0] reject=ok body=1.00 head=1.00 torso=0.70 limb=1.00 aspect=2.92 fill=0.94 circ=0.86 bbox=(610,383,61x178) area=6480 dist=91 parts=4 | parts=4 head=1.00 torso=0.70 limb=1.00 vert=1.00 geom=0.75 align=0.96 circ=0.86 fill=0.94",
+        "accepted=1 from 1 clusters / 4 parts",
+        "SELECTED body=1.00 head=1.00 dist=91 bbox=61x178"
+      ]
+    },
+    {
+      "name": "ref_dynamic_pose",
+      "frame": [
+        1280,
+        720
+      ],
+      "active": true,
+      "selected": {
+        "body": 0.7708759010892601,
+        "head": 0.36666666666666664,
+        "torso": 0.8489284309870232,
+        "limb": 0.62,
+        "bbox": [
+          580,
+          353,
+          99,
+          151
+        ],
+        "aim": [
+          620.6966702702703,
+          409.71089909909904
+        ],
+        "parts": 2
+      },
+      "runtime_wired_bbox": [
+        580,
+        353,
+        99,
+        151
+      ],
+      "runtime_aim": [
+        620.6966702702703,
+        409.71089909909904
+      ],
+      "candidates": [
+        {
+          "idx": 0,
+          "accepted": true,
+          "reject": "ok",
+          "body": 0.7708759010892601,
+          "head": 0.36666666666666664,
+          "torso": 0.8489284309870232,
+          "limb": 0.62,
+          "vert": 1.0,
+          "aspect": 1.5252525252525253,
+          "fill": 0.6423841118812561,
+          "circ": 0.46160516396458606,
+          "bbox": [
+            580,
+            353,
+            99,
+            151
+          ],
+          "aim": [
+            620.6966702702703,
+            409.71089909909904
+          ],
+          "parts": 2,
+          "detail": "parts=2 head=0.37 torso=0.85 limb=0.62 vert=1.00 geom=0.57 align=0.72 circ=0.46 fill=0.64"
+        }
+      ],
+      "detection_debug": [
+        "cand[0] reject=ok body=0.77 head=0.37 torso=0.85 limb=0.62 aspect=1.53 fill=0.64 circ=0.46 bbox=(580,353,99x151) area=7629 dist=53 parts=2 | parts=2 head=0.37 torso=0.85 limb=0.62 vert=1.00 geom=0.57 align=0.72 circ=0.46 fill=0.64",
+        "accepted=1 from 1 clusters / 2 parts",
+        "SELECTED body=0.77 head=0.37 dist=53 bbox=99x151"
+      ]
+    },
+    {
+      "name": "ref_ads_body_balloon",
+      "frame": [
+        1280,
+        720
+      ],
+      "active": false,
+      "selected": null,
+      "runtime_wired_bbox": null,
+      "runtime_aim": null,
+      "candidates": [
+        {
+          "idx": 0,
+          "accepted": false,
+          "reject": "round_non_body",
+          "body": 0.0,
+          "head": 0.0,
+          "torso": 0.95,
+          "limb": 0.2,
+          "vert": 0.72,
+          "aspect": 1.0263157894736843,
+          "fill": 0.8205128312110901,
+          "circ": 0.7712238479816471,
+          "bbox": [
+            624,
+            485,
+            38,
+            39
+          ],
+          "aim": [
+            643.0,
+            499.04
+          ],
+          "parts": 1,
+          "detail": "round_non_body circ=0.77 align=0.00 head=0.00 torso=0.95 limb=0.20 vert=0.72"
+        }
+      ],
+      "detection_debug": [
+        "cand[0] reject=round_non_body body=0.00 head=0.00 torso=0.95 limb=0.20 aspect=1.03 fill=0.82 circ=0.77 bbox=(624,485,38x39) area=1337 dist=139 parts=1 | round_non_body circ=0.77 align=0.00 head=0.00 torso=0.95 limb=0.20 vert=0.72",
+        "accepted=0 from 1 clusters / 1 parts"
+      ]
+    },
+    {
+      "name": "balloon_only",
+      "frame": [
+        1280,
+        720
+      ],
+      "active": false,
+      "selected": null,
+      "runtime_wired_bbox": null,
+      "runtime_aim": null,
+      "candidates": [],
+      "detection_debug": [
+        "accepted=0 from 0 clusters / 0 parts"
+      ]
+    }
+  ],
+  "proofs_passed": {
+    "refs_detect_body": false,
+    "balloon_only_inactive": true,
+    "runtime_bbox_wired": true
+  }
+}

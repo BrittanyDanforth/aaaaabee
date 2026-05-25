@@ -1,0 +1,186 @@
+{
+  "input": "/workspace/artifacts/real_apex_test/_inputs/img4_dummy_not_detected.webp",
+  "frame_size": [
+    310,
+    417
+  ],
+  "fov_center": [
+    155.0,
+    208.5
+  ],
+  "fov_radius": 111,
+  "display_fov_radius": 107,
+  "min_area_floor": 40.0,
+  "ads_hint": false,
+  "mask_pixels": {
+    "red_enemy": 19196,
+    "shape": 70313,
+    "chroma": 14879,
+    "motion": 34047,
+    "fused": 19196
+  },
+  "parts": 9,
+  "cluster_count": 5,
+  "active": true,
+  "best_score": 0.8201731680802964,
+  "selected": {
+    "bbox": [
+      151,
+      100,
+      72,
+      191
+    ],
+    "centroid": [
+      185.68,
+      182.5245831325301
+    ],
+    "body_shape_score": 1.0,
+    "head_score": 1.0,
+    "torso_score": 0.907389502762431,
+    "limb_stack_score": 1.0,
+    "part_count": 3,
+    "red_coverage": 0.3078097731239092,
+    "fill_ratio": 0.5340313911437988,
+    "max_circularity": 0.6084739260371852,
+    "confidence": 0.8201731680802964,
+    "distance_to_center": 40.19931195230635,
+    "reject_reason": "ok"
+  },
+  "candidates": [
+    {
+      "idx": 0,
+      "accepted": false,
+      "reject_reason": "no_body_structure",
+      "bbox": [
+        68,
+        131,
+        10,
+        32
+      ],
+      "body_shape_score": 0.6499979156327543,
+      "head_score": 0.42,
+      "torso_score": 0.95,
+      "limb_stack_score": 0.2,
+      "vertical_profile_score": 1.0,
+      "fill_ratio": 0.78125,
+      "max_circularity": 0.2208156042738272,
+      "aspect": 3.2,
+      "part_count": 1,
+      "total_area": 98.5,
+      "distance_to_center": 106.46590487099616,
+      "aim": [
+        71.2,
+        142.82999999999998
+      ],
+      "debug_detail": "parts=1 head=0.42 torso=0.95 limb=0.20 vert=1.00 geom=0.91 align=0.00 circ=0.22 fill=0.78"
+    },
+    {
+      "idx": 1,
+      "accepted": false,
+      "reject_reason": "too_small",
+      "bbox": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "body_shape_score": 0.0,
+      "head_score": 0.0,
+      "torso_score": 0.0,
+      "limb_stack_score": 0.0,
+      "vertical_profile_score": 0.0,
+      "fill_ratio": 0.0,
+      "max_circularity": 0.0,
+      "aspect": 0.0,
+      "part_count": 1,
+      "total_area": 5.0,
+      "distance_to_center": 0.0,
+      "aim": [
+        155.0,
+        208.5
+      ],
+      "debug_detail": "area=5 < min=40.0"
+    },
+    {
+      "idx": 2,
+      "accepted": false,
+      "reject_reason": "too_small",
+      "bbox": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "body_shape_score": 0.0,
+      "head_score": 0.0,
+      "torso_score": 0.0,
+      "limb_stack_score": 0.0,
+      "vertical_profile_score": 0.0,
+      "fill_ratio": 0.0,
+      "max_circularity": 0.0,
+      "aspect": 0.0,
+      "part_count": 2,
+      "total_area": 17.0,
+      "distance_to_center": 0.0,
+      "aim": [
+        155.0,
+        208.5
+      ],
+      "debug_detail": "area=17 < min=40.0"
+    },
+    {
+      "idx": 3,
+      "accepted": true,
+      "reject_reason": "ok",
+      "bbox": [
+        151,
+        100,
+        72,
+        191
+      ],
+      "body_shape_score": 1.0,
+      "head_score": 1.0,
+      "torso_score": 0.907389502762431,
+      "limb_stack_score": 1.0,
+      "vertical_profile_score": 1.0,
+      "fill_ratio": 0.5340313911437988,
+      "max_circularity": 0.6084739260371852,
+      "aspect": 2.6527777777777777,
+      "part_count": 3,
+      "total_area": 3258.0,
+      "distance_to_center": 40.19931195230635,
+      "aim": [
+        185.68,
+        182.5245831325301
+      ],
+      "debug_detail": "parts=3 head=1.00 torso=0.91 limb=1.00 vert=1.00 geom=0.62 align=0.23 circ=0.61 fill=0.53"
+    },
+    {
+      "idx": 4,
+      "accepted": false,
+      "reject_reason": "no_torso",
+      "bbox": [
+        200,
+        200,
+        67,
+        91
+      ],
+      "body_shape_score": 0.0,
+      "head_score": 1.0,
+      "torso_score": 0.0,
+      "limb_stack_score": 0.35,
+      "vertical_profile_score": 0.72,
+      "fill_ratio": 0.2527472674846649,
+      "max_circularity": 0.5211268324326216,
+      "aspect": 1.3582089552238805,
+      "part_count": 2,
+      "total_area": 1127.5,
+      "distance_to_center": 82.16323752141221,
+      "aim": [
+        233.5,
+        232.76
+      ],
+      "debug_detail": "no_torso circ=0.52 align=0.00 head=1.00 torso=0.00 limb=0.35 vert=0.72"
+    }
+  ]
+}

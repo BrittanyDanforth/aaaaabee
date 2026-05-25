@@ -1,0 +1,15 @@
+# Force CRLF on Windows batch files regardless of the host OS that committed
+# them. Without this, label resolution in cmd.exe fails ("The system cannot
+# find the batch label specified") when a .bat is checked out with LF endings
+# from a Linux clone or a GitHub source-zip download.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Power/CMD scripts and Windows resource files follow the same rule.
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.rc    text eol=crlf
+
+# Everything else uses native line endings (LF on Linux/macOS, CRLF on Windows)
+# under git's default auto-conversion.
+*       text=auto
