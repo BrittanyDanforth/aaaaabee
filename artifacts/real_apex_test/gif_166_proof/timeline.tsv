@@ -19,7 +19,7 @@ frame	state	overlay_y	violation
 17	fresh	134.7	
 18	fresh	134.0	
 19	fresh	133.6	
-20	stale	133.6	
+20	fresh	133.5	
 21	fresh	243.0	
 22	fresh	217.0	
 23	fresh	220.5	
@@ -39,8 +39,8 @@ frame	state	overlay_y	violation
 37	fresh	219.7	
 38	fresh	221.5	
 39	fresh	222.2	
-40	stale	222.2	
-41	fresh	222.6	
+40	fresh	222.6	
+41	fresh	222.7	
 42	fresh	222.7	
 43	fresh	222.7	
 44	fresh	222.7	
@@ -55,10 +55,10 @@ frame	state	overlay_y	violation
 53	fresh	217.5	
 54	fresh	213.5	
 55	above_chest	209.5	above_chest
-56	above_chest	207.5	above_chest
-57	stale	207.5	
-58	above_chest	206.8	above_chest
-59	stale	206.8	
+56	above_chest	207.6	above_chest
+57	stale	207.6	
+58	above_chest	206.7	above_chest
+59	stale	206.7	
 60	no_target	0.0	
 61	no_target	0.0	
 62	fresh	201.5	
@@ -79,75 +79,75 @@ frame	state	overlay_y	violation
 77	fresh	201.5	
 78	fresh	201.5	
 79	fresh	201.5	
-80	no_target	0.0	
-81	no_target	0.0	
-82	no_target	0.0	
-83	fresh	266.0	
-84	fresh	269.6	
-85	fresh	265.6	
-86	fresh	262.8	
-87	fresh	261.5	
-88	fresh	261.2	
-89	fresh	261.0	
-90	fresh	260.9	
-91	fresh	260.9	
-92	fresh	260.8	
-93	fresh	260.8	
-94	fresh	260.8	
-95	stale	260.8	
-96	stale	260.8	
-97	stale	260.8	
-98	stale	260.8	
-99	stale	260.8	
-100	stale	260.8	
-101	stale	260.8	
-102	fresh	273.8	
-103	fresh	279.4	
-104	fresh	282.2	
-105	fresh	282.9	
-106	fresh	283.0	
-107	fresh	283.0	
-108	fresh	283.0	
-109	fresh	283.0	
-110	fresh	283.0	
-111	fresh	283.0	
-112	fresh	283.0	
-113	fresh	283.0	
-114	fresh	283.0	
-115	fresh	283.0	
-116	fresh	283.0	
-117	fresh	283.0	
-118	fresh	283.0	
-119	fresh	283.0	
-120	fresh	283.0	
-121	fresh	283.0	
-122	fresh	283.0	
-123	fresh	283.0	
-124	fresh	283.0	
-125	fresh	283.0	
-126	fresh	283.0	
-127	fresh	283.0	
-128	fresh	283.0	
-129	fresh	283.0	
-130	fresh	283.0	
-131	fresh	283.0	
-132	fresh	283.0	
-133	fresh	283.0	
-134	fresh	283.0	
-135	above_chest	279.0	above_chest
-136	above_chest	275.0	above_chest
-137	above_chest	271.0	above_chest
-138	above_chest	268.5	above_chest
-139	above_chest	267.2	above_chest
-140	fresh	266.6	
-141	fresh	266.7	
-142	fresh	266.7	
-143	fresh	266.7	
-144	fresh	266.7	
+80	fresh	201.5	
+81	fresh	201.5	
+82	fresh	201.5	
+83	fresh	201.5	
+84	fresh	201.5	
+85	fresh	201.5	
+86	fresh	201.5	
+87	fresh	201.5	
+88	fresh	201.5	
+89	fresh	201.5	
+90	fresh	201.5	
+91	fresh	201.5	
+92	fresh	201.5	
+93	fresh	201.5	
+94	fresh	201.5	
+95	fresh	201.5	
+96	fresh	201.5	
+97	fresh	201.5	
+98	fresh	201.5	
+99	fresh	201.5	
+100	fresh	201.5	
+101	fresh	201.5	
+102	fresh	201.5	
+103	fresh	201.5	
+104	fresh	201.5	
+105	fresh	201.5	
+106	fresh	201.5	
+107	fresh	201.5	
+108	fresh	201.5	
+109	fresh	201.5	
+110	fresh	201.5	
+111	fresh	201.5	
+112	fresh	201.5	
+113	fresh	201.5	
+114	fresh	201.5	
+115	fresh	201.5	
+116	fresh	201.5	
+117	fresh	201.5	
+118	fresh	201.5	
+119	fresh	201.5	
+120	fresh	201.5	
+121	fresh	201.5	
+122	fresh	201.5	
+123	fresh	201.5	
+124	fresh	201.5	
+125	fresh	201.5	
+126	fresh	201.5	
+127	fresh	201.5	
+128	fresh	201.5	
+129	fresh	201.5	
+130	fresh	201.5	
+131	fresh	201.5	
+132	fresh	201.5	
+133	fresh	201.5	
+134	fresh	201.5	
+135	fresh	230.2	
+136	fresh	234.1	
+137	fresh	236.0	
+138	fresh	241.0	
+139	fresh	241.3	
+140	fresh	241.3	
+141	below_chest	253.2	below_chest
+142	below_chest	258.2	below_chest
+143	below_chest	260.8	below_chest
+144	below_chest	261.4	below_chest
 145	fresh	266.7	
-146	stale	266.7	
-147	fresh	266.7	
-148	fresh	266.7	
+146	fresh	266.8	
+147	fresh	266.8	
+148	fresh	266.8	
 149	fresh	266.7	
 150	fresh	266.7	
 151	fresh	266.7	

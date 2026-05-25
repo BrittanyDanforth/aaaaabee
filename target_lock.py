@@ -270,6 +270,21 @@ def lock_target_is_plausible(
         frame_h=frame_h,
     ):
         return False
+    # High-frame + far-from-crosshair + low-head = tower/banner/range structure.
+    # The lock CAN be acquired (provides sticky context for center dummy search)
+    # but the dot must NOT show — the target is not the aimed-at enemy.
+    if (
+        fov_cx is not None
+        and fov_cy is not None
+        and frame_h > 0
+        and float(target.bbox_y) / float(frame_h) < 0.28
+        and math.hypot(
+            target.centroid_x - float(fov_cx), target.centroid_y - float(fov_cy)
+        )
+        > 60.0
+        and float(target.head_score) < 0.35
+    ):
+        return False
     return True
 
 
@@ -504,20 +519,7 @@ def apply_target_lock(
                     )
                 )
             )
-            # When the detector found NO candidates at all (candidates==0),
-            # the enemy has truly disappeared from the frame; let grace expire
-            # normally so the lock doesn't hold indefinitely (would block fresh
-            # target acquisition for 70+ frames after the last good detection).
-            # When candidates > 0 (pool just empty), reset as before.
-            if result.candidates == 0:
-                state.target_lost_frames += 1
-                if state.target_lost_frames >= lost_max:
-                    state.reset()
-                    if on_lock_expired is not None:
-                        on_lock_expired()
-                    return DetectionResult(None, result.candidates, 0.0), False
-            else:
-                state.target_lost_frames = 0
+            state.target_lost_frames = 0
             state.switch_candidate = None
             state.switch_frames = 0
             return DetectionResult(
@@ -620,13 +622,8 @@ def apply_target_lock(
                 locked.distance_to_center < display_fov * 0.42
                 and new_t.distance_to_center < display_fov * 0.42
             )
-            _bir_upward_frag = (
-                new_t.bbox_y < locked.bbox_y - locked.bbox_h * 0.12
-                and new_t.bbox_h < locked.bbox_h * 0.92
-            )
             if (
                 both_in_ring
-                and not _bir_upward_frag
                 and math.hypot(
                     new_t.centroid_x - locked.centroid_x,
                     new_t.centroid_y - locked.centroid_y,
@@ -758,11 +755,8 @@ def apply_target_lock(
                         )
                     _commit_locked_target(state, new_t, is_new_lock=False)
                     return result, False
-                # Refine gates failed but detector still sees the same enemy
-                # (same_identity: drift < 32px or IoU >= 0.22).  Hold the
-                # PREVIOUS good lock with active=True so the overlay dot does not
-                # vanish for one frame (LOCKED_LOST).  If the new pick is clearly
-                # a different object, fall into stale grace instead.
+                # Refine gates failed but detector still sees the same enemy.
+                # Hold the PREVIOUS good lock with active=True so the dot stays.
                 if _same_lock_identity(locked, new_t):
                     state.target_lost_frames = 0
                     return (
@@ -774,7 +768,7 @@ def apply_target_lock(
                         ),
                         False,
                     )
-                # Different object — enter stale grace rather than LOCKED_LOST.
+                # Different object — stale grace instead of LOCKED_LOST.
                 state.target_lost_frames = max(1, state.target_lost_frames)
                 is_stale = True
                 return (
