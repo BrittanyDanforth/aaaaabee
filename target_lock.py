@@ -740,13 +740,32 @@ def apply_target_lock(
                         )
                     _commit_locked_target(state, new_t, is_new_lock=False)
                     return result, False
+                # Refine gates failed but detector still sees the same enemy
+                # (same_identity means drift < 32px or IoU ≥ 0.22).  Hold the
+                # PREVIOUS good lock with active=True so the overlay dot does not
+                # vanish for one frame (LOCKED_LOST).  If the new pick is clearly a
+                # different object, fall into stale grace instead.
+                if _same_lock_identity(locked, new_t):
+                    state.target_lost_frames = 0
+                    return (
+                        DetectionResult(
+                            locked,
+                            result.candidates,
+                            locked.confidence,
+                            active=True,
+                        ),
+                        False,
+                    )
+                # Different object — enter stale grace rather than LOCKED_LOST.
+                state.target_lost_frames = max(1, state.target_lost_frames)
+                is_stale = True
                 return (
                     DetectionResult(
                         locked,
                         result.candidates,
                         locked.confidence,
                     ),
-                    False,
+                    is_stale,
                 )
 
             if clutter_fp or adopt_iou < CLUTTER_REJECT_MAX_IOU:

@@ -86,6 +86,23 @@ class Gif166AllFramesProofTests(unittest.TestCase):
         self.assertFalse(row["active"], row)
         self.assertFalse(row.get("is_stale", True), row)
 
+    def test_frame_24_no_locked_lost_same_spot(self) -> None:
+        """Frame 24 must not be LOCKED_LOST when the enemy barely moved from frame 23.
+
+        Root cause: close ADS character at dist~3px appeared with fill=0.556 and
+        bh < bw*1.08, triggering env_fp=True → all refine gates failed → LOCKED_LOST.
+        Fix: same-identity check at line 743-750 holds the lock with active=True.
+        """
+        data = json.loads(SUMMARY.read_text(encoding="utf-8"))
+        row24 = next(r for r in data["rows"] if r["frame_idx"] == 24)
+        row23 = next(r for r in data["rows"] if r["frame_idx"] == 23)
+        # Both frames 23 and 24 should be LIVE (active=True, not stale)
+        self.assertTrue(row23["active"], f"frame 23 should be LIVE: {row23}")
+        self.assertTrue(row24["active"], f"frame 24 should be LIVE (not LOCKED_LOST): {row24}")
+        self.assertFalse(row24.get("is_stale", True), f"frame 24 should not be stale: {row24}")
+        # Overlay dot should be on the body (not drifted below the detection box)
+        self.assertTrue(row24.get("overlay_in_body", False), f"frame 24 dot should be in body: {row24}")
+
     def test_no_active_lock_on_sky_banner_geometry(self) -> None:
         """No LIVE assist when bbox top is in sky band on a short column."""
         data = json.loads(SUMMARY.read_text(encoding="utf-8"))
