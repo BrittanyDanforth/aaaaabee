@@ -9,12 +9,12 @@ from `artifacts/real_apex_test/_gif_frames/source.gif` (extract via `extract_gif
 |-------|------:|
 | Red dot in sky band (top 12%) | **0** |
 | Pass (red dot sky) | **True** |
-| Tracked frames | 154 / 166 |
+| Tracked frames | 151 / 166 |
 | Fresh detection frames | 59 |
-| Stale hold frames | 95 |
+| Stale hold frames | 92 |
 | Detector bbox top in sky (dot still on chest) | 0 |
-| Chest-band overlay lag | 15 |
-| Close-target bbox top too high (top &lt; 36% frame) | 11 |
+| Chest-band overlay lag | 10 |
+| Close-target bbox top too high (top &lt; 36% frame) | 8 |
 | Annotated frames written | 166 |
 
 ## Files
@@ -26,3 +26,12 @@ from `artifacts/real_apex_test/_gif_frames/source.gif` (extract via `extract_gif
 - `proof_montage.jpg` — key frames side-by-side
 
 Red dot = production overlay point (`overlay_x/y` after motion + chest clamp).
+Green box = `bbox_used` from `TargetingRuntime` (same as `observe_target`).
+
+## Regenerate all frames
+
+```bash
+python3 scripts/audit_gif_full_sequence.py --save-all
+```
+
+Dot is drawn only when `aim.active` and lock is plausible (matches live `build_frame_overlay`).

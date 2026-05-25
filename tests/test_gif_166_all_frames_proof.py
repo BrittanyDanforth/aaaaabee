@@ -47,6 +47,18 @@ class Gif166AllFramesProofTests(unittest.TestCase):
         self.assertEqual(data["summary"]["frames_written"], n_src)
         self.assertEqual(data["summary"]["total_frames"], n_src)
 
+    def test_frame_09_no_live_dot_on_tower_banner(self) -> None:
+        """Matches user screenshot: must not LIVE-lock central tower banners."""
+        data = json.loads(SUMMARY.read_text(encoding="utf-8"))
+        row = next(r for r in data["rows"] if r["frame_idx"] == 9)
+        self.assertFalse(row["active"], row)
+        self.assertFalse(row.get("plausible_lock", True), row)
+        self.assertEqual(row.get("overlay_x", 0.0), 0.0)
+        self.assertEqual(row.get("overlay_y", 0.0), 0.0)
+        png = PROOF / "frames" / "frame_0009_red_dot.png"
+        self.assertTrue(png.exists(), "regenerate with audit_gif_full_sequence.py --save-all")
+        self.assertGreater(png.stat().st_size, 5000)
+
     def test_frame_45_center_dummy_metrics(self) -> None:
         data = json.loads(SUMMARY.read_text(encoding="utf-8"))
         row = next(r for r in data["rows"] if r["frame_idx"] == 45)
@@ -55,6 +67,19 @@ class Gif166AllFramesProofTests(unittest.TestCase):
         self.assertGreater(row.get("bbox_y", 0), 180, "bbox top on lower body band")
         self.assertLess(row.get("bbox_top_frac", 1.0), 0.50)
         self.assertNotIn("high_bbox_flag", row)
+
+    def test_no_active_lock_on_sky_banner_geometry(self) -> None:
+        """No LIVE assist when bbox top is in sky band on a short column."""
+        data = json.loads(SUMMARY.read_text(encoding="utf-8"))
+        for row in data["rows"]:
+            if not row.get("active"):
+                continue
+            top_frac = row.get("bbox_top_frac")
+            bh = row.get("bbox_h")
+            if top_frac is None or bh is None:
+                continue
+            if top_frac < 0.22 and bh < 80:
+                self.fail(f"frame {row['frame_idx']} active on banner-like bbox: {row}")
 
 
 if __name__ == "__main__":
