@@ -8,160 +8,160 @@ frame	state	overlay_y	violation
 6	no_target	0.0	
 7	no_target	0.0	
 8	no_target	0.0	
-9	no_target	0.0	
-10	no_target	0.0	
-11	fresh	199.0	
-12	stale	199.0	
-13	fresh	200.9	
-14	stale	200.9	
-15	stale	200.9	
-16	stale	200.9	
-17	stale	200.9	
-18	stale	200.9	
-19	stale	200.9	
-20	stale	200.9	
-21	stale	200.9	
-22	stale	200.9	
-23	stale	200.9	
-24	stale	200.9	
-25	stale	200.9	
-26	above_chest	199.2	above_chest
-27	above_chest	199.2	above_chest
-28	above_chest	199.2	above_chest
-29	above_chest	199.2	above_chest
-30	above_chest	199.2	above_chest
-31	above_chest	199.2	above_chest
-32	above_chest	199.2	above_chest
-33	above_chest	199.2	above_chest
-34	above_chest	199.2	above_chest
-35	above_chest	199.2	above_chest
-36	above_chest	199.2	above_chest
-37	above_chest	199.2	above_chest
-38	above_chest	199.2	above_chest
-39	above_chest	199.2	above_chest
-40	above_chest	199.2	above_chest
-41	above_chest	199.2	above_chest
-42	above_chest	199.2	above_chest
-43	above_chest	199.2	above_chest
-44	above_chest	199.2	above_chest
-45	above_chest	199.2	above_chest
-46	above_chest	199.2	above_chest
-47	above_chest	199.2	above_chest
-48	above_chest	199.2	above_chest
-49	above_chest	199.2	above_chest
-50	no_target	0.0	
-51	no_target	0.0	
-52	no_target	0.0	
-53	no_target	0.0	
-54	no_target	0.0	
-55	no_target	0.0	
-56	no_target	0.0	
-57	fresh	196.5	
-58	fresh	196.5	
-59	stale	196.5	
-60	stale	196.5	
-61	stale	196.5	
-62	stale	196.5	
-63	stale	196.5	
-64	stale	196.5	
-65	stale	196.5	
-66	stale	196.5	
-67	stale	196.5	
-68	stale	196.5	
-69	stale	196.5	
-70	stale	196.5	
-71	stale	196.5	
-72	stale	196.5	
-73	stale	196.5	
-74	stale	196.5	
-75	stale	196.5	
-76	stale	196.5	
-77	no_target	0.0	
-78	no_target	0.0	
-79	no_target	0.0	
-80	no_target	0.0	
-81	no_target	0.0	
-82	no_target	0.0	
-83	no_target	0.0	
-84	fresh	259.0	
-85	fresh	259.9	
-86	fresh	260.3	
-87	stale	260.3	
-88	stale	260.3	
-89	stale	260.3	
-90	stale	260.3	
-91	stale	260.3	
-92	stale	260.3	
-93	stale	260.3	
-94	stale	260.3	
-95	stale	260.3	
-96	stale	260.3	
-97	stale	260.3	
-98	stale	260.3	
-99	stale	260.3	
-100	stale	260.3	
-101	stale	260.3	
-102	fresh	273.6	
-103	stale	273.6	
-104	stale	273.6	
-105	stale	273.6	
-106	stale	273.6	
-107	stale	273.6	
-108	stale	273.6	
-109	stale	273.6	
-110	stale	273.6	
-111	stale	273.6	
-112	stale	273.6	
-113	stale	273.6	
-114	stale	273.6	
-115	stale	273.6	
-116	stale	273.6	
-117	stale	273.6	
-118	stale	273.6	
-119	stale	273.6	
-120	stale	273.6	
-121	no_target	0.0	
-122	no_target	0.0	
-123	fresh	221.0	
-124	stale	221.0	
-125	stale	221.0	
-126	stale	221.0	
-127	stale	221.0	
-128	stale	221.0	
-129	stale	221.0	
-130	stale	221.0	
-131	stale	221.0	
-132	stale	221.0	
-133	stale	221.0	
-134	stale	221.0	
-135	stale	221.0	
-136	stale	221.0	
-137	stale	221.0	
-138	stale	221.0	
-139	stale	221.0	
-140	stale	221.0	
-141	stale	221.0	
-142	stale	221.0	
-143	stale	221.0	
-144	stale	221.0	
-145	no_target	0.0	
-146	no_target	0.0	
-147	fresh	216.7	
-148	stale	216.7	
-149	stale	216.7	
-150	stale	216.7	
-151	stale	216.7	
-152	stale	216.7	
-153	stale	216.7	
-154	stale	216.7	
-155	stale	216.7	
-156	stale	216.7	
-157	stale	216.7	
-158	stale	216.7	
-159	stale	216.7	
-160	stale	216.7	
-161	stale	216.7	
-162	above_chest	212.7	above_chest
-163	above_chest	208.7	above_chest
-164	fresh	205.3	
-165	fresh	203.5	
+9	fresh	140.5	
+10	stale	140.5	
+11	stale	140.5	
+12	stale	140.5	
+13	stale	140.5	
+14	stale	140.5	
+15	stale	140.5	
+16	stale	140.5	
+17	fresh	137.0	
+18	stale	137.0	
+19	stale	137.0	
+20	fresh	133.0	
+21	fresh	243.0	
+22	above_chest	244.0	above_chest
+23	above_chest	244.0	above_chest
+24	above_chest	244.0	above_chest
+25	above_chest	244.0	above_chest
+26	above_chest	244.0	above_chest
+27	above_chest	244.2	above_chest
+28	above_chest	244.2	above_chest
+29	above_chest	243.6	above_chest
+30	above_chest	243.6	above_chest
+31	above_chest	243.3	above_chest
+32	above_chest	243.3	above_chest
+33	above_chest	243.3	above_chest
+34	above_chest	243.3	above_chest
+35	above_chest	243.3	above_chest
+36	above_chest	243.3	above_chest
+37	above_chest	243.3	above_chest
+38	above_chest	243.2	above_chest
+39	above_chest	243.1	above_chest
+40	fresh	232.0	
+41	stale	232.0	
+42	fresh	232.0	
+43	fresh	226.8	
+44	stale	226.8	
+45	fresh	223.0	
+46	no_target	0.0	
+47	no_target	0.0	
+48	no_target	0.0	
+49	no_target	0.0	
+50	fresh	228.4	
+51	stale	228.4	
+52	stale	228.4	
+53	stale	228.4	
+54	above_chest	222.6	above_chest
+55	above_chest	222.6	above_chest
+56	above_chest	216.8	above_chest
+57	above_chest	216.8	above_chest
+58	above_chest	213.2	above_chest
+59	above_chest	213.2	above_chest
+60	above_chest	213.2	above_chest
+61	above_chest	213.2	above_chest
+62	above_chest	211.7	above_chest
+63	above_chest	211.7	above_chest
+64	above_chest	211.7	above_chest
+65	above_chest	211.7	above_chest
+66	above_chest	211.7	above_chest
+67	above_chest	211.7	above_chest
+68	above_chest	211.7	above_chest
+69	above_chest	211.7	above_chest
+70	above_chest	211.7	above_chest
+71	above_chest	211.7	above_chest
+72	above_chest	211.7	above_chest
+73	above_chest	211.7	above_chest
+74	above_chest	211.7	above_chest
+75	fresh	270.3	
+76	stale	270.3	
+77	fresh	270.4	
+78	stale	270.4	
+79	stale	270.4	
+80	stale	270.4	
+81	stale	270.4	
+82	stale	270.4	
+83	fresh	270.6	
+84	fresh	270.6	
+85	fresh	270.6	
+86	fresh	270.6	
+87	fresh	270.6	
+88	fresh	270.6	
+89	fresh	270.6	
+90	fresh	270.5	
+91	fresh	270.4	
+92	fresh	270.4	
+93	fresh	270.3	
+94	fresh	269.2	
+95	fresh	273.8	
+96	fresh	275.5	
+97	fresh	276.2	
+98	fresh	276.5	
+99	fresh	276.8	
+100	fresh	276.4	
+101	fresh	276.7	
+102	fresh	279.0	
+103	stale	279.0	
+104	stale	279.0	
+105	stale	279.0	
+106	stale	279.0	
+107	stale	279.0	
+108	stale	279.0	
+109	stale	279.0	
+110	stale	279.0	
+111	stale	279.0	
+112	stale	279.0	
+113	fresh	279.9	
+114	fresh	280.2	
+115	stale	280.2	
+116	stale	280.2	
+117	stale	280.2	
+118	stale	280.2	
+119	stale	280.2	
+120	stale	280.2	
+121	stale	280.2	
+122	stale	280.2	
+123	fresh	280.4	
+124	stale	280.4	
+125	stale	280.4	
+126	stale	280.4	
+127	stale	280.4	
+128	stale	280.4	
+129	stale	280.4	
+130	stale	280.4	
+131	stale	280.4	
+132	fresh	280.4	
+133	fresh	280.5	
+134	stale	280.5	
+135	fresh	282.1	
+136	fresh	282.5	
+137	stale	282.5	
+138	fresh	282.8	
+139	fresh	282.9	
+140	fresh	282.9	
+141	fresh	283.0	
+142	fresh	279.4	
+143	stale	279.4	
+144	above_chest	275.4	above_chest
+145	above_chest	275.4	above_chest
+146	above_chest	271.4	above_chest
+147	above_chest	271.4	above_chest
+148	above_chest	271.4	above_chest
+149	above_chest	271.4	above_chest
+150	above_chest	271.4	above_chest
+151	above_chest	268.0	above_chest
+152	above_chest	268.0	above_chest
+153	above_chest	268.0	above_chest
+154	above_chest	268.0	above_chest
+155	above_chest	268.0	above_chest
+156	above_chest	266.7	above_chest
+157	above_chest	266.7	above_chest
+158	above_chest	266.2	above_chest
+159	above_chest	266.2	above_chest
+160	above_chest	266.2	above_chest
+161	above_chest	266.2	above_chest
+162	above_chest	266.2	above_chest
+163	above_chest	266.2	above_chest
+164	above_chest	266.2	above_chest
+165	above_chest	266.2	above_chest

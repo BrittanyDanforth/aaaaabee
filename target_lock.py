@@ -492,6 +492,54 @@ def apply_target_lock(
                 state.new_lock_frames = 0
                 return result, False
 
+            dbg = result.debug_lines or []
+            in_ring_pick = any("in_ring_nearest" in ln for ln in dbg)
+            det_handoff = any(
+                tag in ln
+                for ln in dbg
+                for tag in (
+                    "sticky_identity",
+                    "closer_retarget",
+                    "closer_retarget_pool",
+                )
+            )
+            in_ring_close = new_t.distance_to_center < min(display_fov * 0.52, 58.0)
+            if in_ring_pick and (
+                new_t.body_shape_score >= 0.50
+                and not target_is_background_clutter(new_t)
+                and not bbox_mid_in_sky_band(new_t.bbox_y, new_t.bbox_h, lock_fcy)
+                and (
+                    not new_is_env
+                    or (
+                        in_ring_close
+                        and new_t.body_shape_score >= 0.55
+                        and new_t.bbox_h <= 80
+                    )
+                )
+            ):
+                _commit_locked_target(state, new_t, is_new_lock=False)
+                state.target_lost_frames = 0
+                state.switch_candidate = None
+                state.switch_frames = 0
+                state.new_lock_candidate = None
+                state.new_lock_frames = 0
+                return result, False
+            if (
+                det_handoff
+                and new_t.distance_to_center < locked.distance_to_center * 0.65
+                and new_t.body_shape_score >= 0.52
+                and not new_is_env
+                and not target_is_background_clutter(new_t)
+                and not bbox_mid_in_sky_band(new_t.bbox_y, new_t.bbox_h, lock_fcy)
+            ):
+                _commit_locked_target(state, new_t, is_new_lock=True)
+                state.target_lost_frames = 0
+                state.switch_candidate = None
+                state.switch_frames = 0
+                state.new_lock_candidate = None
+                state.new_lock_frames = 0
+                return result, False
+
             both_in_ring = (
                 locked.distance_to_center < display_fov * 0.42
                 and new_t.distance_to_center < display_fov * 0.42
@@ -641,6 +689,16 @@ def apply_target_lock(
             if clutter_fp or adopt_iou < CLUTTER_REJECT_MAX_IOU:
                 state.switch_candidate = None
                 state.switch_frames = 0
+                # Wrong overlapping pick while lock is already closer — hold live.
+                if (
+                    new_t.distance_to_center > locked.distance_to_center * 1.22
+                    and locked.distance_to_center < display_fov * 0.45
+                ):
+                    state.target_lost_frames = 0
+                    return (
+                        DetectionResult(locked, result.candidates, locked.confidence),
+                        False,
+                    )
                 state.target_lost_frames = max(1, state.target_lost_frames)
                 is_stale = True
                 return (

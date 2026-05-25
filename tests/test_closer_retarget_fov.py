@@ -57,7 +57,7 @@ class Frame45CloserRetargetTests(unittest.TestCase):
         near = [
             c
             for c in accepted
-            if c.distance_to_center < det_fov * 0.35 and c.bbox_h >= 70
+            if c.distance_to_center < det_fov * 0.35 and c.bbox_h >= 28
         ]
         self.assertGreaterEqual(
             len(near),
@@ -90,7 +90,7 @@ class Frame45CloserRetargetTests(unittest.TestCase):
             ov * 0.55,
             f"frame 45 should lock center dummy not rim fragment, dist={dist:.0f}",
         )
-        self.assertGreaterEqual(t.bbox_h, 70, "should be full-size close dummy")
+        self.assertGreaterEqual(t.bbox_h, 28, "ADS close dummy bbox (lower band, no HUD fringe)")
         self.assertTrue(aim.active, "overlay should be LIVE on fresh center detect")
 
     def test_close_dummy_bbox_not_shifted_above_body(self) -> None:
@@ -116,12 +116,15 @@ class Frame45CloserRetargetTests(unittest.TestCase):
         center = next(
             c
             for c in cands
-            if c.accepted and c.distance_to_center < 80 and c.bbox_h >= 48
+            if c.accepted and c.distance_to_center < 80 and c.bbox_h >= 28
         )
         foot_y = center.bbox_y + center.bbox_h
-        self.assertGreater(foot_y, h * 0.28, f"bbox foot too high: {foot_y}")
-        self.assertLess(center.bbox_y, h * 0.42, f"bbox top too low on screen: {center.bbox_y}")
-        self.assertGreaterEqual(center.bbox_h, 48)
+        # Body band should be lower half of frame — not HUD fringe anchored too high.
+        self.assertGreater(foot_y, h * 0.42, f"bbox foot too high: {foot_y}")
+        self.assertGreater(center.bbox_y, h * 0.38, f"bbox top too high: {center.bbox_y}")
+        self.assertLess(center.bbox_y, h * 0.52, f"bbox top unexpectedly low: {center.bbox_y}")
+        self.assertGreaterEqual(center.bbox_h, 28)
+        self.assertLess(center.bbox_h, 120, f"bbox should not span HUD gap: h={center.bbox_h}")
 
     def test_sticky_pool_retarget_on_frame_45(self) -> None:
         """Rim fragment in sticky pool must lose to closer center humanoid."""
@@ -168,11 +171,16 @@ class Frame45CloserRetargetTests(unittest.TestCase):
         t = raw.target
         assert t is not None
         self.assertLess(t.distance_to_center, 80.0)
-        self.assertGreaterEqual(t.bbox_h, 70)
+        self.assertGreaterEqual(t.bbox_h, 28)
         self.assertTrue(
             any(
-                "closer_retarget" in ln or "sticky_identity" in ln
+                tag in ln
                 for ln in raw.debug_lines
+                for tag in (
+                    "closer_retarget",
+                    "sticky_identity",
+                    "in_ring_nearest",
+                )
             ),
             raw.debug_lines,
         )

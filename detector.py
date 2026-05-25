@@ -2298,6 +2298,54 @@ def _bbox_has_detached_upper_fringe(
     return max_gap >= gap_allow and y0 < bh * 0.22
 
 
+def _prune_upper_fringe_parts(
+    parts: list[_RedPart],
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    mask: np.ndarray,
+) -> list[_RedPart]:
+    """Drop gap-separated HUD specks above the body column (frame 45 ADS class)."""
+    if bw <= 0 or bh < 16 or len(parts) < 2:
+        return parts
+    if not _bbox_has_detached_upper_fringe(mask, bx, by, bw, bh):
+        return parts
+    cutoff = by + int(round(bh * 0.38))
+    kept = [p for p in parts if (p.y + p.h * 0.65) >= cutoff]
+    if kept and len(kept) < len(parts):
+        return kept
+    return parts
+
+
+def _dense_row_segments(
+    row_d: np.ndarray,
+    thr: float,
+    gap_allow: int,
+) -> list[tuple[int, int]]:
+    """Return (y0, y1) inclusive row spans where density >= thr, split on vertical gaps."""
+    dense = row_d >= thr
+    if not bool(dense.any()):
+        return []
+    segments: list[tuple[int, int]] = []
+    start: int | None = None
+    gap = 0
+    for i in range(int(row_d.size)):
+        if dense[i]:
+            if start is None:
+                start = i
+            gap = 0
+        elif start is not None:
+            gap += 1
+            if gap > gap_allow:
+                segments.append((start, i - gap))
+                start = None
+                gap = 0
+    if start is not None:
+        segments.append((start, int(row_d.size) - 1))
+    return segments
+
+
 def _anchor_bbox_bottom_dense_band(
     mask: np.ndarray,
     bx: int,
@@ -2317,50 +2365,47 @@ def _anchor_bbox_bottom_dense_band(
     if peak < 2.0:
         return bx, by, bw, bh
     thr = max(2.5, peak * 0.18)
-    dense = row_d >= thr
-    if not bool(dense.any()):
-        return bx, by, bw, bh
-    last = int(np.flatnonzero(dense)[-1])
-    first = last
     gap_allow = max(5, int(round(bh * 0.10)))
-    gap = 0
-    for i in range(last - 1, -1, -1):
-        if dense[i]:
-            first = i
-            gap = 0
+    segments = _dense_row_segments(row_d, thr, gap_allow)
+    min_seg_h = max(10, int(round(28 * scale)))
+    if len(segments) >= 2:
+        # Frame 45 class: HUD fringe band above a wide ADS gap, body band below.
+        # Always take the lowest dense band (largest row index / feet), never
+        # bridge upward through the gap (old min_bh bridge pulled top to y~166).
+        segments = [s for s in segments if s[1] - s[0] + 1 >= min_seg_h]
+        if not segments:
+            segments = [_dense_row_segments(row_d, thr, gap_allow)[-1]]
+        y0, y1 = max(segments, key=lambda s: s[1])
+    elif segments:
+        y0, y1 = segments[0]
+    else:
+        idx = np.flatnonzero(row_d >= thr)
+        y0, y1 = int(idx[0]), int(idx[-1])
+    any_red = row_d > 0
+    gap_red = max(4, gap_allow)
+    i = y0 - 1
+    empty = 0
+    while i >= 0:
+        if any_red[i]:
+            y0 = i
+            empty = 0
         else:
-            gap += 1
-            if gap > gap_allow:
+            empty += 1
+            if empty > gap_red:
                 break
-    dense_h = last - first + 1
-    min_bh = max(
-        dense_h,
-        int(round(78 * scale)),
-        int(round(bw * 2.05)),
-        48,
-    )
-    y0 = first
-    y1 = last
-    if y1 - y0 + 1 < min_bh:
-        faint_thr = max(1.5, peak * 0.08)
-        bridge_gap = max(12, int(round(bh * 0.62)))
-        extra = min_bh - (y1 - y0 + 1)
-        i = y0 - 1
-        empty_run = 0
-        while i >= 0 and extra > 0:
-            if row_d[i] >= faint_thr:
-                y0 = i
-                extra -= 1
-                empty_run = 0
-            elif row_d[i] <= 0.5:
-                empty_run += 1
-                if empty_run > bridge_gap:
-                    break
-            else:
-                empty_run += 1
-                if empty_run > bridge_gap:
-                    break
-            i -= 1
+        i -= 1
+    i = y1 + 1
+    empty = 0
+    while i < int(row_d.size):
+        if any_red[i]:
+            y1 = i
+            empty = 0
+        else:
+            empty += 1
+            if empty > gap_red:
+                break
+        i += 1
+
     new_by = by + y0
     new_bh = max(12, y1 - y0 + 1)
 
@@ -2873,6 +2918,10 @@ def analyze_figure(
 ) -> _FigureAnalysis:
     scale = _scale(frame_w, frame_h)
     bx, by, bw, bh = _cluster_bbox(parts)
+    pruned = _prune_upper_fringe_parts(parts, bx, by, bw, bh, mask)
+    if len(pruned) < len(parts):
+        parts = pruned
+        bx, by, bw, bh = _cluster_bbox(parts)
     isolated_crosshair_body = False
     if _should_isolate_crosshair_body(
         parts, bx, by, bw, bh, frame_w, frame_h, fov_cx, fov_cy
@@ -4149,7 +4198,13 @@ def _should_retarget_closer_humanoid(
     cd = float(challenger.distance_to_center)
     if cd >= sd * 0.58 and cd >= 58.0:
         return False
-    if challenger.bbox_h < max(64, int(locked.bbox_h * 1.28)):
+    # ADS-close silhouettes can be narrow after bottom-band anchor; do not
+    # require challenger taller than a stale rim lock when much closer in-ring.
+    if cd < sd * 0.52:
+        min_ch_h = max(24, int(locked.bbox_h * 0.24))
+    else:
+        min_ch_h = max(64, int(locked.bbox_h * 1.28))
+    if challenger.bbox_h < min_ch_h:
         return False
     if sd < display_fov * 0.52:
         return False
@@ -4516,6 +4571,60 @@ def find_best_target(
                 dbg.append(
                     f"rim_retarget_clutter: {before_clutter} -> {len(candidates)}"
                 )
+            if currently_locked and candidates:
+                lost_challengers = [
+                    t
+                    for t in candidates
+                    if _should_retarget_closer_humanoid(
+                        sticky_target,
+                        t,
+                        detect_fov=float(fov_radius),
+                        display_fov=ring_fov,
+                        fov_cx=cx,
+                        fov_cy=cy,
+                        frame_w=w,
+                        frame_h=h,
+                    )
+                ]
+                if lost_challengers:
+                    chosen = finalize(max(lost_challengers, key=rank))
+                    if not target_is_background_clutter(chosen):
+                        dbg.append(
+                            f"closer_retarget dist={chosen.distance_to_center:.0f} "
+                            f"h={chosen.bbox_h} was={sticky_target.distance_to_center:.0f}"
+                        )
+                        _refresh_validation(chosen)
+                        return DetectionResult(
+                            chosen,
+                            len(candidates),
+                            chosen.confidence,
+                            debug_lines=dbg,
+                            active=True,
+                        )
+                if sticky_target.distance_to_center < ring_fov * 0.45:
+                    in_ring = [
+                        t
+                        for t in candidates
+                        if t.distance_to_center < ring_fov * 0.55
+                        and t.body_shape_score >= 0.50
+                        and not target_is_background_clutter(t)
+                    ]
+                    if in_ring:
+                        chosen = finalize(
+                            min(in_ring, key=lambda t: t.distance_to_center)
+                        )
+                        dbg.append(
+                            f"in_ring_nearest dist={chosen.distance_to_center:.0f} "
+                            f"h={chosen.bbox_h}"
+                        )
+                        _refresh_validation(chosen)
+                        return DetectionResult(
+                            chosen,
+                            len(candidates),
+                            chosen.confidence,
+                            debug_lines=dbg,
+                            active=True,
+                        )
             identity = [
                 t
                 for t in candidates
@@ -4551,41 +4660,19 @@ def find_best_target(
                         debug_lines=dbg,
                         active=True,
                     )
-        if currently_locked and candidates:
-            lost_challengers = [
-                t
-                for t in candidates
-                if _should_retarget_closer_humanoid(
-                    sticky_target,
-                    t,
-                    detect_fov=float(fov_radius),
-                    display_fov=ring_fov,
-                    fov_cx=cx,
-                    fov_cy=cy,
-                    frame_w=w,
-                    frame_h=h,
-                )
-            ]
-            if lost_challengers:
-                chosen = finalize(max(lost_challengers, key=rank))
-                if not target_is_background_clutter(chosen):
-                    dbg.append(
-                        f"closer_retarget dist={chosen.distance_to_center:.0f} "
-                        f"h={chosen.bbox_h} was={sticky_target.distance_to_center:.0f}"
-                    )
-                    _refresh_validation(chosen)
-                    return DetectionResult(
-                        chosen,
-                        len(candidates),
-                        chosen.confidence,
-                        debug_lines=dbg,
-                        active=True,
-                    )
-        # PHASE-6 (D-HIGH6): empty sticky pool while locked — hold unless closer
-        # humanoid retarget above fired.
-        if currently_locked:
+        # PHASE-6 (D-HIGH6): empty sticky pool while locked — hold last lock
+        # geometry (do not return None or apply_target_lock drops the lock).
+        if currently_locked and sticky_target is not None:
+            dbg.append(
+                f"sticky_pool_hold dist={sticky_target.distance_to_center:.0f} "
+                f"h={sticky_target.bbox_h}"
+            )
             return DetectionResult(
-                None, len(candidates), 0.0, debug_lines=dbg, active=False,
+                sticky_target,
+                len(candidates),
+                sticky_target.confidence,
+                debug_lines=dbg,
+                active=False,
             )
 
     best = finalize(max(candidates, key=rank))
