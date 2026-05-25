@@ -180,6 +180,7 @@ class Frame45CloserRetargetTests(unittest.TestCase):
                     "closer_retarget",
                     "sticky_identity",
                     "in_ring_nearest",
+                    "sticky_pool_hold",
                 )
             ),
             raw.debug_lines,

@@ -231,7 +231,11 @@ class TargetingRuntime:
         )
 
         tsec = time.perf_counter() if time_sec is None else time_sec
-        detection_fresh = result.target is not None and not is_stale
+        detection_fresh = (
+            bool(result.active)
+            and result.target is not None
+            and not is_stale
+        )
 
         if result.target is None:
             self.tracker.reset()

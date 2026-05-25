@@ -129,6 +129,9 @@ def _annotate_frame(
     _sky_line(vis, h)
     has_target = aim.target is not None
     show_dot = plausible and aim.active
+    # Live overlay has no bbox — only draw box when dot would show (avoids
+    # misleading STALE rectangles on empty scenes, e.g. gif frame 61).
+    show_box = show_dot
     tag = "NO_TARGET"
     if has_target:
         t = aim.target
@@ -143,15 +146,24 @@ def _annotate_frame(
             box_color = (0, 80, 255)
         if aim.is_stale:
             box_color = (0, 200, 200)
-        bb = aim.bbox_used or (
-            t.bbox_x,
-            t.bbox_y,
-            t.bbox_w,
-            t.bbox_h,
-        )
-        bx, by, bw, bh = bb
-        cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), box_color, 2)
-        _draw_chest_band(vis, bx, by, bw, bh)
+        if show_box:
+            bb = aim.bbox_used or (
+                t.bbox_x,
+                t.bbox_y,
+                t.bbox_w,
+                t.bbox_h,
+            )
+            bx, by, bw, bh = bb
+            cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), box_color, 2)
+            _draw_chest_band(vis, bx, by, bw, bh)
+        else:
+            bb = aim.bbox_used or (
+                t.bbox_x,
+                t.bbox_y,
+                t.bbox_w,
+                t.bbox_h,
+            )
+            bx, by, bw, bh = bb
         dist = round(t.distance_to_center, 0)
         cv2.putText(
             vis,

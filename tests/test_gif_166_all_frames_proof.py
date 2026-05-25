@@ -68,6 +68,24 @@ class Gif166AllFramesProofTests(unittest.TestCase):
         self.assertLess(row.get("bbox_top_frac", 1.0), 0.50)
         self.assertNotIn("high_bbox_flag", row)
 
+    def test_frame_77_no_live_dot_on_weapon_sight(self) -> None:
+        data = json.loads(SUMMARY.read_text(encoding="utf-8"))
+        row = next(r for r in data["rows"] if r["frame_idx"] == 77)
+        self.assertFalse(row["active"], row)
+        if row.get("bbox_y") is not None:
+            self.assertFalse(
+                row.get("bbox_x", 0) >= 420
+                and row["bbox_y"] >= 240
+                and row.get("bbox_h", 99) <= 56,
+                row,
+            )
+
+    def test_frame_61_no_stale_assist_when_purged(self) -> None:
+        data = json.loads(SUMMARY.read_text(encoding="utf-8"))
+        row = next(r for r in data["rows"] if r["frame_idx"] == 61)
+        self.assertFalse(row["active"], row)
+        self.assertFalse(row.get("is_stale", True), row)
+
     def test_no_active_lock_on_sky_banner_geometry(self) -> None:
         """No LIVE assist when bbox top is in sky band on a short column."""
         data = json.loads(SUMMARY.read_text(encoding="utf-8"))

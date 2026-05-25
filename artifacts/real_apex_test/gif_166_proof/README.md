@@ -9,12 +9,12 @@ from `artifacts/real_apex_test/_gif_frames/source.gif` (extract via `extract_gif
 |-------|------:|
 | Red dot in sky band (top 12%) | **0** |
 | Pass (red dot sky) | **True** |
-| Tracked frames | 151 / 166 |
-| Fresh detection frames | 59 |
-| Stale hold frames | 92 |
+| Tracked frames | 147 / 166 |
+| Fresh detection frames | 37 |
+| Stale hold frames | 101 |
 | Detector bbox top in sky (dot still on chest) | 0 |
-| Chest-band overlay lag | 10 |
-| Close-target bbox top too high (top &lt; 36% frame) | 8 |
+| Chest-band overlay lag | 12 |
+| Close-target bbox top too high (top &lt; 36% frame) | 6 |
 | Annotated frames written | 166 |
 
 ## Files

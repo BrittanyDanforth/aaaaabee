@@ -1169,6 +1169,32 @@ def _is_scope_reticle(
     return False
 
 
+def target_is_close_skyline_structure_fp(
+    target: Target,
+    *,
+    frame_w: int,
+    frame_h: int,
+) -> bool:
+    """Close upper-range props/beams while ADS at sky — not a character (gif f77)."""
+    if frame_w <= 0 or frame_h <= 0:
+        return False
+    top_frac = float(target.bbox_y) / float(frame_h)
+    if top_frac >= 0.42 or top_frac < 0.22:
+        return False
+    if float(target.distance_to_center) > frame_w * 0.12:
+        return False
+    bh = float(target.bbox_h)
+    bw = max(1.0, float(target.bbox_w))
+    if bh < 45.0 or bh > 95.0 or bh / bw < 1.75:
+        return False
+    if float(target.red_coverage) > 0.15:
+        return False
+    mid_frac = (float(target.bbox_y) + bh * 0.5) / float(frame_h)
+    if mid_frac >= 0.48:
+        return False
+    return True
+
+
 def target_is_viewmodel_column_fp(
     target: Target,
     *,
@@ -1182,6 +1208,18 @@ def target_is_viewmodel_column_fp(
     Misclassified ``TORSO`` parts and high ``torso_score`` cannot exempt
     a sub-5% red fill — real enemies at this range always show more red.
     """
+    bh = float(target.bbox_h)
+    bw = max(1.0, float(target.bbox_w))
+    aspect = bh / bw
+    bcx = float(target.bbox_x) + bw * 0.5
+    # ADS iron-sight / gun sliver on bright sky (gif frame 77: 13x51 near crosshair).
+    if (
+        bh < frame_h * 0.14
+        and bw <= max(24.0, frame_w * 0.04)
+        and aspect >= 2.0
+        and abs(bcx - float(fov_cx)) < frame_w * 0.18
+    ):
+        return True
     red_cov = float(target.red_coverage)
     if red_cov >= 0.05:
         return False
@@ -1190,8 +1228,6 @@ def target_is_viewmodel_column_fp(
         and target.body_shape_score >= 0.75
     ):
         return False
-    bh = float(target.bbox_h)
-    bw = max(1.0, float(target.bbox_w))
     if int(target.part_count) < 4 or bh < frame_h * 0.12:
         return False
     if bh / bw < 1.35:
@@ -4437,6 +4473,14 @@ def find_best_target(
     ]
     if len(candidates) < before_banner:
         dbg.append(f"tower_banner filter: {before_banner} -> {len(candidates)}")
+    before_skyline = len(candidates)
+    candidates = [
+        t
+        for t in candidates
+        if not target_is_close_skyline_structure_fp(t, frame_w=w, frame_h=h)
+    ]
+    if len(candidates) < before_skyline:
+        dbg.append(f"skyline_structure filter: {before_skyline} -> {len(candidates)}")
     before_env = len(candidates)
     candidates = [
         t
@@ -4786,13 +4830,23 @@ def find_best_target(
                             debug_lines=dbg,
                             active=True,
                         )
-                if sticky_target.distance_to_center < ring_fov * 0.58:
+                if sticky_target.distance_to_center < ring_fov * 0.72:
                     in_ring = [
                         t
                         for t in candidates
                         if t.distance_to_center < ring_fov * 0.55
                         and t.body_shape_score >= 0.50
                         and not target_is_background_clutter(t)
+                        and not target_is_close_skyline_structure_fp(
+                            t, frame_w=w, frame_h=h
+                        )
+                        and not target_is_viewmodel_column_fp(
+                            t,
+                            frame_w=w,
+                            frame_h=h,
+                            fov_cx=float(cx),
+                            fov_cy=float(cy),
+                        )
                     ]
                     if in_ring:
                         chosen = finalize(
@@ -4857,6 +4911,27 @@ def find_best_target(
         # PHASE-6 (D-HIGH6): empty sticky pool while locked — hold last lock
         # geometry (do not return None or apply_target_lock drops the lock).
         if currently_locked and sticky_target is not None:
+            hold_active = (
+                sticky_target.body_shape_score >= 0.55
+                and sticky_target.bbox_h >= 26
+                and not target_is_close_skyline_structure_fp(
+                    sticky_target, frame_w=w, frame_h=h
+                )
+                and not target_is_viewmodel_column_fp(
+                    sticky_target,
+                    frame_w=w,
+                    frame_h=h,
+                    fov_cx=float(cx),
+                    fov_cy=float(cy),
+                )
+                and not target_is_central_tower_banner_fp(
+                    sticky_target,
+                    frame_w=w,
+                    frame_h=h,
+                    fov_cx=float(cx),
+                    motion_overlap=_motion_overlap(sticky_target),
+                )
+            )
             dbg.append(
                 f"sticky_pool_hold dist={sticky_target.distance_to_center:.0f} "
                 f"h={sticky_target.bbox_h}"
@@ -4866,7 +4941,7 @@ def find_best_target(
                 len(candidates),
                 sticky_target.confidence,
                 debug_lines=dbg,
-                active=False,
+                active=hold_active,
             )
 
     best = finalize(max(candidates, key=rank))

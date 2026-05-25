@@ -35,6 +35,7 @@ from detector import (
     is_upward_fragment_vs_locked,
     target_is_background_clutter,
     target_is_central_tower_banner_fp,
+    target_is_close_skyline_structure_fp,
     target_is_environment_column,
     target_is_viewmodel_column_fp,
 )
@@ -189,6 +190,14 @@ def _locked_is_environment_fp(
             frame_h=frame_h,
             fov_cx=float(fov_cx),
             motion_overlap=0.0,
+        )
+    ):
+        return True
+    if (
+        frame_w > 0
+        and frame_h > 0
+        and target_is_close_skyline_structure_fp(
+            target, frame_w=frame_w, frame_h=frame_h
         )
     ):
         return True
@@ -473,10 +482,38 @@ def apply_target_lock(
             and locked is not None
             and _same_lock_identity(locked, new_t)
         ):
+            if _env_fp(new_t):
+                state.reset()
+                if on_lock_expired is not None:
+                    on_lock_expired()
+                return DetectionResult(None, result.candidates, 0.0), False
+            hold_active = (
+                not _env_fp(new_t)
+                and locked is not None
+                and _same_lock_identity(locked, new_t)
+                and (
+                    _passes_new_lock_gates(
+                        new_t,
+                        center_y=center_y,
+                        frame_w=fw,
+                        frame_h=fh,
+                    )
+                    or (
+                        new_t.body_shape_score >= 0.55
+                        and new_t.bbox_h >= 26
+                    )
+                )
+            )
             state.target_lost_frames = 0
             state.switch_candidate = None
             state.switch_frames = 0
-            return result, False
+            return DetectionResult(
+                new_t,
+                result.candidates,
+                new_t.confidence,
+                debug_lines=result.debug_lines,
+                active=hold_active,
+            ), False
         if locked is not None and _env_fp(locked):
             state.reset()
             if on_lock_expired is not None:
@@ -834,6 +871,15 @@ def apply_target_lock(
                 on_lock_expired()
             return DetectionResult(None, result.candidates, 0.0), False
         # Drop stale locks on sky/tower/gun FPs — do not hold dot on environment.
+        top_frac = float(locked.bbox_y) / float(fh) if fh > 0 else 1.0
+        close_upper = (
+            fw > 0
+            and fh > 0
+            and state.target_lost_frames >= 2
+            and top_frac < 0.34
+            and float(locked.distance_to_center) < fw * 0.22
+            and float(locked.bbox_h) > fh * 0.20
+        )
         if state.target_lost_frames > 0 and (
             bbox_top_in_sky_band(float(locked.bbox_y), center_y)
             or target_is_environment_column(
@@ -843,6 +889,7 @@ def apply_target_lock(
                 bbox_mid_in_sky_band(locked.bbox_y, locked.bbox_h, center_y)
                 and float(locked.red_coverage) < NEW_LOCK_MIN_RED * 1.5
             )
+            or close_upper
         ):
             state.reset()
             if on_lock_expired is not None:
