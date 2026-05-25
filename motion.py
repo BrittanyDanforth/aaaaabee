@@ -5,14 +5,36 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+
+def overlay_glide_step(
+    cur: tuple[float, float],
+    dest: tuple[float, float],
+    *,
+    alpha: float,
+    max_step: float,
+) -> tuple[float, float]:
+    """One step of monitor-space glide (overlay thread, between capture frames)."""
+    dx = dest[0] - cur[0]
+    dy = dest[1] - cur[1]
+    dist = math.hypot(dx, dy)
+    if dist <= 0.0:
+        return dest
+    step = dist
+    if dist > max_step and max_step > 0.0:
+        step = max_step
+    a = max(0.05, min(1.0, float(alpha)))
+    blend = min(step / dist, a)
+    return cur[0] + dx * blend, cur[1] + dy * blend
+
+
 _MAX_VELOCITY = 3200.0
 _MAX_DT = 0.12
 _MIN_DT = 0.001
-_TAU_POS_STILL = 0.062
-_TAU_POS_MOVING = 0.028
-_TAU_VEL = 0.040
-_TAU_PRED_BLEND = 0.018
-_MAX_PRED_LEAD_S = 0.038
+_TAU_POS_STILL = 0.042
+_TAU_POS_MOVING = 0.018
+_TAU_VEL = 0.032
+_TAU_PRED_BLEND = 0.016
+_MAX_PRED_LEAD_S = 0.040
 _MAX_PRED_PX = 22.0
 _MAX_UPWARD_LEAD_PX = 4.0
 _BODY_Y_LO_FRAC = 0.28
@@ -23,7 +45,7 @@ _tau_still = _TAU_POS_STILL
 _tau_moving = _TAU_POS_MOVING
 _max_upward_lead_px = _MAX_UPWARD_LEAD_PX
 _BODY_X_MARGIN_FRAC = 0.18
-_SPEED_MOVING_PX_S = 85.0
+_SPEED_MOVING_PX_S = 60.0
 
 
 def _finite(v: float, fallback: float = 0.0) -> float:
@@ -58,10 +80,19 @@ def fov_distance_scale(dist: float, fov_radius: float, edge_min_scale: float) ->
 
 @dataclass
 class TargetMotion:
+    """Pull assist uses ``x``/``y``; overlay dot uses ``overlay_xy()`` when set."""
+
     x: float
     y: float
     vx: float = 0.0
     vy: float = 0.0
+    overlay_x: float | None = None
+    overlay_y: float | None = None
+
+    def overlay_xy(self) -> tuple[float, float]:
+        if self.overlay_x is not None and self.overlay_y is not None:
+            return self.overlay_x, self.overlay_y
+        return self.x, self.y
 
     def predict(
         self,
@@ -100,6 +131,8 @@ class TargetTracker:
         self._last_time: float | None = None
         self._smooth_x: float | None = None
         self._smooth_y: float | None = None
+        self._pull_x: float | None = None
+        self._pull_y: float | None = None
         self._last_meas_x: float | None = None
         self._last_meas_y: float | None = None
         self._vx: float = 0.0
@@ -108,12 +141,28 @@ class TargetTracker:
         self._prediction_lead_s: float = _MAX_PRED_LEAD_S
         self._prediction_max_px: float = _MAX_PRED_PX
         self._body_bbox: tuple[int, int, int, int] | None = None
+        self._last_stable_bbox: tuple[int, int, int, int] | None = None
+        self._stable_bbox_hold_frames: int = 0
         self._aim_is_body_anchor: bool = True
         self._fov_cx: float | None = None
         self._fov_cy: float | None = None
         self._fov_radius: float | None = None
         self._last_pred_offset: tuple[float, float] = (0.0, 0.0)
         self._last_pre_predict: tuple[float, float] | None = None
+        # _overlay_smooth is the single source of truth for the displayed dot
+        # position in monitor/frame space.  Both _advance_overlay_follow and
+        # set_monitor_overlay_point write here so that peek_overlay_smooth()
+        # (used by the hold-last path in runtime) always returns the current
+        # dot position regardless of which code path produced it.
+        self._overlay_smooth: tuple[float, float] | None = None
+        # _overlay_follow_x/y tracks the glide state between frames so the
+        # EMA has continuity.  On each advance we write the result to BOTH
+        # _overlay_follow_x/y (glide anchor) AND _overlay_smooth (display).
+        self._overlay_follow_x: float | None = None
+        self._overlay_follow_y: float | None = None
+        self._overlay_dot_alpha: float = 0.52
+        self._in_deadband: bool = False
+        self._deadband_exit_frames: int = 0
 
     def configure_prediction(
         self,
@@ -148,13 +197,13 @@ class TargetTracker:
         self._fov_radius = max(1.0, float(radius))
 
     def _clamp_to_fov(self, x: float, y: float) -> tuple[float, float]:
-        """Keep smoothed aim inside detection FOV circle."""
+        """Keep aim inside overlay FOV circle (ring margin applied in runtime)."""
         if self._fov_cx is None or self._fov_cy is None or self._fov_radius is None:
             return x, y
         dx = x - self._fov_cx
         dy = y - self._fov_cy
         dist = math.hypot(dx, dy)
-        r = self._fov_radius * 0.95
+        r = self._fov_radius
         if dist <= r or dist <= 0.0:
             return x, y
         s = r / dist
@@ -165,22 +214,228 @@ class TargetTracker:
         _tau_still = max(0.01, float(still))
         _tau_moving = max(0.005, min(_tau_still, float(moving)))
 
+    def configure_overlay_dot_alpha(self, alpha: float) -> None:
+        """Capture-frame overlay drag blend (GUI: Red dot smoothness)."""
+        self._overlay_dot_alpha = max(0.05, min(1.0, float(alpha)))
+
+    def sync_overlay_follow_frame(self, frame_x: float, frame_y: float) -> None:
+        """Align frame follow state with post-ring-clamp monitor→frame point."""
+        if math.isfinite(frame_x) and math.isfinite(frame_y):
+            self._overlay_follow_x = float(frame_x)
+            self._overlay_follow_y = float(frame_y)
+            # Keep display state in sync so peek_overlay_smooth is never stale.
+            self._overlay_smooth = (float(frame_x), float(frame_y))
+
+    def _advance_overlay_follow(
+        self,
+        aim_x: float,
+        aim_y: float,
+        dt: float,
+    ) -> tuple[float, float]:
+        """Continuous overlay drag in frame space — independent of pull deadband.
+
+        FIX: always writes result to both _overlay_follow_x/y (glide anchor)
+        and _overlay_smooth (display / hold-last source) so peek_overlay_smooth()
+        is never stale when runtime calls hold-last.
+        """
+        if not (math.isfinite(aim_x) and math.isfinite(aim_y)):
+            return aim_x, aim_y
+        aim_x, aim_y = self._clamp_aim_output(aim_x, aim_y)
+        if self._overlay_follow_x is None or self._overlay_follow_y is None:
+            oa0 = max(0.35, min(0.72, self._overlay_dot_alpha))
+            if self._fov_cx is not None and self._fov_cy is not None:
+                sx = self._fov_cx + oa0 * (aim_x - self._fov_cx)
+                sy = self._fov_cy + oa0 * (aim_y - self._fov_cy)
+                aim_x, aim_y = self._clamp_aim_output(sx, sy)
+            self._overlay_follow_x, self._overlay_follow_y = aim_x, aim_y
+            self._overlay_smooth = (aim_x, aim_y)
+            return aim_x, aim_y
+
+        speed = math.hypot(self._vx, self._vy)
+        tau_ov = _tau_moving if speed > 70.0 else _tau_still
+        tau_ov = max(0.038, min(float(tau_ov) * 1.5, 0.11))
+        oa = alpha_from_tau(dt, tau_ov)
+        dot_a = self._overlay_dot_alpha
+        oa_lo = max(0.06, dot_a * 0.18)
+        oa_hi = max(oa_lo, min(0.90, dot_a))
+        oa = max(oa_lo, min(oa_hi, oa))
+
+        fx = self._overlay_follow_x + oa * (aim_x - self._overlay_follow_x)
+        fy = self._overlay_follow_y + oa * (aim_y - self._overlay_follow_y)
+
+        if speed > 25.0 and self._body_bbox is None:
+            lead = min(dt, 0.05)
+            fx += self._vx * lead * 0.38
+            fy += self._vy * lead * 0.38
+            if fy < self._overlay_follow_y - 10.0:
+                fy = self._overlay_follow_y - 10.0
+        elif speed > 25.0 and self._body_bbox is not None:
+            # Minimal upward lead when body bbox is active — full vy lead caused sky climb.
+            # FIX: use the raw (pre-attenuated) upward velocity threshold more
+            # generously.  The old -40.0 threshold rarely fired because _vy is
+            # already halved by the 0.55 factor in observe().  Use -15.0 so any
+            # meaningful upward movement gets a small correction without sky climb.
+            lead = min(dt, 0.05)
+            fx += self._vx * lead * 0.22
+            if self._vy > 0.0:
+                fy += self._vy * lead * 0.08
+            elif self._vy < -15.0:
+                fy += self._vy * lead * 0.05
+
+        bh = 80
+        if self._body_bbox is not None:
+            bh = self._body_bbox[3]
+        fdx = fx - self._overlay_follow_x
+        fdy = fy - self._overlay_follow_y
+        fdist = math.hypot(fdx, fdy)
+        teleport_cap = max(36.0, bh * 0.55)
+        if fdist > teleport_cap and fdist > 0.0:
+            s = teleport_cap / fdist
+            fx = self._overlay_follow_x + fdx * s
+            fy = self._overlay_follow_y + fdy * s
+
+        ox, oy = self._clamp_aim_output(fx, fy)
+        if self._body_bbox is not None:
+            bx, by, bw, bh = self._body_bbox
+            y_hi = by + bh * _body_y_hi_frac
+            if oy > y_hi:
+                oy = y_hi
+            up_cap = max(4.0, bh * 0.04)
+            if oy < self._overlay_follow_y - up_cap:
+                oy = max(by + bh * _body_y_lo_frac, self._overlay_follow_y - up_cap)
+
+        self._overlay_follow_x, self._overlay_follow_y = ox, oy
+        # FIX: write to _overlay_smooth so peek_overlay_smooth() is always
+        # current.  Previously this was never written here, so hold-last
+        # in runtime grabbed stale or None values.
+        self._overlay_smooth = (ox, oy)
+        return ox, oy
+
+    def smooth_overlay_point(
+        self,
+        x: float,
+        y: float,
+        *,
+        alpha: float = 0.45,
+        bbox_h: int = 80,
+        dt: float = 1.0 / 60.0,
+    ) -> tuple[float, float]:
+        """Legacy overlay drag helper — not used by AssistRuntime (see _advance_overlay_follow).
+
+        Retained for unit tests only. Production hold-last uses set_monitor_overlay_point;
+        do not call this on the live overlay hot path.
+        """
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return x, y
+        bh = max(20, int(bbox_h))
+        dt_s = max(_MIN_DT, min(dt, _MAX_DT))
+        scale = max(0.45, min(2.0, dt_s * 60.0))
+        max_step = max(5.0, min(28.0, bh * 0.22)) * scale
+        up_cap = max(1.0, min(5.5, bh * 0.032))
+        if self._overlay_smooth is None:
+            self._overlay_smooth = (x, y)
+            return x, y
+        lx, ly = self._overlay_smooth
+        dx = x - lx
+        dy = y - ly
+        dist = math.hypot(dx, dy)
+        if dist > max_step and dist > 0.0:
+            s = max_step / dist
+            x = lx + dx * s
+            y = ly + dy * s
+        if y < ly - up_cap:
+            y = ly - up_cap
+        a = max(0.12, min(0.72, float(alpha)))
+        ay = a
+        if y < ly:
+            ay = min(a, 0.38)
+        sx = lx + a * (x - lx)
+        sy = ly + ay * (y - ly)
+        self._overlay_smooth = (sx, sy)
+        return sx, sy
+
+    def reset_overlay_smoothing(self) -> None:
+        self._overlay_smooth = None
+        self._overlay_follow_x = None
+        self._overlay_follow_y = None
+
+    def peek_overlay_smooth(self) -> tuple[float, float] | None:
+        """Last dragged overlay position in monitor/capture space (for hold-last-dot).
+
+        Returns the most recent value written by either _advance_overlay_follow
+        or set_monitor_overlay_point — whichever ran last.
+        """
+        return self._overlay_smooth
+
+    def sync_overlay_display(self, x: float, y: float) -> None:
+        """Hold-last monitor coords (legacy alias for set_monitor_overlay_point)."""
+        self.set_monitor_overlay_point(x, y)
+
+    def set_monitor_overlay_point(self, x: float, y: float) -> None:
+        """Last monitor-space dot destination (for hold-last-dot during grace)."""
+        if math.isfinite(x) and math.isfinite(y):
+            self._overlay_smooth = (float(x), float(y))
+
     def reset(self) -> None:
         self._last = None
         self._last_time = None
         self._smooth_x = None
         self._smooth_y = None
+        self._pull_x = None
+        self._pull_y = None
         self._last_meas_x = None
         self._last_meas_y = None
         self._vx = 0.0
         self._vy = 0.0
         self._body_bbox = None
+        self._last_stable_bbox = None
+        self._stable_bbox_hold_frames = 0
         self._aim_is_body_anchor = True
         self._fov_cx = None
         self._fov_cy = None
         self._fov_radius = None
         self._last_pred_offset = (0.0, 0.0)
         self._last_pre_predict = None
+        self._overlay_smooth = None
+        self._overlay_follow_x = None
+        self._overlay_follow_y = None
+        self._in_deadband = False
+        self._deadband_exit_frames = 0
+
+    def soft_reset(self) -> None:
+        """
+        PHASE-6 AUDIT FIX (D-HIGH5): partial reset that PRESERVES the
+        last smoothed position and last measurement so the next aim
+        sample is step-capped relative to where the dot already is.
+        """
+        self._last = None
+        self._last_time = None
+        # Keep: _smooth_x/y, _pull_x/y, _last_meas_x/y
+        self._vx = 0.0
+        self._vy = 0.0
+        self._body_bbox = None
+        self._last_stable_bbox = None
+        self._stable_bbox_hold_frames = 0
+        self._last_pred_offset = (0.0, 0.0)
+        self._last_pre_predict = None
+        self._in_deadband = False
+        self._deadband_exit_frames = 0
+
+    @staticmethod
+    def point_inside_body_bbox(
+        x: float,
+        y: float,
+        bbox_x: int,
+        bbox_y: int,
+        bbox_w: int,
+        bbox_h: int,
+    ) -> bool:
+        mx = bbox_w * _BODY_X_MARGIN_FRAC
+        y_lo = bbox_y + bbox_h * _body_y_lo_frac
+        y_hi = bbox_y + bbox_h * _body_y_hi_frac
+        x_lo = bbox_x + mx
+        x_hi = bbox_x + bbox_w - mx
+        return x_lo <= x <= x_hi and y_lo <= y <= y_hi
 
     @staticmethod
     def _clamp_to_body_bbox(
@@ -202,7 +457,6 @@ class TargetTracker:
             max(y_lo, min(y_hi, y)),
         )
 
-
     @staticmethod
     def _cap_measurement_step(
         x: float,
@@ -212,15 +466,47 @@ class TargetTracker:
         bbox_h: int,
         dt: float,
     ) -> tuple[float, float]:
-        """Limit per-frame detector jumps so overlay dot does not teleport."""
-        max_step = max(6.0, min(32.0, bbox_h * 0.22)) * max(0.35, min(1.8, dt * 60.0))
+        """
+        Limit per-frame detector jumps so overlay dot does not teleport across the
+        screen, but allow generous travel proportional to bbox height so the
+        smoother keeps up with strafing/sliding enemies.
+        """
+        max_step = max(6.0, min(34.0, bbox_h * 0.24)) * max(0.35, min(2.2, dt * 60.0))
         dx = x - last_x
         dy = y - last_y
         dist = math.hypot(dx, dy)
         if dist <= max_step or dist <= 0.0:
             return x, y
         s = max_step / dist
-        return last_x + dx * s, last_y + dy * s
+        nx = last_x + dx * s
+        ny = last_y + dy * s
+        up_cap = max(2.0, max_step * 0.42)
+        if ny < last_y - up_cap:
+            ny = last_y - up_cap
+        return nx, ny
+
+    @staticmethod
+    def _cap_measurement_step_locked_slow(
+        x: float,
+        y: float,
+        last_x: float,
+        last_y: float,
+        dt: float,
+    ) -> tuple[float, float]:
+        """Tighter 2-px floor used when the lock is stationary (M6 audit)."""
+        max_step = 2.0 * max(0.35, min(2.2, dt * 60.0))
+        dx = x - last_x
+        dy = y - last_y
+        dist = math.hypot(dx, dy)
+        if dist <= max_step or dist <= 0.0:
+            return x, y
+        s = max_step / dist
+        nx = last_x + dx * s
+        ny = last_y + dy * s
+        up_cap = max(1.5, max_step * 0.35)
+        if ny < last_y - up_cap:
+            ny = last_y - up_cap
+        return nx, ny
 
     def _effective_tau(self, dt: float, speed: float) -> float:
         t = max(0.0, min(1.0, speed / _SPEED_MOVING_PX_S))
@@ -252,7 +538,26 @@ class TargetTracker:
             and bbox_h > 0
         ):
             bx, by, bw, bh = int(bbox_x), int(bbox_y), int(bbox_w), int(bbox_h)
-            self._body_bbox = (bx, by, bw, bh)
+            # PHASE-7 AUDIT FIX (CRIT3): stabilise the bbox used for the
+            # chest-band clamp against single-frame fragment hits.
+            cx, cy, cw, ch = bx, by, bw, bh
+            prev = self._last_stable_bbox
+            if prev is not None:
+                pbx, pby, pbw, pbh = prev
+                upward_jump = by < pby - pbh * 0.06
+                shrunk = bh < pbh * 0.62
+                hold_max = 6 if upward_jump else 4
+                if (upward_jump or shrunk) and self._stable_bbox_hold_frames < hold_max:
+                    cx, cy, cw, ch = pbx, pby, pbw, pbh
+                    self._stable_bbox_hold_frames += 1
+                else:
+                    self._last_stable_bbox = (bx, by, bw, bh)
+                    self._stable_bbox_hold_frames = 0
+            else:
+                self._last_stable_bbox = (bx, by, bw, bh)
+                self._stable_bbox_hold_frames = 0
+            self._body_bbox = (cx, cy, cw, ch)
+            bx, by, bw, bh = cx, cy, cw, ch
             if self._aim_is_body_anchor:
                 x, y = self._clamp_to_body_bbox(x, y, bx, by, bw, bh)
             else:
@@ -260,13 +565,20 @@ class TargetTracker:
                 col_y = by + bh * 0.38
                 x = 0.35 * x + 0.65 * col_x
                 y = 0.35 * y + 0.65 * col_y
+            overlay_follow_meas = (x, y)
             if self._last_meas_x is not None and self._last_meas_y is not None:
                 dt_cap = 1.0 / 60.0
                 if self._last_time is not None and time_sec > self._last_time:
                     dt_cap = min(0.12, time_sec - self._last_time)
-                x, y = self._cap_measurement_step(
-                    x, y, self._last_meas_x, self._last_meas_y, bh, dt_cap
-                )
+                if self._in_deadband:
+                    x, y = self._cap_measurement_step_locked_slow(
+                        x, y, self._last_meas_x, self._last_meas_y, dt_cap
+                    )
+                else:
+                    x, y = self._cap_measurement_step(
+                        x, y, self._last_meas_x, self._last_meas_y, bh, dt_cap
+                    )
+            return self.observe(x, y, time_sec, overlay_follow_meas=overlay_follow_meas)
         else:
             self._body_bbox = None
         return self.observe(x, y, time_sec)
@@ -279,7 +591,67 @@ class TargetTracker:
     def last_pre_predict_point(self) -> tuple[float, float] | None:
         return self._last_pre_predict
 
-    def observe(self, x: float, y: float, time_sec: float) -> TargetMotion:
+    def _clamp_aim_output(self, x: float, y: float) -> tuple[float, float]:
+        if self._body_bbox is not None:
+            bx, by, bw, bh = self._body_bbox
+            x, y = self._clamp_to_body_bbox(x, y, bx, by, bw, bh)
+        if self._fov_radius is not None and self._fov_cx is not None and self._fov_cy is not None:
+            x, y = self._clamp_to_fov(x, y)
+            if self._body_bbox is not None:
+                bx, by, bw, bh = self._body_bbox
+                x, y = self._clamp_to_body_bbox(x, y, bx, by, bw, bh)
+        return x, y
+
+    def _finalize_pull_point(
+        self,
+        pre_x: float,
+        pre_y: float,
+        dt: float,
+        in_deadband: bool,
+    ) -> tuple[float, float]:
+        use_inline_lead = (
+            self._prediction_enabled
+            and not (self._aim_is_body_anchor and self._body_bbox is not None)
+            and not in_deadband
+        )
+        if use_inline_lead:
+            lead_dt = min(dt, _MAX_PRED_LEAD_S)
+            pred_x = pre_x + self._vx * lead_dt
+            pred_y = pre_y + self._vy * lead_dt
+            if pred_y < pre_y:
+                pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
+            if self._body_bbox is not None:
+                bx, by, bw, bh = self._body_bbox
+                mx = bw * _BODY_X_MARGIN_FRAC
+                pred_x = max(bx + mx, min(bx + bw - mx, pred_x))
+            pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
+            out_x = pre_x + pa * (pred_x - pre_x)
+            out_y = pre_y + pa * (pred_y - pre_y)
+        else:
+            out_x = pre_x
+            out_y = pre_y
+
+        motion = TargetMotion(out_x, out_y, self._vx, self._vy)
+        use_second_predict = (
+            self._prediction_enabled
+            and self._prediction_lead_s > 0.0
+            and self._prediction_max_px > 0.0
+            and not (self._aim_is_body_anchor and self._body_bbox is not None)
+            and not in_deadband
+        )
+        if use_second_predict:
+            px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
+            out_x, out_y = px, py
+        return self._clamp_aim_output(out_x, out_y)
+
+    def observe(
+        self,
+        x: float,
+        y: float,
+        time_sec: float,
+        *,
+        overlay_follow_meas: tuple[float, float] | None = None,
+    ) -> TargetMotion:
         if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(time_sec)):
             if self._last is not None:
                 return self._last
@@ -293,10 +665,23 @@ class TargetTracker:
         if self._smooth_x is None or self._smooth_y is None:
             self._smooth_x = x
             self._smooth_y = y
+            self._pull_x = x
+            self._pull_y = y
             self._last_meas_x = x
             self._last_meas_y = y
             self._last_time = time_sec
-            self._last = TargetMotion(x, y, 0.0, 0.0)
+            if self._body_bbox is not None:
+                fx, fy = (
+                    overlay_follow_meas
+                    if overlay_follow_meas is not None
+                    else (x, y)
+                )
+                ox, oy = self._advance_overlay_follow(fx, fy, 1.0 / 60.0)
+                ox, oy = self._clamp_aim_output(ox, oy)
+            else:
+                ox, oy = self._clamp_aim_output(self._smooth_x, self._smooth_y)
+            self._overlay_smooth = (ox, oy)
+            self._last = TargetMotion(x, y, 0.0, 0.0, overlay_x=ox, overlay_y=oy)
             return self._last
 
         if self._last_time is None:
@@ -310,9 +695,9 @@ class TargetTracker:
         if self._last_meas_x is not None and self._last_meas_y is not None:
             inst_vx = (x - self._last_meas_x) / dt
             inst_vy = (y - self._last_meas_y) / dt
-            cap_v = 120.0
+            cap_v = 360.0
             if self._body_bbox is not None:
-                cap_v = max(55.0, min(200.0, self._body_bbox[3] * 1.6))
+                cap_v = max(120.0, min(800.0, self._body_bbox[3] * 4.5))
             ivmag = math.hypot(inst_vx, inst_vy)
             if ivmag > cap_v and ivmag > 0.0:
                 s = cap_v / ivmag
@@ -333,58 +718,100 @@ class TargetTracker:
         tau = self._effective_tau(dt, speed)
         alpha = alpha_from_tau(dt, tau)
 
-        self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
-        self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
-
-        pre_x, pre_y = self._smooth_x, self._smooth_y
-        self._last_pre_predict = (pre_x, pre_y)
-
-        use_inline_lead = self._prediction_enabled and not (
-            self._aim_is_body_anchor and self._body_bbox is not None
-        )
-        if use_inline_lead:
-            lead_dt = min(dt, _MAX_PRED_LEAD_S)
-            pred_x = pre_x + self._vx * lead_dt
-            pred_y = pre_y + self._vy * lead_dt
-            if pred_y < pre_y:
-                pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
-            if self._body_bbox is not None:
-                bx, by, bw, bh = self._body_bbox
-                mx = bw * _BODY_X_MARGIN_FRAC
-                pred_x = max(bx + mx, min(bx + bw - mx, pred_x))
-            pa = alpha_from_tau(dt, _TAU_PRED_BLEND)
-            out_x = pre_x + pa * (pred_x - pre_x)
-            out_y = pre_y + pa * (pred_y - pre_y)
+        # M5 (audit): hysteresis deadband.
+        # FIX: exit condition relaxed — only require 1 consecutive frame
+        # instead of 2 so the dot starts following immediately when the
+        # enemy starts moving.  The 2-frame requirement caused a full frame
+        # of visible lag at 60 fps when the target broke from stillness.
+        meas_drift = math.hypot(x - self._smooth_x, y - self._smooth_y)
+        inst_speed = 0.0
+        if self._last_meas_x is not None and self._last_meas_y is not None:
+            ix = (x - self._last_meas_x) / max(_MIN_DT, dt)
+            iy = (y - self._last_meas_y) / max(_MIN_DT, dt)
+            inst_speed = math.hypot(ix, iy)
+        if self._in_deadband:
+            exits_now = meas_drift > 5.0 and inst_speed > 30.0
+            if exits_now:
+                self._deadband_exit_frames += 1
+                # FIX: 1 frame instead of 2 — removes one frame of visible lag
+                # on target motion start.  The entry condition (speed < 90 AND
+                # meas_drift < 2.5) is already conservative enough that we don't
+                # thrash in/out on detector noise.
+                if self._deadband_exit_frames >= 1:
+                    self._in_deadband = False
+                    self._deadband_exit_frames = 0
+            else:
+                self._deadband_exit_frames = 0
         else:
-            out_x = pre_x
-            out_y = pre_y
+            if speed < 90.0 and meas_drift < 2.5:
+                self._in_deadband = True
+                self._deadband_exit_frames = 0
+        in_deadband = self._in_deadband
+        if self._pull_x is None or self._pull_y is None:
+            self._pull_x = self._smooth_x
+            self._pull_y = self._smooth_y
+        if not in_deadband:
+            self._smooth_x = self._smooth_x + alpha * (x - self._smooth_x)
+            self._smooth_y = self._smooth_y + alpha * (y - self._smooth_y)
+            self._pull_x = self._pull_x + alpha * (x - self._pull_x)
+            self._pull_y = self._pull_y + alpha * (y - self._pull_y)
+        else:
+            # Overlay: gentle follow in deadband so Basic "Smoothness" (tau_still)
+            # still damps detector 1–3 px noise without freeing the pull anchor.
+            # FIX: raise ov_cap from 0.085 to 0.18 so the dot visibly follows
+            # slow micro-movements instead of feeling completely frozen.
+            # The pull anchor (_pull_x/y) is still kept frozen — only the display
+            # path gets the higher cap.
+            ov_cap = max(0.04, min(0.18, 0.22 - (_tau_still - 0.02) * 1.2))
+            ov_alpha = min(alpha_from_tau(dt, max(_tau_still * 2.2, 0.036)), ov_cap)
+            nx = self._smooth_x + ov_alpha * (x - self._smooth_x)
+            ny = self._smooth_y + ov_alpha * (y - self._smooth_y)
+            # Do not creep the overlay anchor upward on fragment hits (sky steal).
+            if y < self._smooth_y - 6.0:
+                ny = self._smooth_y
+            self._smooth_x, self._smooth_y = nx, ny
+            if meas_drift > 0.4:
+                track_alpha = max(alpha * 0.55, alpha_from_tau(dt, 0.028))
+                self._pull_x = self._pull_x + track_alpha * (x - self._pull_x)
+                self._pull_y = self._pull_y + track_alpha * (y - self._pull_y)
+
+        pre_pull_x, pre_pull_y = self._pull_x, self._pull_y
+        self._last_pre_predict = (pre_pull_x, pre_pull_y)
+
+        pull_x, pull_y = self._finalize_pull_point(pre_pull_x, pre_pull_y, dt, in_deadband)
+        # FIX: the old code applied _cap_measurement_step to the PREDICTED pull
+        # point using the pre-predict anchor as the "last" reference.  This
+        # double-capped the prediction lead and caused the pull to lag — especially
+        # on strafing targets where the prediction should be allowed to reach
+        # slightly ahead.  The step cap is already applied to the raw measurement
+        # in observe_target() before the smoother runs, so we don't need it again
+        # on the output.  Remove the redundant post-predict cap entirely.
+
+        if self._body_bbox is not None:
+            fx, fy = (
+                overlay_follow_meas
+                if overlay_follow_meas is not None
+                else (x, y)
+            )
+            overlay_x, overlay_y = self._advance_overlay_follow(fx, fy, dt)
+            overlay_x, overlay_y = self._clamp_aim_output(overlay_x, overlay_y)
+        else:
+            overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
+            # No body bbox path: still keep _overlay_smooth current.
+            self._overlay_smooth = (overlay_x, overlay_y)
 
         self._last_meas_x = x
         self._last_meas_y = y
         self._last_time = time_sec
-        motion = TargetMotion(out_x, out_y, self._vx, self._vy)
-
-        use_second_predict = (
-            self._prediction_enabled
-            and self._prediction_lead_s > 0.0
-            and self._prediction_max_px > 0.0
-            and not (self._aim_is_body_anchor and self._body_bbox is not None)
+        self._last_pred_offset = (pull_x - pre_pull_x, pull_y - pre_pull_y)
+        self._last = TargetMotion(
+            pull_x,
+            pull_y,
+            self._vx,
+            self._vy,
+            overlay_x=overlay_x,
+            overlay_y=overlay_y,
         )
-        if use_second_predict:
-            px, py = motion.predict(self._prediction_lead_s, self._prediction_max_px)
-            motion = TargetMotion(px, py, self._vx, self._vy)
-
-        if self._body_bbox is not None:
-            bx, by, bw, bh = self._body_bbox
-            clamped_x, clamped_y = self._clamp_to_body_bbox(motion.x, motion.y, bx, by, bw, bh)
-            motion = TargetMotion(clamped_x, clamped_y, motion.vx, motion.vy)
-
-        if self._fov_radius is not None and self._fov_cx is not None and self._fov_cy is not None:
-            fx, fy = self._clamp_to_fov(motion.x, motion.y)
-            motion = TargetMotion(fx, fy, motion.vx, motion.vy)
-
-        self._last_pred_offset = (motion.x - pre_x, motion.y - pre_y)
-        self._last = motion
         return self._last
 
 
@@ -434,3 +861,99 @@ class HumanizedMotion:
         if not (math.isfinite(out_x) and math.isfinite(out_y)):
             return dx, dy
         return out_x, out_y
+
+
+_RECOIL_RAMP_TAU_S = 0.22
+
+
+class RecoilCompensator:
+    """
+    Engagement-gated recoil-helper bias.
+
+    While the caller signals ``is_firing=True``:
+      * a ramped downward Y bias (``pull_down_px_per_s``) eases in over
+        ~``_RECOIL_RAMP_TAU_S`` so sustained fire feels smooth, not a snap
+      * horizontal ``jitter_*`` keys drive lateral *stabilization*: an extra
+        pull toward reducing ``err_x`` (passed from ``PullController``),
+        capped by ``jitter_amplitude_px`` and scaled by ``jitter_frequency_hz``
+        as response rate — not a sinusoidal shake
+
+    Bias is *additive* on top of the pull velocity — it is NOT fed back into
+    the velocity smoother. That's important: it would otherwise leak into the
+    EMA state and the cursor would keep drifting downward for several frames
+    after the user stops firing.
+
+    When ``is_firing=False`` the ramp and firing timer reset so the next burst
+    starts from zero pull-down and zero lateral correction (on-target err_x=0).
+    """
+
+    def __init__(
+        self,
+        *,
+        recoil_enabled: bool,
+        pull_down_px_per_s: float,
+        jitter_enabled: bool,
+        jitter_amplitude_px: float,
+        jitter_frequency_hz: float,
+    ) -> None:
+        self._recoil_enabled = bool(recoil_enabled)
+        self._pull_down = max(0.0, min(_finite(pull_down_px_per_s, 0.0), 180.0))
+        self._jitter_enabled = bool(jitter_enabled)
+        self._jitter_amp = max(0.0, min(_finite(jitter_amplitude_px, 0.0), 6.0))
+        self._jitter_hz = max(0.0, min(_finite(jitter_frequency_hz, 6.0), 20.0))
+        self._fire_duration = 0.0
+        self._was_firing = False
+
+    @property
+    def active(self) -> bool:
+        """True iff any compensation channel would emit a non-zero bias."""
+        recoil_on = self._recoil_enabled and self._pull_down > 0.0
+        jitter_on = self._jitter_enabled and self._jitter_amp > 0.0 and self._jitter_hz > 0.0
+        return recoil_on or jitter_on
+
+    def reset(self) -> None:
+        self._fire_duration = 0.0
+        self._was_firing = False
+
+    def compute_bias(
+        self,
+        *,
+        is_firing: bool,
+        dt: float,
+        err_x: float = 0.0,
+    ) -> tuple[float, float]:
+        """
+        Returns (bias_x, bias_y) in pixels for this frame.
+
+        - bias_y is positive-down (matches the screen-coordinate convention
+          used by ``compute_delta``).
+        - bias_x stabilizes lateral aim by correcting toward ``err_x → 0``;
+          on-target (``err_x ≈ 0``) produces no horizontal bias.
+        """
+        if not is_firing:
+            if self._was_firing:
+                self._fire_duration = 0.0
+            self._was_firing = False
+            return 0.0, 0.0
+
+        dt = _finite(dt, 0.0)
+        if dt <= 0.0 or dt > 0.5:
+            dt = 1.0 / 60.0
+        self._was_firing = True
+        self._fire_duration += dt
+
+        bias_y = 0.0
+        if self._recoil_enabled and self._pull_down > 0.0:
+            ramp = 1.0 - math.exp(-self._fire_duration / _RECOIL_RAMP_TAU_S)
+            bias_y = self._pull_down * dt * ramp
+
+        bias_x = 0.0
+        if self._jitter_enabled and self._jitter_amp > 0.0 and self._jitter_hz > 0.0:
+            ex = _finite(err_x, 0.0)
+            alpha = 1.0 - math.exp(-self._jitter_hz * dt * 0.35)
+            correct = ex * alpha
+            bias_x = max(-self._jitter_amp, min(self._jitter_amp, correct))
+
+        if not (math.isfinite(bias_x) and math.isfinite(bias_y)):
+            return 0.0, 0.0
+        return bias_x, bias_y

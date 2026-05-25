@@ -19,8 +19,10 @@ class RuntimeSourceWiringTests(unittest.TestCase):
         self.assertIn("bbox_w=target.bbox_w", text)
         self.assertIn("bbox_h=target.bbox_h", text)
         self.assertIn("_smooth_aim", text)
-        self.assertIn("_target_for_pull", text)
-        self.assertIn("to_monitor_coords(motion.x, motion.y", text)
+        self.assertIn("_frame_overlay_point", text)
+        self.assertIn("motion.overlay_xy()", text)
+        self.assertIn("_frame_overlay_point", text)
+        self.assertIn("monitor_overlay", text)
 
     def test_runtime_ast_has_smooth_aim_method(self) -> None:
         tree = ast.parse(RUNTIME_PATH.read_text(encoding="utf-8"))
@@ -30,3 +32,26 @@ class RuntimeSourceWiringTests(unittest.TestCase):
             if isinstance(n, ast.FunctionDef) and isinstance(getattr(n, "name", None), str)
         ]
         self.assertIn("_smooth_aim", methods)
+
+    def test_overlay_dot_guards_against_nan_motion(self) -> None:
+        """Overlay handoff must skip non-finite motion coords before Tk draw."""
+        text = RUNTIME_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "_frame_overlay_point",
+            text,
+            "overlay dot uses ring-clamped frame helper",
+        )
+        self.assertIn(
+            "motion.overlay_xy()",
+            text,
+            "pull/trace use overlay anchor",
+        )
+        self.assertIn(
+            "frame_overlay is not None",
+            text,
+        )
+        # Unified FOV: ring_inner = user_fov * 0.96; clamp uses min(detect, display)
+        # which are equal when unified_fov is True (default).
+        self.assertIn("float(overlay_fov) * 0.96", text)
+        self.assertIn("unified_fov", text)
+        self.assertIn(") * 0.96", text)

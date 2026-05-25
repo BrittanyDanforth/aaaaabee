@@ -41,8 +41,8 @@ End-to-end path:
 capture frame
   -> _select_target()  [detector.find_best_target — body-shape gate]
   -> _smooth_aim()     [motion.observe_target(..., bbox_x/y/w/h)]
-  -> pull uses smoothed centroid (upper-chest column)
-  -> overlay dot uses motion.x, motion.y (not raw plate centroid)
+  -> pull uses ring-clamped frame_overlay centroid (same as red dot)
+  -> overlay dot uses motion.overlay_xy() then _frame_overlay_point (0.96 ring)
 ```
 
 On startup you should see:

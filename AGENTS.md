@@ -14,7 +14,7 @@ ABA (OverlayAssist) is a Python desktop application for real-time aim-assist ove
 python3 -m pytest tests/ -v
 ```
 
-All 127 tests use synthetic frames and mocks — no display or game required.
+All 267 tests use synthetic frames and mocks — no display or game required.
 
 ### Running the application
 
@@ -53,6 +53,12 @@ The GUI (`aba_gui.py`) uses Basic/Advanced mode split:
 
 **Presets**: Stable, Responsive, Strong, Debug — apply via buttons on the Basic tab.
 
+**Overlay dot FPS**: `overlay_fps` (default 90) controls Tk redraw; `capture_fps` (60 on live trace) controls how often dot coordinates update. Frame drag: `_advance_overlay_follow` on chest-clamped aim (not deadband 2px cap); FOV uses `min(detect,display)*0.96`; `overlay_dot_smooth_alpha` tunes both capture follow (`configure_overlay_dot_alpha`) and Tk glide (`set_dot_glide_alpha`). After ring clamp, `sync_overlay_follow_frame` keeps follow state aligned. Pull uses ring-clamped `frame_overlay` (same as dot). **Ring + white crosshair (+)** share `_cx/_cy` via `set_fov_center(center_x, center_y)` each frame (`crosshair_offset_*`); dot glides from that center on first show.
+
+**False detection guards**: `viewmodel_exclude_bottom_frac` (default 0.28) masks the gun HUD. Low `red_coverage` + sparse fill + viewmodel-column geometry reject scope/gun FPs (img7). Pan motion fusion disables above 18% frame coverage.
+
+**Background clutter** (`target_is_background_clutter`): single signature used at candidate collect, `find_best_target` pool/free-max/sticky, scoring penalty, and runtime new-lock/adopt/switch — not only in `_collect_candidates`.
+
 ### Pull tuning hot-reload
 
 `PullController.update_tuning()` allows changing `pull_strength`, `deadzone`, `max_speed`, `magnetism_radius`, `velocity_smoothing` while runtime is active (no Stop→Start needed). This is wired through `RuntimeController.apply_config_patch()`.
@@ -60,6 +66,7 @@ The GUI (`aba_gui.py`) uses Basic/Advanced mode split:
 ### Key wiring notes for future changes
 
 - `_runtime_detect_fov` is set in `runtime.py` main loop and enables `TargetTracker.configure_fov_clamp` in `motion.py`
+- Overlay ring always uses hip-fire FOV radius (`ads_active=False`); ADS only changes the ring color (green glow). Detection FOV still scales with ADS internally.
 - Overlay dot is FOV-clamped to 96% of display FOV radius in `runtime.py`
 - `debug_show_*` config flags exist in validation/profiles but are NOT read by `draw_debug()` — they are placeholder UI only
 - Prediction sliders are inert when `aim_is_body_anchor=True` (the default) — noted in Advanced tab

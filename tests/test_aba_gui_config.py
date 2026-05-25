@@ -28,7 +28,7 @@ class AbaGuiConfigTests(unittest.TestCase):
         cfg = validate_config(apply_profile(raw))
         self.assertAlmostEqual(cfg["torso_aim_fraction"], 0.40)
         self.assertAlmostEqual(cfg["aim_body_y_min_fraction"], 0.30)
-        self.assertIn("debug_show_body_bbox", cfg)
+        self.assertNotIn("debug_show_body_bbox", cfg)
 
     def test_runtime_snapshot_extended_fields(self) -> None:
         from aba_status import RuntimeSnapshot

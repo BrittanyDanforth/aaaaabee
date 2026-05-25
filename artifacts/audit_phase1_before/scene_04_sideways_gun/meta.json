@@ -1,0 +1,36 @@
+{
+  "scene": "scene_04_sideways_gun",
+  "description": "sideways red character with extended gun arm",
+  "active": true,
+  "candidates": 1,
+  "best_score": 0.42258156341293435,
+  "fov_radius": 220,
+  "fov_center": [
+    640,
+    360
+  ],
+  "red_mask_pixels": 6932,
+  "red_mask_pct": 0.0075217013888888885,
+  "target": {
+    "centroid_x": 642.7612903225806,
+    "centroid_y": 358.2170967741935,
+    "bbox": [
+      597,
+      287,
+      99,
+      182
+    ],
+    "confidence": 0.42258156341293435,
+    "body_shape_score": 0.5641848120629371,
+    "red_coverage": 0.3847263847263847,
+    "fill_ratio": 0.0,
+    "max_circularity": 0.0,
+    "part_count": 1,
+    "area": 8330.5,
+    "distance_to_center": 3.2868629661378663
+  },
+  "tracker_output": {
+    "x": 642.7612903225806,
+    "y": 358.2170967741935
+  }
+}

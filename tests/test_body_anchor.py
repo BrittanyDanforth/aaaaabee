@@ -104,7 +104,15 @@ class MotionBodyAnchorWiring(unittest.TestCase):
         col_y = t.bbox_y + t.bbox_h * 0.38
         expected_y = 0.35 * t.centroid_y + 0.65 * col_y
         self.assertAlmostEqual(m_legacy.y, expected_y, delta=5.0)
-        self.assertNotAlmostEqual(m_anchor.y, expected_y, delta=0.5)
+        # Anchor mode must not apply the legacy 35/65 reblend — its
+        # output should follow ``t.centroid_y`` (which is the detector's
+        # densest-band anchor). The previous assertion compared against
+        # ``expected_y`` which is a moving target: after the real-frame
+        # audit the densest-band anchor naturally lands within a pixel
+        # of the geometric 38 %-of-bbox column, so the legacy and
+        # anchor outputs converge for THIS specific synthetic dummy.
+        # Test the invariant directly instead.
+        self.assertAlmostEqual(m_anchor.y, t.centroid_y, delta=0.5)
 
     def test_vertical_prediction_stays_in_bbox(self) -> None:
         r = detector.find_best_target(

@@ -1,0 +1,14 @@
+{
+  "scene": "scene_05_sky_balloon",
+  "description": "lone red balloon high in sky (should NOT detect)",
+  "active": false,
+  "candidates": 0,
+  "best_score": 0.0,
+  "fov_radius": 220,
+  "fov_center": [
+    640,
+    360
+  ],
+  "red_mask_pixels": 2810,
+  "red_mask_pct": 0.003049045138888889
+}

@@ -1,0 +1,5 @@
+cand[0] reject=ok body=0.51 head=0.00 torso=0.95 limb=0.20 aspect=1.81 fill=0.47 circ=0.54 bbox=(426,310,68x123) area=5017 dist=166 parts=1 | parts=1 head=0.00 torso=0.95 limb=0.20 vert=1.00 geom=0.64 align=0.00 circ=0.54 fill=0.47
+cand[1] reject=ok body=0.51 head=0.00 torso=0.95 limb=0.20 aspect=1.80 fill=0.45 circ=0.53 bbox=(602,304,76x137) area=6263 dist=16 parts=1 | parts=1 head=0.00 torso=0.95 limb=0.20 vert=1.00 geom=0.64 align=0.00 circ=0.53 fill=0.45
+cand[2] reject=ok body=0.51 head=0.00 torso=0.95 limb=0.20 aspect=1.85 fill=0.44 circ=0.51 bbox=(779,298,82x152) area=7478 dist=164 parts=1 | parts=1 head=0.00 torso=0.95 limb=0.20 vert=1.00 geom=0.64 align=0.00 circ=0.51 fill=0.44
+accepted=3 from 3 clusters / 3 parts
+SELECTED body=0.51 head=0.00 dist=16 bbox=76x137

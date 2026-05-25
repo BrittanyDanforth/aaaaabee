@@ -1,0 +1,109 @@
+{
+  "input": "/workspace/artifacts/real_apex_test/_inputs/img1_back_view.png",
+  "frame_size": [
+    684,
+    536
+  ],
+  "fov_center": [
+    342.0,
+    268.0
+  ],
+  "fov_radius": 192,
+  "min_area_floor": 40.0,
+  "ads_hint": false,
+  "mask_pixels": {
+    "red_enemy": 35115,
+    "shape": 166246,
+    "chroma": 35808,
+    "motion": 74912,
+    "fused": 168953
+  },
+  "parts": 4,
+  "cluster_count": 3,
+  "active": false,
+  "best_score": 0.0,
+  "selected": null,
+  "candidates": [
+    {
+      "idx": 0,
+      "accepted": false,
+      "reject_reason": "horizontal_stripe",
+      "bbox": [
+        151,
+        216,
+        37,
+        36
+      ],
+      "body_shape_score": 0.0,
+      "head_score": 0.0,
+      "torso_score": 0.0,
+      "limb_stack_score": 0.0,
+      "vertical_profile_score": 0.72,
+      "fill_ratio": 0.5277777910232544,
+      "max_circularity": 0.6649990889444549,
+      "aspect": 0.972972972972973,
+      "part_count": 2,
+      "total_area": 243.0,
+      "distance_to_center": 176.86257829173474,
+      "aim": [
+        169.5,
+        228.96
+      ],
+      "debug_detail": "horizontal_stripe"
+    },
+    {
+      "idx": 1,
+      "accepted": false,
+      "reject_reason": "horizontal_stripe",
+      "bbox": [
+        214,
+        107,
+        26,
+        19
+      ],
+      "body_shape_score": 0.0,
+      "head_score": 0.0,
+      "torso_score": 0.0,
+      "limb_stack_score": 0.0,
+      "vertical_profile_score": 0.72,
+      "fill_ratio": 0.3684210479259491,
+      "max_circularity": 0.2562915117679302,
+      "aspect": 0.7307692307692307,
+      "part_count": 1,
+      "total_area": 108.0,
+      "distance_to_center": 192.32863957299756,
+      "aim": [
+        227.0,
+        113.84
+      ],
+      "debug_detail": "horizontal_stripe"
+    },
+    {
+      "idx": 2,
+      "accepted": false,
+      "reject_reason": "too_small",
+      "bbox": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "body_shape_score": 0.0,
+      "head_score": 0.0,
+      "torso_score": 0.0,
+      "limb_stack_score": 0.0,
+      "vertical_profile_score": 0.0,
+      "fill_ratio": 0.0,
+      "max_circularity": 0.0,
+      "aspect": 0.0,
+      "part_count": 1,
+      "total_area": 29.0,
+      "distance_to_center": 0.0,
+      "aim": [
+        342.0,
+        268.0
+      ],
+      "debug_detail": "area=29 < min=40.0"
+    }
+  ]
+}

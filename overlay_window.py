@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import logging
+import math
 import sys
 import threading
 import tkinter as tk
 
+from motion import overlay_glide_step
+
 logger = logging.getLogger("overlay_assist")
 
 _TRANSPARENT_BG = "#010203"
+# Single default HUD ring — ADS must not switch to cyan (double-ring on RMB).
+FOV_RING_OUTLINE = "#446644"
 
 
 def _hex_to_colorref(hex_color: str) -> int:
@@ -249,8 +254,13 @@ class OverlayWindow:
         *,
         fov_center_x: float | None = None,
         fov_center_y: float | None = None,
+        overlay_fps: int = 90,
     ) -> None:
+        self._overlay_fps = max(30, min(144, int(overlay_fps)))
+        self._tick_ms = max(4, int(1000 / self._overlay_fps))
         self._fov_radius = fov_radius
+        self._drawn_fov_radius = fov_radius
+        self._drawn_ring_color = FOV_RING_OUTLINE
         self._screen_width = screen_width
         self._screen_height = screen_height
         self._origin_x = origin_x
@@ -258,6 +268,10 @@ class OverlayWindow:
         self._fov_center_x = fov_center_x
         self._fov_center_y = fov_center_y
         self._target: tuple[float, float] | None = None
+        self._dot_dest: tuple[float, float] | None = None
+        self._dot_disp: tuple[float, float] | None = None
+        self._dot_glide_alpha = 0.34
+        self._dot_max_step_per_tick = 11.0
         self._active = False
         self._closed = False
         self._lock = threading.Lock()
@@ -276,10 +290,33 @@ class OverlayWindow:
         sh = self._screen_height
         fov_radius = self._fov_radius
 
+        # DPI awareness must be set BEFORE this thread creates its Tk
+        # interpreter, otherwise Tk samples the wrong system DPI and the
+        # canvas reports logical pixels while mss feeds physical pixels.
+        # Re-asserting here is idempotent at the OS level but keeps the
+        # overlay thread honest if it was spawned before main-thread setup.
+        try:
+            from platform_info import enable_dpi_awareness
+
+            enable_dpi_awareness()
+        except Exception:
+            logger.debug("Could not assert DPI awareness on overlay thread", exc_info=True)
+
         self._root = tk.Tk()
         self._root.title("OverlayAssist")
-        self._root.geometry(f"{sw}x{sh}+{self._origin_x}+{self._origin_y}")
+        # Pin Tk's internal scale factor to 1.0 so canvas pixel coords match
+        # mss physical pixels. Without this, Tcl uses fpixels/screen DPI to
+        # scale fonts/some shapes and the FOV ring drifts off the crosshair.
+        try:
+            self._root.tk.call("tk", "scaling", 1.0)
+        except tk.TclError:
+            logger.debug("Could not pin Tk scaling to 1.0", exc_info=True)
+        # overrideredirect MUST be set before geometry on Windows — otherwise
+        # the geometry +x+y positions the outer (decorated) frame and the
+        # subsequent decoration removal shifts the client area UP by the
+        # title-bar height, leaving the FOV ring ~30px above the crosshair.
         self._root.overrideredirect(True)
+        self._root.geometry(f"{sw}x{sh}+{self._origin_x}+{self._origin_y}")
         self._root.attributes("-topmost", True)
 
         try:
@@ -307,17 +344,26 @@ class OverlayWindow:
 
         fcx = self._fov_center_x
         fcy = self._fov_center_y
-        self._cx = int(round(fcx if fcx is not None else sw / 2))
-        self._cy = int(round(fcy if fcy is not None else sh / 2))
+        self._cx = float(fcx if fcx is not None else sw / 2)
+        self._cy = float(fcy if fcy is not None else sh / 2)
 
+        # The FOV ring is tagged so we can defensively prove only ONE such
+        # oval ever exists on the canvas. Live-game reports of a "ghost"
+        # outer ring trace back to ambiguity about whether set_fov_radius()
+        # could leak a second oval; tagging + a guarded delete in _redraw
+        # makes the invariant impossible to violate.
+        init_ring_color = FOV_RING_OUTLINE
         self._fov_id = self._canvas.create_oval(
             self._cx - fov_radius,
             self._cy - fov_radius,
             self._cx + fov_radius,
             self._cy + fov_radius,
-            outline="#00ff88",
+            outline=init_ring_color,
             width=2,
+            tags=("fov_ring",),
         )
+        self._drawn_fov_radius = fov_radius
+        self._drawn_ring_color = init_ring_color
 
         self._cross_h = self._canvas.create_line(
             self._cx - 10,
@@ -337,7 +383,13 @@ class OverlayWindow:
             width=1,
         )
 
-        self._target_id = self._canvas.create_oval(0, 0, 0, 0, outline="", fill="")
+        # state="hidden" guarantees the target dot is invisible at startup
+        # and whenever no target is locked — empty outline/fill is not enough
+        # on every Tk build; some compositors still render a stray 1-px
+        # speck at (0,0,0,0).
+        self._target_id = self._canvas.create_oval(
+            0, 0, 0, 0, outline="", fill="", state="hidden", tags=("target_dot",)
+        )
 
         self._status_id = self._canvas.create_text(
             12,
@@ -359,35 +411,260 @@ class OverlayWindow:
         for delay in (25, 100, 300, 1000):
             self._root.after(delay, _reapply)
 
+    def set_overlay_fps(self, fps: int) -> None:
+        with self._lock:
+            self._overlay_fps = max(30, min(144, int(fps)))
+            self._tick_ms = max(4, int(1000 / self._overlay_fps))
+
+    def set_dot_glide_alpha(self, alpha: float) -> None:
+        """Monitor-space glide between capture updates (Red dot smoothness slider)."""
+        a = max(0.05, min(1.0, float(alpha)))
+        with self._lock:
+            self._dot_glide_alpha = a
+            self._dot_max_step_per_tick = max(7.0, min(22.0, 7.0 + a * 22.0))
+
     def set_fov_radius(self, radius: int) -> None:
+        """Legacy entry — prefer :meth:`update_fov` from runtime (one call/frame)."""
         with self._lock:
             self._fov_radius = max(40, int(radius))
+        self._request_redraw()
+
+    def update_fov(
+        self,
+        radius: int,
+        ads: bool,
+        center_x: float,
+        center_y: float,
+    ) -> None:
+        """Single overlay FOV update (radius + center). ``ads`` is ignored for the ring."""
+        fx, fy = float(center_x), float(center_y)
+        new_r = max(40, int(radius))
+        with self._lock:
+            self._fov_radius = new_r
+            self._fov_center_x = fx
+            self._fov_center_y = fy
+            self._cx = fx
+            self._cy = fy
+        self._position_crosshair()
+        # Sync immediately when canvas exists so ADS hip→zoom does not leave
+        # one frame with the old grey ring under the new cyan ring.
+        if self._canvas is not None:
+            try:
+                self._purge_orphan_fov_rings()
+                self._sync_fov_ring()
+            except (tk.TclError, RuntimeError):
+                pass
+        self._request_redraw()
+
+    def count_fov_ring_items(self) -> int:
+        """Test/audit helper: number of canvas ovals tagged ``fov_ring``."""
+        if self._canvas is None:
+            return 0
+        try:
+            return len(self._canvas.find_withtag("fov_ring"))
+        except tk.TclError:
+            return 0
+
+    def _position_crosshair(self) -> None:
+        if self._canvas is None or self._cross_h is None or self._cross_v is None:
+            return
+        try:
+            self._canvas.coords(
+                self._cross_h,
+                self._cx - 10,
+                self._cy,
+                self._cx + 10,
+                self._cy,
+            )
+            self._canvas.coords(
+                self._cross_v,
+                self._cx,
+                self._cy - 10,
+                self._cx,
+                self._cy + 10,
+            )
+        except tk.TclError:
+            pass
+
+    def set_fov_center(self, x: float, y: float) -> None:
+        """Move ring + crosshair — does not create a second oval (use update_fov)."""
+        with self._lock:
+            radius = int(self._fov_radius)
+        self.update_fov(radius, False, x, y)
+
+    def _fov_ring_alive(self) -> bool:
+        if self._canvas is None or self._fov_id is None:
+            return False
+        try:
+            return str(self._canvas.type(self._fov_id)) == "oval"
+        except tk.TclError:
+            return False
+
+    def _purge_orphan_fov_rings(self) -> None:
+        """Delete every large center-screen oval except the canonical ``_fov_id``."""
+        if self._canvas is None:
+            return
+        keep = self._fov_id
+        for item in list(self._canvas.find_all()):
+            if item == self._target_id:
+                continue
+            try:
+                tags = self._canvas.gettags(item)
+                if "target_dot" in tags:
+                    continue
+            except tk.TclError:
+                tags = ()
+            try:
+                if str(self._canvas.type(item)) != "oval":
+                    continue
+                x0, y0, x1, y1 = self._canvas.coords(item)
+                ocx = (float(x0) + float(x1)) * 0.5
+                ocy = (float(y0) + float(y1)) * 0.5
+                radius = max(float(x1) - float(x0), float(y1) - float(y0)) * 0.5
+            except (tk.TclError, ValueError):
+                continue
+            if radius < 25.0:
+                continue
+            if abs(ocx - self._cx) > 48.0 or abs(ocy - self._cy) > 48.0:
+                continue
+            if item == keep and self._fov_ring_alive():
+                continue
+            try:
+                self._canvas.delete(item)
+            except tk.TclError:
+                pass
+
+    def _replace_fov_ring(self, radius: int, color: str) -> None:
+        """Delete every fov_ring oval and create exactly one (first paint / recovery)."""
+        if self._canvas is None:
+            return
+        for item in list(self._canvas.find_withtag("fov_ring")):
+            try:
+                self._canvas.delete(item)
+            except tk.TclError:
+                pass
+        self._purge_orphan_fov_rings()
+        self._fov_id = self._canvas.create_oval(
+            self._cx - radius,
+            self._cy - radius,
+            self._cx + radius,
+            self._cy + radius,
+            outline=color,
+            width=2,
+            tags=("fov_ring",),
+        )
+        self._drawn_fov_radius = radius
+        self._drawn_ring_color = color
+
+    def _sync_fov_ring(self) -> None:
+        """Ensure exactly one default FOV oval (hip size/color; ADS does not restyle)."""
+        if self._canvas is None:
+            return
+        with self._lock:
+            radius = int(self._fov_radius)
+        color = FOV_RING_OUTLINE
+        self._purge_orphan_fov_rings()
+        # Never coords-resize across ADS/radius steps — that left the old grey
+        # hip-fire ring visible inside the new cyan ADS ring (double FOV bug).
+        if (
+            not self._fov_ring_alive()
+            or radius != self._drawn_fov_radius
+            or color != self._drawn_ring_color
+        ):
+            self._replace_fov_ring(radius, color)
+            return
+        try:
+            self._canvas.coords(
+                self._fov_id,
+                self._cx - radius,
+                self._cy - radius,
+                self._cx + radius,
+                self._cy + radius,
+            )
+            self._canvas.itemconfig(
+                self._fov_id, outline=color, width=2, tags=("fov_ring",)
+            )
+        except tk.TclError:
+            self._replace_fov_ring(radius, color)
+
+    def _initial_dot_display(
+        self, dest: tuple[float, float]
+    ) -> tuple[float, float]:
+        """Start glide from ring center so the dot does not pop onto the target."""
+        return float(self._cx), float(self._cy)
 
     def set_state(self, ads: bool, target: tuple[float, float] | None) -> None:
+        # ``ads`` is for runtime telemetry only; the HUD ring does not change on RMB.
+        del ads
         with self._lock:
-            self._active = ads
-            self._target = target
+            if target is None:
+                self._target = None
+                self._dot_dest = None
+            else:
+                dest = (float(target[0]), float(target[1]))
+                self._dot_dest = dest
+                if self._dot_disp is None:
+                    self._dot_disp = self._initial_dot_display(dest)
+                self._target = dest
+        self._request_redraw()
+
+    def _request_redraw(self) -> None:
+        """Paint dot/ring on the overlay thread as soon as runtime pushes new state."""
+        root = self._root
+        if root is None or self._closed:
+            return
+        try:
+            root.after(0, self._redraw)
+        except tk.TclError:
+            pass
 
     def _redraw(self) -> None:
-        if self._canvas is None or self._fov_id is None:
+        if self._canvas is None:
             return
 
         with self._lock:
-            ads = self._active
-            target = self._target
+            dest = self._dot_dest
+            disp = self._dot_disp
 
         try:
-            color = "#00ff88" if ads else "#446644"
-            self._canvas.itemconfig(self._fov_id, outline=color)
+            # Purge before sync so slider/center moves cannot stack ghost rings.
+            self._purge_orphan_fov_rings()
+            self._sync_fov_ring()
 
-            if target is not None:
-                tx, ty = int(round(target[0])), int(round(target[1]))
-                r = 6
-                self._canvas.coords(self._target_id, tx - r, ty - r, tx + r, ty + r)
-                self._canvas.itemconfig(self._target_id, outline="#ff4444", fill="#ff4444")
+            if dest is not None:
+                if disp is None:
+                    disp = dest
+                else:
+                    disp = overlay_glide_step(
+                        disp,
+                        dest,
+                        alpha=self._dot_glide_alpha,
+                        max_step=self._dot_max_step_per_tick,
+                    )
+                with self._lock:
+                    self._dot_disp = disp
+                tx, ty = float(disp[0]), float(disp[1])
+                r = 6.0
+                self._canvas.coords(
+                    self._target_id, tx - r, ty - r, tx + r, ty + r
+                )
+                self._canvas.itemconfig(
+                    self._target_id,
+                    outline="#ff4444",
+                    fill="#ff4444",
+                    state="normal",
+                )
             else:
+                with self._lock:
+                    self._dot_disp = None
+                # Hide instead of "shrink to 0" — guarantees no centre-pinned
+                # speck appears when there is no live target. Empty outline/
+                # fill alone has been observed to leave a 1-px artifact on
+                # some compositors.
+                self._canvas.itemconfig(
+                    self._target_id, outline="", fill="", state="hidden"
+                )
                 self._canvas.coords(self._target_id, 0, 0, 0, 0)
-                self._canvas.itemconfig(self._target_id, outline="", fill="")
         except (tk.TclError, RuntimeError):
             pass
 
@@ -414,7 +691,7 @@ class OverlayWindow:
                 tick_count += 1
                 if tick_count == 1 or tick_count % 15 == 0:
                     _make_click_through(self._root, self._canvas)
-                self._root.after(33, tick)
+                self._root.after(self._tick_ms, tick)
 
         tick()
 

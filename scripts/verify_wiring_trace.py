@@ -8,10 +8,12 @@ import time
 
 sys.path.insert(0, ".")
 
+from capture import build_capture_region
 from detector import find_best_target
 from motion import TargetTracker
 from pull import PullController, PullTuning
 from mouse_gate import MouseGateContext, evaluate_mouse_gate
+from runtime import AssistRuntime
 from tests.reference_body_frames import gen_firing_range_standing
 
 FRAME_W, FRAME_H = 1280, 720
@@ -41,8 +43,10 @@ def trace_one_preset(name: str, cfg: dict) -> dict:
     if target is None:
         return {"preset": name, "error": "no target detected"}
 
+    display_fov = float(cfg.get("fov_radius_pixels", DETECT_FOV))
+    ring_inner = min(float(DETECT_FOV), display_fov) * 0.96
     tracker = TargetTracker()
-    tracker.configure_fov_clamp(CX, CY, DETECT_FOV)
+    tracker.configure_fov_clamp(CX, CY, ring_inner)
     tracker.configure_body_clamp(
         cfg.get("aim_body_y_min_fraction", 0.28),
         cfg.get("aim_body_y_max_fraction", 0.50),
@@ -83,7 +87,24 @@ def trace_one_preset(name: str, cfg: dict) -> dict:
     )
     pull = PullController(pull_tuning)
     from dataclasses import replace
-    pull_target = replace(target, centroid_x=motion.x, centroid_y=motion.y)
+
+    mon = {"left": 0, "top": 0, "width": FRAME_W, "height": FRAME_H}
+    cap = build_capture_region(mon, float(CX), float(CY), DETECT_FOV, use_crop=True)
+    frame_overlay = AssistRuntime._frame_overlay_point(
+        motion,
+        cap,
+        center_x=float(CX),
+        center_y=float(CY),
+        detect_fov=float(DETECT_FOV),
+        display_fov=display_fov,
+    )
+    if frame_overlay is None:
+        return {"preset": name, "error": "frame_overlay clamp failed"}
+    pull_target = replace(
+        target,
+        centroid_x=frame_overlay[0],
+        centroid_y=frame_overlay[1],
+    )
     pr = pull.compute_delta(pull_target, CX, CY)
 
     gate_ctx = MouseGateContext(
@@ -100,11 +121,14 @@ def trace_one_preset(name: str, cfg: dict) -> dict:
     gate = evaluate_mouse_gate(gate_cfg, gate_ctx)
 
     import math
+
+    ovx, ovy = motion.overlay_xy()
+    px, py = pull_target.centroid_x, pull_target.centroid_y
     anchor_inside_bbox = (
-        target.bbox_x <= motion.x <= target.bbox_x + target.bbox_w
-        and target.bbox_y <= motion.y <= target.bbox_y + target.bbox_h
+        target.bbox_x <= px <= target.bbox_x + target.bbox_w
+        and target.bbox_y <= py <= target.bbox_y + target.bbox_h
     )
-    fov_dist = math.hypot(motion.x - CX, motion.y - CY)
+    fov_dist = math.hypot(px - CX, py - CY)
     fov_ok = fov_dist <= DETECT_FOV
 
     return {
@@ -116,6 +140,8 @@ def trace_one_preset(name: str, cfg: dict) -> dict:
             "body_score": round(target.body_shape_score, 3),
         },
         "motion": {
+            "overlay_xy": [round(ovx, 1), round(ovy, 1)],
+            "pull_xy": [round(px, 1), round(py, 1)],
             "smooth_xy": [round(motion.x, 1), round(motion.y, 1)],
             "velocity": [round(motion.vx, 1), round(motion.vy, 1)],
             "anchor_in_bbox": anchor_inside_bbox,

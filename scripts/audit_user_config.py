@@ -64,9 +64,11 @@ def simulate(cfg: dict, fps: float, steps: int = 150) -> dict:
         m = tracker.observe_target(
             raw_x, cy, t,
             bbox_x=int(raw_x) - 20, bbox_y=200, bbox_w=36, bbox_h=90,
+            aim_is_body_anchor=True,
         )
+        ax, ay = m.overlay_xy()
         tgt = Target(
-            m.x, m.y, 300.0, 10.0, 0.9,
+            ax, ay, 300.0, 10.0, 0.9,
             bbox_x=int(raw_x) - 20, bbox_y=200, bbox_w=36, bbox_h=90,
         )
         pr = ctrl.compute_delta(tgt, ch[0], ch[1], time_sec=t)
