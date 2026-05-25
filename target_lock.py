@@ -250,6 +250,52 @@ def _locked_is_environment_fp(
         ring_r = min(float(frame_w), float(frame_h)) * 0.35
         if dist > ring_r and bh <= 56 and float(target.red_coverage) < 0.06:
             return True
+    # F83-F165 class: off-center structural FP that LOCKS even though no
+    # enemy is in the FOV (gun viewmodel rim / iron-sight metal edge /
+    # score-panel highlight / building wall trim / side beacon).  The
+    # detector finds a red shape with body-like part stack and a moderate
+    # head signal so it passes _passes_new_lock_gates, but it sits off the
+    # crosshair where a real enemy the player is aiming at would NOT be.
+    #
+    # Apex aim assist is a refinement of the crosshair, not a discovery
+    # tool — the player should already be roughly aimed at the enemy, so
+    # legitimate locks are centered (off_cx <= 6 % frame_w).  Real enemies
+    # in the gif_166_proof run sit at off_cx <= 21 px; every detection
+    # that locked at off_cx > 50 px across F84-F165 turned out to be a
+    # structural FP (gun rim, banner, iron sight, building wall, score
+    # panel highlight).  Two variants of off-center reject:
+    #
+    #   A) low-moderate red small/medium bbox (gun rim, iron sight edge,
+    #      score-panel highlight, tower banner from far side).
+    #   B) saturated solid red with no real head signal (red building
+    #      wall, score-panel banner — high red fill but no humanoid
+    #      structure).
+    if (
+        fov_cx is not None
+        and fov_cy is not None
+        and frame_w > 0
+        and frame_h > 0
+    ):
+        off_cx = abs(float(target.centroid_x) - float(fov_cx))
+        if off_cx > float(frame_w) * 0.06:
+            # Variant A: small/medium bbox with mid-or-lower red coverage
+            # and bounded part count.  Real off-center close enemies have
+            # red >= 0.40 (saturated character body); structural FPs sit
+            # in the 0.05-0.35 band of partial red coverage.
+            if (
+                float(target.bbox_h) < 120.0
+                and float(target.bbox_w) < 60.0
+                and float(target.red_coverage) < 0.40
+                and int(target.part_count) <= 8
+            ):
+                return True
+            # Variant B: solid red wall/banner (high red coverage) with
+            # no convincing humanoid head signal.
+            if (
+                float(target.red_coverage) >= 0.50
+                and float(target.head_score) < 0.60
+            ):
+                return True
     return False
 
 

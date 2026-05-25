@@ -2521,6 +2521,108 @@ def _anchor_bbox_bottom_dense_band(
     return new_bx, new_by, new_bw, new_bh
 
 
+def _tighten_merged_body_bbox(
+    parts: list[_RedPart],
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    *,
+    head_score: float,
+    has_torso_part: bool,
+    frame_h: int,
+    aim_y: float | None = None,
+) -> tuple[int, int, int, int]:
+    """Trim over-extended merged-mask bbox to its head/torso/limb core.
+
+    The Apex red-enemy mask sometimes merges three independent red regions
+    into one connected cluster:
+        - score-panel banners / tower icon strips above the dummy
+        - the dummy body itself
+        - score-panel red wires / "18" display segments below the dummy
+    The aggregate bbox covers 100+ px (~30 % of frame height) of background
+    noise around the actual body.  The body parts are correctly classified
+    (head/torso/limb roles), but the cluster-level ``bx/by/bw/bh`` includes
+    every connected pixel, so the visible green box looks alarming.
+
+    Two-stage trim when the cluster matches the merged-mask signature
+    (very tall + no head signal + at least one classified torso part):
+
+      1) Clamp the bbox vertically to the union of the classified body
+         parts' y-spans (drops HUD pixels above/below).
+      2) Cap the union at frame_h * 0.18 (~80 px on 450 h) centered on
+         ``aim_y`` (or torso part centroid) — even the body parts can
+         include limb-classified score-panel fragments that extend the
+         span past the actual dummy.  Real close enemies have head
+         score >= 0.10 so this cap never fires for them.
+
+    Width is preserved (horizontal merging is rare).  Downstream chest-band
+    aim and IoU/refine checks then operate on the tightened body rectangle
+    rather than the score-panel-plus-banner column.
+
+    Pre-existing tighteners (``_anchor_bbox_bottom_dense_band``,
+    ``_prune_upper_fringe_parts``) require ROW-DENSITY GAPS in the mask to
+    fire; the merged-mask scenario has dense rows throughout, so neither
+    triggered.  This tightener works on the part-role classification
+    instead — it is the only signal that can distinguish the body parts
+    from the surrounding HUD/structural pixels in the no-gap case.
+    """
+    if bh < int(float(frame_h) * 0.22):
+        return bx, by, bw, bh
+    if float(head_score) >= 0.10:
+        return bx, by, bw, bh
+    if not has_torso_part:
+        return bx, by, bw, bh
+    body_parts = [
+        p for p in parts
+        if p.role in (PartRole.HEAD, PartRole.TORSO, PartRole.LIMB)
+    ]
+    if len(body_parts) < 2:
+        return bx, by, bw, bh
+    y_min = min(int(p.y) for p in body_parts)
+    y_max = max(int(p.y) + int(p.h) for p in body_parts)
+
+    # Stage 2: cap merged-mask span at frame_h * 0.18 centered on the
+    # aim point (the chest target derived by score_target) so even
+    # noise-limb parts that extend the part-union past the actual body
+    # are clipped to a humanoid-shaped window.
+    max_bh = int(float(frame_h) * 0.18)
+    if (y_max - y_min) > max_bh:
+        # Pick a vertical anchor: aim_y first (already chest-band aware),
+        # else the centroid of the torso parts (most stable role),
+        # else the midpoint of the y-union.
+        anchor: int
+        if aim_y is not None:
+            anchor = int(round(float(aim_y)))
+        else:
+            torsos = [p for p in body_parts if p.role == PartRole.TORSO]
+            anchor = (
+                int(sum(p.y + p.h * 0.5 for p in torsos) / max(1, len(torsos)))
+                if torsos
+                else (y_min + y_max) // 2
+            )
+        half = max_bh // 2
+        y_min = max(y_min, anchor - half)
+        y_max = min(y_max, anchor + half)
+        if (y_max - y_min) < 30:
+            return bx, by, bw, bh
+
+    new_by = max(int(by), y_min)
+    new_bh = max(12, y_max - new_by)
+    if new_by < int(by):
+        new_by = int(by)
+    if new_by + new_bh > int(by) + int(bh):
+        new_bh = int(by) + int(bh) - new_by
+    if new_bh < 12:
+        return bx, by, bw, bh
+    # Only return the tighter bbox if it actually trims meaningfully
+    # (avoid no-op churn on already-tight bboxes that happen to pass the
+    # head/torso/tall preconditions).
+    if new_bh >= int(bh) - 4:
+        return bx, by, bw, bh
+    return bx, new_by, bw, new_bh
+
+
 def _tighten_bbox_around_aim(
     mask: np.ndarray,
     bx: int,
@@ -3985,16 +4087,24 @@ def _collect_candidates(
                 )
             continue
 
+        tight_bx, tight_by, tight_bw, tight_bh = _tighten_merged_body_bbox(
+            body_parts,
+            fig.bx, fig.by, fig.bw, fig.bh,
+            head_score=fig.head_score,
+            has_torso_part=has_torso_part,
+            frame_h=int(h),
+            aim_y=aim_y,
+        )
         targets.append(
             Target(
                 centroid_x=aim_x,
                 centroid_y=aim_y,
                 area=fig.total_area,
                 distance_to_center=dist,
-                bbox_x=fig.bx,
-                bbox_y=fig.by,
-                bbox_w=fig.bw,
-                bbox_h=fig.bh,
+                bbox_x=tight_bx,
+                bbox_y=tight_by,
+                bbox_w=tight_bw,
+                bbox_h=tight_bh,
                 solidity=fig.solidity,
                 humanoid_score=fig.body_shape_score,
                 part_count=fig.part_count,
