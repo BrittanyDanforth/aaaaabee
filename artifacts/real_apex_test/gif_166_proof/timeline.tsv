@@ -30,35 +30,35 @@ frame	state	overlay_y	violation
 28	stale	208.5	
 29	fresh	205.5	
 30	stale	205.5	
-31	fresh	221.2	
-32	stale	221.2	
-33	stale	221.2	
-34	stale	221.2	
-35	stale	221.2	
-36	stale	221.2	
-37	stale	221.2	
-38	fresh	222.2	
-39	stale	222.2	
-40	stale	222.2	
-41	stale	222.2	
-42	fresh	222.5	
-43	fresh	222.6	
-44	stale	222.6	
-45	fresh	222.6	
-46	stale	222.6	
-47	fresh	219.0	
-48	stale	219.0	
-49	stale	219.0	
-50	fresh	218.5	
-51	stale	218.5	
-52	fresh	217.5	
-53	stale	217.5	
-54	fresh	213.5	
-55	above_chest	210.0	above_chest
-56	above_chest	207.8	above_chest
-57	stale	207.8	
-58	above_chest	206.9	above_chest
-59	stale	206.9	
+31	stale	205.5	
+32	stale	205.5	
+33	stale	205.5	
+34	stale	205.5	
+35	stale	205.5	
+36	stale	205.5	
+37	stale	205.5	
+38	below_chest	205.5	below_chest
+39	stale	205.5	
+40	stale	205.5	
+41	stale	205.5	
+42	below_chest	205.5	below_chest
+43	below_chest	205.5	below_chest
+44	stale	205.5	
+45	below_chest	205.5	below_chest
+46	stale	205.5	
+47	fresh	213.8	
+48	stale	213.8	
+49	stale	213.8	
+50	fresh	216.5	
+51	stale	216.5	
+52	fresh	217.1	
+53	stale	217.1	
+54	fresh	213.1	
+55	above_chest	209.8	above_chest
+56	above_chest	207.7	above_chest
+57	stale	207.7	
+58	above_chest	206.8	above_chest
+59	stale	206.8	
 60	no_target	0.0	
 61	no_target	0.0	
 62	fresh	201.5	
