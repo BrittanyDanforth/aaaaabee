@@ -88,6 +88,40 @@ def bbox_top_in_sky_band(bbox_y: float, center_y: float) -> bool:
     return float(bbox_y) < center_y * SKY_BAND_CENTER_FRAC
 
 
+def target_is_central_tower_banner_fp(
+    target: Target,
+    *,
+    frame_w: int,
+    frame_h: int,
+    fov_cx: float,
+    motion_overlap: float = 0.0,
+) -> bool:
+    """Central firing-range tower banners (red icon strips), not humanoids."""
+    if frame_w <= 0 or frame_h <= 0:
+        return False
+    bw = max(1.0, float(target.bbox_w))
+    bh = max(1.0, float(target.bbox_h))
+    aspect = bh / bw
+    if aspect < 1.9 or bw > frame_w * 0.10:
+        return False
+    col_cx = float(target.bbox_x) + bw * 0.5
+    if abs(col_cx - float(fov_cx)) > frame_w * 0.18:
+        return False
+    red = float(target.red_coverage)
+    if red < 0.10 or motion_overlap >= 0.09:
+        return False
+    top_frac = float(target.bbox_y) / float(frame_h)
+    skinny = bw <= max(30.0, frame_w * 0.065)
+    if not skinny:
+        return False
+    # img1 class: LIVE on tower banner ~(387,106,27x69) — high + saturated static red.
+    if top_frac < 0.30 and red >= 0.12:
+        return True
+    if top_frac < 0.52 and aspect >= 2.8 and red >= 0.14 and bw <= 28:
+        return True
+    return False
+
+
 def target_is_environment_column(
     target: Target,
     *,
@@ -96,7 +130,7 @@ def target_is_environment_column(
     frame_w: int = 0,
 ) -> bool:
     """Firing-range tower, banners, tall props — tall bbox with top in sky band."""
-    if frame_h <= 0 or frame_w <= 0:
+    if frame_w <= 0 or frame_h <= 0:
         return False
     bh = float(target.bbox_h)
     bw = max(1.0, float(target.bbox_w))
@@ -1751,6 +1785,20 @@ def _body_structure_reject(
         if axis_aligned:
             return RejectReason.ARCHITECTURE_PANEL
 
+    col_cx = bx + bw * 0.5
+    fcx = float(fov_cx) if fov_cx is not None else frame_w * 0.5
+    tower_column = (
+        bw < frame_w * 0.09
+        and by < frame_h * 0.30
+        and abs(col_cx - fcx) < frame_w * 0.16
+        and v_score >= 0.85
+        and fill >= 0.60
+        and len(parts) >= 2
+        and (aspect >= 2.0 or (bh >= bw * 1.30 and len(parts) >= 4))
+    )
+    if tower_column:
+        return RejectReason.ARCHITECTURE_PANEL
+
     return None
 
 
@@ -3084,6 +3132,20 @@ def analyze_figure(
     if accepted and body_shape < min_accept:
         reason = RejectReason.LOW_SCORE
 
+    fcx = float(fov_cx) if fov_cx is not None else frame_w * 0.5
+    tower_column = (
+        bw < frame_w * 0.09
+        and by < frame_h * 0.30
+        and abs(bx + bw * 0.5 - fcx) < frame_w * 0.16
+        and v_score >= 0.85
+        and fill >= 0.60
+        and len(parts) >= 2
+        and (aspect >= 2.0 or (bh >= bw * 1.30 and len(parts) >= 4))
+    )
+    if accepted and tower_column:
+        accepted = False
+        reason = RejectReason.ARCHITECTURE_PANEL
+
     if accepted and (
         close_fov_humanoid
         or _bbox_has_detached_upper_fringe(mask, bx, by, bw, bh)
@@ -3907,10 +3969,34 @@ def target_is_range_board_fp(
     target: Target,
     *,
     motion_overlap: float = 0.0,
+    frame_w: int = 0,
+    frame_h: int = 0,
+    fov_cx: float | None = None,
 ) -> bool:
     """Firing-range hazard boards: saturated static red columns, not humanoids."""
+    bw = max(1.0, float(target.bbox_w))
+    bh = max(1.0, float(target.bbox_h))
+    if (
+        frame_w > 0
+        and frame_h > 0
+        and fov_cx is not None
+        and target_is_central_tower_banner_fp(
+            target,
+            frame_w=frame_w,
+            frame_h=frame_h,
+            fov_cx=float(fov_cx),
+            motion_overlap=motion_overlap,
+        )
+    ):
+        return True
     if target.has_classified_torso and int(target.part_count) >= 3:
-        return False
+        if not (
+            bw <= max(32.0, frame_w * 0.07 if frame_w > 0 else 32.0)
+            and bh >= bw * 2.4
+            and float(target.red_coverage) >= 0.14
+            and motion_overlap < 0.09
+        ):
+            return False
     if (
         target.body_shape_score >= 0.78
         and target.head_score >= 0.30
@@ -4000,7 +4086,13 @@ def score_target(
         penalty += fov_radius * 0.50 * ((rim_frac - 0.68) / 0.32) ** 1.4
     if target.fill_ratio < 0.32 and rim_frac > 0.52:
         penalty += fov_radius * 0.85
-    if target_is_range_board_fp(target, motion_overlap=motion_overlap):
+    if target_is_range_board_fp(
+        target,
+        motion_overlap=motion_overlap,
+        frame_w=0,
+        frame_h=0,
+        fov_cx=None,
+    ):
         penalty += fov_radius * 1.35
     if motion_overlap < 0.04 and red_cov >= 0.24 and int(target.part_count) <= 2:
         if not target.has_classified_torso or float(target.torso_score) < 0.34:
@@ -4291,10 +4383,20 @@ def find_best_target(
         min_solidity=min_solidity,
     )
     if min_height_px is not None and min_height_px > 0:
+        eff_min_h = float(min_height_px)
+        if currently_locked and sticky_target is not None:
+            # ADS-close silhouettes can be shorter than profile min_h after
+            # bottom-band anchor; do not drop in-ring retarget challengers.
+            eff_min_h = min(
+                eff_min_h,
+                max(26.0, float(sticky_target.bbox_h) * 0.82),
+            )
         before = len(candidates)
-        candidates = [t for t in candidates if t.bbox_h >= min_height_px]
+        candidates = [t for t in candidates if t.bbox_h >= eff_min_h]
         if len(candidates) < before:
-            dbg.append(f"min_height filter: {before} -> {len(candidates)} (min_h={min_height_px})")
+            dbg.append(
+                f"min_height filter: {before} -> {len(candidates)} (min_h={eff_min_h:.0f})"
+            )
     before_clutter = len(candidates)
     candidates = [t for t in candidates if not target_is_background_clutter(t)]
     if len(candidates) < before_clutter:
@@ -4309,10 +4411,42 @@ def find_best_target(
         return context.motion_coverage_ratio(t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
 
     candidates = [
-        t for t in candidates if not target_is_range_board_fp(t, motion_overlap=_live_motion(t))
+        t
+        for t in candidates
+        if not target_is_range_board_fp(
+            t,
+            motion_overlap=_live_motion(t),
+            frame_w=w,
+            frame_h=h,
+            fov_cx=float(cx),
+        )
     ]
     if len(candidates) < before_board:
         dbg.append(f"range_board filter: {before_board} -> {len(candidates)}")
+    before_banner = len(candidates)
+    candidates = [
+        t
+        for t in candidates
+        if not target_is_central_tower_banner_fp(
+            t,
+            frame_w=w,
+            frame_h=h,
+            fov_cx=float(cx),
+            motion_overlap=_live_motion(t),
+        )
+    ]
+    if len(candidates) < before_banner:
+        dbg.append(f"tower_banner filter: {before_banner} -> {len(candidates)}")
+    before_env = len(candidates)
+    candidates = [
+        t
+        for t in candidates
+        if not target_is_environment_column(
+            t, center_y=float(cy), frame_w=w, frame_h=h
+        )
+    ]
+    if len(candidates) < before_env:
+        dbg.append(f"environment_column filter: {before_env} -> {len(candidates)}")
     if not candidates:
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
 
@@ -4366,6 +4500,13 @@ def find_best_target(
                 and int(t.part_count) <= 2
             ):
                 raw -= float(fov_radius) * 0.55
+            if (
+                h > 0
+                and t.bbox_y < h * 0.40
+                and t.distance_to_center < float(fov_radius) * 0.55
+            ):
+                high_frac = max(0.0, 0.40 - float(t.bbox_y) / float(h))
+                raw -= float(fov_radius) * high_frac * 2.8
         return raw
 
     def finalize(t: Target) -> Target:
@@ -4397,7 +4538,21 @@ def find_best_target(
         for t in candidates:
             if target_is_background_clutter(t):
                 continue
-            if target_is_range_board_fp(t, motion_overlap=_live_motion(t)):
+            if target_is_range_board_fp(
+                t,
+                motion_overlap=_live_motion(t),
+                frame_w=w,
+                frame_h=h,
+                fov_cx=float(cx),
+            ):
+                continue
+            if target_is_central_tower_banner_fp(
+                t,
+                frame_w=w,
+                frame_h=h,
+                fov_cx=float(cx),
+                motion_overlap=_live_motion(t),
+            ):
                 continue
             if currently_locked and is_upward_fragment_vs_locked(sticky_target, t):
                 continue
@@ -4408,9 +4563,19 @@ def find_best_target(
             dist = math.hypot(t.centroid_x - sticky_target.centroid_x, t.centroid_y - sticky_target.centroid_y)
             min_pool_body = 0.50 if currently_locked else 0.45
             min_pool_iou = 0.26 if currently_locked else 0.20
-            if iou >= min_pool_iou or (
-                dist <= stickiness_pixels and t.body_shape_score >= min_pool_body
-            ):
+            sticky_dist = float(sticky_target.distance_to_center)
+            near_lock = (
+                iou >= min_pool_iou
+                or (
+                    dist <= stickiness_pixels
+                    and t.body_shape_score >= min_pool_body
+                    and (
+                        not currently_locked
+                        or t.distance_to_center <= sticky_dist * 1.18
+                    )
+                )
+            )
+            if near_lock:
                 pool.append(t)
         if (
             currently_locked
@@ -4427,6 +4592,26 @@ def find_best_target(
                     and not target_is_background_clutter(t)
                 ):
                     pool.append(t)
+        if pool and currently_locked:
+            overlap_pool = [
+                t
+                for t in pool
+                if _bbox_iou(
+                    sticky_target.bbox_x,
+                    sticky_target.bbox_y,
+                    sticky_target.bbox_w,
+                    sticky_target.bbox_h,
+                    t.bbox_x,
+                    t.bbox_y,
+                    t.bbox_w,
+                    t.bbox_h,
+                )
+                >= 0.12
+                or t.distance_to_center <= sticky_target.distance_to_center * 1.15
+            ]
+            if not overlap_pool:
+                dbg.append("sticky pool drop (no lock overlap)")
+                pool = []
         if pool:
             sticky_best = max(pool, key=rank)
             global_best = max(candidates, key=rank)
@@ -4601,7 +4786,7 @@ def find_best_target(
                             debug_lines=dbg,
                             active=True,
                         )
-                if sticky_target.distance_to_center < ring_fov * 0.45:
+                if sticky_target.distance_to_center < ring_fov * 0.58:
                     in_ring = [
                         t
                         for t in candidates
@@ -4647,7 +4832,16 @@ def find_best_target(
             ]
             if identity:
                 chosen = finalize(max(identity, key=rank))
-                if not target_is_background_clutter(chosen):
+                if (
+                    currently_locked
+                    and chosen.distance_to_center
+                    > sticky_target.distance_to_center * 1.22
+                ):
+                    dbg.append(
+                        f"sticky_identity_skip_far dist={chosen.distance_to_center:.0f} "
+                        f"locked={sticky_target.distance_to_center:.0f}"
+                    )
+                elif not target_is_background_clutter(chosen):
                     dbg.append(
                         f"sticky_identity dist={chosen.distance_to_center:.0f} "
                         f"h={chosen.bbox_h}"

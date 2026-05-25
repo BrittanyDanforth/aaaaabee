@@ -34,6 +34,7 @@ from detector import (
     bbox_top_in_sky_band,
     is_upward_fragment_vs_locked,
     target_is_background_clutter,
+    target_is_central_tower_banner_fp,
     target_is_environment_column,
     target_is_viewmodel_column_fp,
 )
@@ -176,6 +177,19 @@ def _locked_is_environment_fp(
         center_y=center_y,
         frame_h=frame_h,
         frame_w=frame_w,
+    ):
+        return True
+    if (
+        fov_cx is not None
+        and frame_w > 0
+        and frame_h > 0
+        and target_is_central_tower_banner_fp(
+            target,
+            frame_w=frame_w,
+            frame_h=frame_h,
+            fov_cx=float(fov_cx),
+            motion_overlap=0.0,
+        )
     ):
         return True
     if (
