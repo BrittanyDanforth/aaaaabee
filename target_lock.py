@@ -504,7 +504,20 @@ def apply_target_lock(
                     )
                 )
             )
-            state.target_lost_frames = 0
+            # When the detector found NO candidates at all (candidates==0),
+            # the enemy has truly disappeared from the frame; let grace expire
+            # normally so the lock doesn't hold indefinitely (would block fresh
+            # target acquisition for 70+ frames after the last good detection).
+            # When candidates > 0 (pool just empty), reset as before.
+            if result.candidates == 0:
+                state.target_lost_frames += 1
+                if state.target_lost_frames >= lost_max:
+                    state.reset()
+                    if on_lock_expired is not None:
+                        on_lock_expired()
+                    return DetectionResult(None, result.candidates, 0.0), False
+            else:
+                state.target_lost_frames = 0
             state.switch_candidate = None
             state.switch_frames = 0
             return DetectionResult(
@@ -607,8 +620,13 @@ def apply_target_lock(
                 locked.distance_to_center < display_fov * 0.42
                 and new_t.distance_to_center < display_fov * 0.42
             )
+            _bir_upward_frag = (
+                new_t.bbox_y < locked.bbox_y - locked.bbox_h * 0.12
+                and new_t.bbox_h < locked.bbox_h * 0.92
+            )
             if (
                 both_in_ring
+                and not _bir_upward_frag
                 and math.hypot(
                     new_t.centroid_x - locked.centroid_x,
                     new_t.centroid_y - locked.centroid_y,
