@@ -119,6 +119,20 @@ def target_is_central_tower_banner_fp(
         return True
     if top_frac < 0.52 and aspect >= 2.8 and red >= 0.14 and bw <= 28:
         return True
+    # F62 class: phantom lock on central icon strip ~(395,169,26x65) — aspect
+    # 2.0-2.8 band slipped between the two above gates.  Banner geometry:
+    # narrow (<=28px), centered, saturated red, in upper-mid frame (<0.42),
+    # with weak head signal (icon strips lack a real head/torso transition).
+    # Real close dummy in the same band has top_frac>=0.45 (bottom-aligned at
+    # chest level), so the 0.42 ceiling preserves test_close_dummy_not_banner_fp.
+    if (
+        top_frac < 0.42
+        and aspect >= 2.0
+        and red >= 0.13
+        and bw <= 28
+        and float(target.head_score) < 0.32
+    ):
+        return True
     return False
 
 
