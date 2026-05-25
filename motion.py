@@ -542,17 +542,37 @@ class TargetTracker:
             # chest-band clamp against single-frame fragment hits.
             cx, cy, cw, ch = bx, by, bw, bh
             prev = self._last_stable_bbox
+            # For targets very close to the crosshair (ADS-centered enemy), trust
+            # the new smaller bbox immediately — holding the previous large bbox
+            # causes the overlay dot to aim at the wrong chest band and appear
+            # offset from the actual enemy position.
+            close_to_crosshair = False
+            if self._fov_cx is not None and self._fov_cy is not None:
+                new_cx = bx + bw * 0.5
+                new_cy = by + bh * 0.5
+                close_to_crosshair = (
+                    math.hypot(new_cx - self._fov_cx, new_cy - self._fov_cy) < 30.0
+                )
             if prev is not None:
                 pbx, pby, pbw, pbh = prev
                 upward_jump = by < pby - pbh * 0.06
                 shrunk = bh < pbh * 0.62
                 hold_max = 6 if upward_jump else 4
-                if (upward_jump or shrunk) and self._stable_bbox_hold_frames < hold_max:
+                if (
+                    (upward_jump or shrunk)
+                    and self._stable_bbox_hold_frames < hold_max
+                    and not close_to_crosshair
+                ):
                     cx, cy, cw, ch = pbx, pby, pbw, pbh
                     self._stable_bbox_hold_frames += 1
                 else:
                     self._last_stable_bbox = (bx, by, bw, bh)
                     self._stable_bbox_hold_frames = 0
+                    # When transitioning to a much smaller close bbox, snap the
+                    # measurement history so the step cap converges immediately.
+                    if close_to_crosshair and shrunk and self._last_meas_x is not None:
+                        self._last_meas_x = float(bx + bw * 0.5)
+                        self._last_meas_y = float(by + bh * _body_y_hi_frac)
             else:
                 self._last_stable_bbox = (bx, by, bw, bh)
                 self._stable_bbox_hold_frames = 0
