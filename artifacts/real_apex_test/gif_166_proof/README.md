@@ -15,7 +15,7 @@ from `artifacts/real_apex_test/_gif_frames/source.gif` (extract via `extract_gif
 | Detector bbox top in sky (dot still on chest) | 0 |
 | Chest-band overlay lag | 8 |
 | Close-target bbox top too high (top &lt; 36% frame) | 29 |
-| Annotated frames written | 12 |
+| Annotated frames written | 166 |
 
 ## Files
 
