@@ -607,18 +607,8 @@ def apply_target_lock(
                 locked.distance_to_center < display_fov * 0.42
                 and new_t.distance_to_center < display_fov * 0.42
             )
-            # Headless height explosion guard: when recovering from a stale gap,
-            # a vertically merged cluster can grow 2x taller while losing all head
-            # detection (continuous mask skips _anchor_bbox_bottom_dense_band trim).
-            # Don't fast-commit via both_in_ring — fall through to IoU/refine gates.
-            height_explosion = (
-                state.target_lost_frames > 0
-                and float(new_t.bbox_h) > float(locked.bbox_h) * 1.80
-                and float(new_t.head_score) < 0.15
-            )
             if (
                 both_in_ring
-                and not height_explosion
                 and math.hypot(
                     new_t.centroid_x - locked.centroid_x,
                     new_t.centroid_y - locked.centroid_y,

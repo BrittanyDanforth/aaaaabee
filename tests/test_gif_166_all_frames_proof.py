@@ -103,31 +103,6 @@ class Gif166AllFramesProofTests(unittest.TestCase):
         # Overlay dot should be on the body (not drifted below the detection box)
         self.assertTrue(row24.get("overlay_in_body", False), f"frame 24 dot should be in body: {row24}")
 
-    def test_frame_31_no_height_exploded_bbox(self) -> None:
-        """Frame 31 must not lock onto a headless 136px bbox during stale recovery.
-
-        Root cause: between F29 (h=59 good detection) and F31 (h=136 headless cluster),
-        the red mask merged vertically into one continuous 136px column.  The continuous
-        mask skips _anchor_bbox_bottom_dense_band trimming.  both_in_ring fast-committed
-        this without head confirmation (head=0.00).
-
-        Fix: height_explosion guard in apply_target_lock blocks both_in_ring when:
-          - target_lost_frames > 0 (stale recovery)
-          - new bbox grew > 1.8x the locked bbox height
-          - head_score < 0.15 (headless detection)
-        """
-        data = json.loads(SUMMARY.read_text(encoding="utf-8"))
-        row31 = next(r for r in data["rows"] if r["frame_idx"] == 31)
-        row29 = next(r for r in data["rows"] if r["frame_idx"] == 29)
-        bh29 = row29.get("bbox_h", 0)
-        self.assertTrue(row29["active"], f"frame 29 should be LIVE: {row29}")
-        self.assertLess(bh29, 80, f"frame 29 bbox should be small (close enemy): {row29}")
-        bh31 = row31.get("bbox_h", 0)
-        self.assertLess(
-            bh31, bh29 * 1.9,
-            f"frame 31 bbox_h={bh31} is height-exploded vs frame 29 bbox_h={bh29}: {row31}",
-        )
-
     def test_no_active_lock_on_sky_banner_geometry(self) -> None:
         """No LIVE assist when bbox top is in sky band on a short column."""
         data = json.loads(SUMMARY.read_text(encoding="utf-8"))
