@@ -45,7 +45,7 @@ frame_idx,file,active,is_stale,plausible_lock,aim_x,aim_y,overlay_x,overlay_y,lo
 43,frame_0043.png,True,False,True,379.5,219.7,379.2,226.8,0
 44,frame_0044.png,False,True,True,379.5,219.7,379.2,226.8,1
 45,frame_0045.png,True,False,False,375.5,219.8,369.1,223.0,0
-46,frame_0046.png,False,False,False,400.0,225.0,0.0,0.0,0
+46,frame_0046.png,True,False,False,371.5,219.9,364.8,221.4,0
 47,frame_0047.png,False,False,False,400.0,225.0,0.0,0.0,0
 48,frame_0048.png,False,False,False,400.0,225.0,0.0,0.0,1
 49,frame_0049.png,False,False,False,400.0,225.0,0.0,0.0,2

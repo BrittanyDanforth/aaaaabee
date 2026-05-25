@@ -22,21 +22,21 @@ frame	state	overlay_y	violation
 20	fresh	133.0	
 21	fresh	243.0	
 22	above_chest	244.0	above_chest
-23	above_chest	244.0	above_chest
-24	above_chest	244.0	above_chest
-25	above_chest	244.0	above_chest
-26	above_chest	244.0	above_chest
+23	stale	244.0	
+24	stale	244.0	
+25	stale	244.0	
+26	stale	244.0	
 27	above_chest	244.2	above_chest
-28	above_chest	244.2	above_chest
+28	stale	244.2	
 29	above_chest	243.6	above_chest
-30	above_chest	243.6	above_chest
+30	stale	243.6	
 31	above_chest	243.3	above_chest
-32	above_chest	243.3	above_chest
-33	above_chest	243.3	above_chest
-34	above_chest	243.3	above_chest
-35	above_chest	243.3	above_chest
-36	above_chest	243.3	above_chest
-37	above_chest	243.3	above_chest
+32	stale	243.3	
+33	stale	243.3	
+34	stale	243.3	
+35	stale	243.3	
+36	stale	243.3	
+37	stale	243.3	
 38	above_chest	243.2	above_chest
 39	above_chest	243.1	above_chest
 40	fresh	232.0	
@@ -45,7 +45,7 @@ frame	state	overlay_y	violation
 43	fresh	226.8	
 44	stale	226.8	
 45	fresh	223.0	
-46	no_target	0.0	
+46	fresh	221.4	
 47	no_target	0.0	
 48	no_target	0.0	
 49	no_target	0.0	
@@ -54,26 +54,26 @@ frame	state	overlay_y	violation
 52	stale	228.4	
 53	stale	228.4	
 54	above_chest	222.6	above_chest
-55	above_chest	222.6	above_chest
+55	stale	222.6	
 56	above_chest	216.8	above_chest
-57	above_chest	216.8	above_chest
+57	stale	216.8	
 58	above_chest	213.2	above_chest
-59	above_chest	213.2	above_chest
-60	above_chest	213.2	above_chest
-61	above_chest	213.2	above_chest
+59	stale	213.2	
+60	stale	213.2	
+61	stale	213.2	
 62	above_chest	211.7	above_chest
-63	above_chest	211.7	above_chest
-64	above_chest	211.7	above_chest
-65	above_chest	211.7	above_chest
-66	above_chest	211.7	above_chest
-67	above_chest	211.7	above_chest
-68	above_chest	211.7	above_chest
-69	above_chest	211.7	above_chest
-70	above_chest	211.7	above_chest
-71	above_chest	211.7	above_chest
-72	above_chest	211.7	above_chest
-73	above_chest	211.7	above_chest
-74	above_chest	211.7	above_chest
+63	stale	211.7	
+64	stale	211.7	
+65	stale	211.7	
+66	stale	211.7	
+67	stale	211.7	
+68	stale	211.7	
+69	stale	211.7	
+70	stale	211.7	
+71	stale	211.7	
+72	stale	211.7	
+73	stale	211.7	
+74	stale	211.7	
 75	fresh	270.3	
 76	stale	270.3	
 77	fresh	270.4	
@@ -144,24 +144,24 @@ frame	state	overlay_y	violation
 142	fresh	279.4	
 143	stale	279.4	
 144	above_chest	275.4	above_chest
-145	above_chest	275.4	above_chest
+145	stale	275.4	
 146	above_chest	271.4	above_chest
-147	above_chest	271.4	above_chest
-148	above_chest	271.4	above_chest
-149	above_chest	271.4	above_chest
-150	above_chest	271.4	above_chest
+147	stale	271.4	
+148	stale	271.4	
+149	stale	271.4	
+150	stale	271.4	
 151	above_chest	268.0	above_chest
-152	above_chest	268.0	above_chest
-153	above_chest	268.0	above_chest
-154	above_chest	268.0	above_chest
-155	above_chest	268.0	above_chest
+152	stale	268.0	
+153	stale	268.0	
+154	stale	268.0	
+155	stale	268.0	
 156	above_chest	266.7	above_chest
-157	above_chest	266.7	above_chest
+157	stale	266.7	
 158	above_chest	266.2	above_chest
-159	above_chest	266.2	above_chest
-160	above_chest	266.2	above_chest
-161	above_chest	266.2	above_chest
-162	above_chest	266.2	above_chest
-163	above_chest	266.2	above_chest
-164	above_chest	266.2	above_chest
-165	above_chest	266.2	above_chest
+159	stale	266.2	
+160	stale	266.2	
+161	stale	266.2	
+162	stale	266.2	
+163	stale	266.2	
+164	stale	266.2	
+165	stale	266.2	

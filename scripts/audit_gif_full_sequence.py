@@ -116,6 +116,68 @@ def _save_violation_png(
     cv2.imwrite(str(viol_dir / f"viol_{frame_idx:04d}_{violation}.png"), vis)
 
 
+def _annotate_frame(
+    img: np.ndarray,
+    aim,
+    *,
+    h: int,
+    lost_frames: int,
+    plausible: bool,
+) -> np.ndarray:
+    """1:1 live overlay rules: dot only when plausible + fresh (aim.active)."""
+    vis = img.copy()
+    _sky_line(vis, h)
+    has_target = aim.target is not None
+    show_dot = plausible and aim.active
+    tag = "NO_TARGET"
+    if has_target:
+        t = aim.target
+        if aim.is_stale:
+            tag = "STALE" if plausible else "STALE_BAD"
+        elif aim.active:
+            tag = "LIVE" if plausible else "LIVE_BAD"
+        else:
+            tag = "LOCKED_LOST"
+        box_color = (0, 255, 0) if show_dot else (0, 120, 255)
+        if not plausible:
+            box_color = (0, 80, 255)
+        if aim.is_stale:
+            box_color = (0, 200, 200)
+        bb = aim.bbox_used or (
+            t.bbox_x,
+            t.bbox_y,
+            t.bbox_w,
+            t.bbox_h,
+        )
+        bx, by, bw, bh = bb
+        cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), box_color, 2)
+        _draw_chest_band(vis, bx, by, bw, bh)
+        dist = round(t.distance_to_center, 0)
+        cv2.putText(
+            vis,
+            f"{tag} d={dist:.0f} bb=({bx},{by},{bw}x{bh})",
+            (8, 22),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (0, 0, 255),
+            1,
+            cv2.LINE_AA,
+        )
+    if show_dot and aim.overlay_x is not None and aim.overlay_y is not None:
+        _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
+        cv2.putText(
+            vis,
+            f"oy={aim.overlay_y:.0f} lost={lost_frames}",
+            (8, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (0, 0, 255),
+            1,
+            cv2.LINE_AA,
+        )
+    return vis
+
+
 def _sky_line(img: np.ndarray, h: int) -> None:
     y = int(h * SKY_FRAC)
     cv2.line(img, (0, y), (img.shape[1], y), (200, 100, 255), 1)
@@ -148,6 +210,8 @@ from `artifacts/real_apex_test/_gif_frames/source.gif` (extract via `extract_gif
 | Stale hold frames | {summary['stale_frames']} |
 | Detector bbox top in sky (dot still on chest) | {summary['detector_bbox_top_in_sky']} |
 | Chest-band overlay lag | {summary['chest_band_violations']} |
+| Close-target bbox top too high (top &lt; 36% frame) | {summary.get('high_bbox_close_frames', 0)} |
+| Annotated frames written | {summary.get('frames_written', 0)} |
 
 ## Files
 
@@ -158,6 +222,15 @@ from `artifacts/real_apex_test/_gif_frames/source.gif` (extract via `extract_gif
 - `proof_montage.jpg` — key frames side-by-side
 
 Red dot = production overlay point (`overlay_x/y` after motion + chest clamp).
+Green box = `bbox_used` from `TargetingRuntime` (same as `observe_target`).
+
+## Regenerate all frames
+
+```bash
+python3 scripts/audit_gif_full_sequence.py --save-all
+```
+
+Dot is drawn only when `aim.active` and lock is plausible (matches live `build_frame_overlay`).
 """
     (out / "README.md").write_text(text, encoding="utf-8")
 
@@ -215,6 +288,7 @@ def _write_proof_montage(
 def run(
     *,
     save_every: int = 0,
+    save_all: bool = False,
     max_violation_dumps: int = 24,
 ) -> int:
     paths = _frame_paths()
@@ -222,11 +296,14 @@ def run(
         print("No frames — run: python3 scripts/extract_gif_frames.py")
         return 1
 
+    if save_all:
+        save_every = 1
     OUT.mkdir(parents=True, exist_ok=True)
     viol_dir = OUT / "violations"
     viol_dir.mkdir(exist_ok=True)
+    frames_dir = OUT / "frames"
     if save_every > 0:
-        (OUT / "frames").mkdir(exist_ok=True)
+        frames_dir.mkdir(exist_ok=True)
 
     cfg = _live_cfg()
     rt = TargetingRuntime()
@@ -236,7 +313,9 @@ def run(
     rows: list[dict] = []
     sky_violations: list[dict] = []
     body_violations: list[dict] = []
+    high_bbox_frames: list[dict] = []
     active_count = 0
+    frames_written = 0
     stale_count = 0
     lost_count = 0
     seen_idx_for_dump: set[int] = set()
@@ -310,11 +389,17 @@ def run(
                 )
                 row["overlay_in_body"] = in_body
 
-                sky_aim = oy < h * SKY_FRAC
                 sky_bbox_top = by < h * SKY_FRAC
-                soft_tol = max(4.0, bh * 0.06)
-                above_chest = oy > y_hi + soft_tol
-                below_chest = oy < y_lo - soft_tol
+                # Chest/sky dot checks only on fresh frames (1:1 live overlay).
+                if aim.active:
+                    sky_aim = oy < h * SKY_FRAC
+                    soft_tol = max(4.0, bh * 0.06)
+                    above_chest = oy > y_hi + soft_tol
+                    below_chest = oy < y_lo - soft_tol
+                else:
+                    sky_aim = False
+                    above_chest = False
+                    below_chest = False
 
                 if sky_aim:
                     row["violation"] = "sky_aim"
@@ -342,53 +427,31 @@ def run(
                             h,
                         )
                         seen_idx_for_dump.add(i)
+                top_frac = by / float(h)
+                if (
+                    aim.active
+                    and plausible
+                    and aim.target is not None
+                    and aim.target.distance_to_center < 90.0
+                    and top_frac < 0.38
+                ):
+                    row["high_bbox_flag"] = True
+                    high_bbox_frames.append({**row})
         else:
             lost_count += 1
 
         rows.append(row)
 
-        show_dot = plausible and aim.active
-        if save_every > 0 and i % save_every == 0 and has_target:
-            vis = img.copy()
-            _sky_line(vis, h)
-            if aim.target is not None:
-                t = aim.target
-                box_color = (0, 255, 0) if show_dot else (0, 120, 255)
-                if not plausible:
-                    box_color = (0, 80, 255)
-                # Match live runtime: bbox_used is what observe_target / pull use.
-                bb = aim.bbox_used or (
-                    t.bbox_x,
-                    t.bbox_y,
-                    t.bbox_w,
-                    t.bbox_h,
-                )
-                bx, by, bw, bh = bb
-                cv2.rectangle(
-                    vis,
-                    (bx, by),
-                    (bx + bw, by + bh),
-                    box_color,
-                    2,
-                )
-                _draw_chest_band(vis, bx, by, bw, bh)
-            if show_dot and aim.overlay_x is not None and aim.overlay_y is not None:
-                _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
-            if aim.is_stale:
-                tag = "STALE" if plausible else "STALE_BAD"
-            else:
-                tag = "LIVE" if plausible else "LIVE_BAD"
-            cv2.putText(
-                vis,
-                f"{tag} oy={aim.overlay_y:.0f} lost={rt.lock_state.target_lost_frames}",
-                (8, 22),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 0, 255),
-                1,
-                cv2.LINE_AA,
+        if save_every > 0 and i % save_every == 0:
+            vis = _annotate_frame(
+                img,
+                aim,
+                h=h,
+                lost_frames=rt.lock_state.target_lost_frames,
+                plausible=plausible,
             )
-            cv2.imwrite(str(OUT / "frames" / f"{fp.stem}_red_dot.png"), vis)
+            cv2.imwrite(str(frames_dir / f"{fp.stem}_red_dot.png"), vis)
+            frames_written += 1
 
     # CSV
     if rows:
@@ -448,6 +511,9 @@ def run(
         "sky_aim_violations": len(sky_dot),
         "detector_bbox_top_in_sky": len(sky_bbox),
         "chest_band_violations": len(body_violations),
+        "high_bbox_close_frames": len(high_bbox_frames),
+        "frames_written": frames_written,
+        "pass_high_bbox_close": len(high_bbox_frames) == 0,
         "pass_red_dot_sky": len(sky_dot) == 0,
         "pass_no_implausible_lock": env_tracked == 0,
         "pass_strict": len(sky_dot) == 0 and len(body_violations) == 0,
@@ -455,6 +521,7 @@ def run(
         "worst_red_dot_sky": sky_dot[:8],
         "worst_bbox_in_sky": sky_bbox[:8],
         "worst_body": body_violations[:8],
+        "worst_high_bbox": high_bbox_frames[:8],
     }
     (OUT / "summary.json").write_text(
         json.dumps({"summary": summary, "rows": rows}, indent=2),
@@ -492,6 +559,11 @@ def main() -> int:
         default=10,
         help="Write annotated PNG every N frames (0=off)",
     )
+    p.add_argument(
+        "--save-all",
+        action="store_true",
+        help="Write annotated PNG for every frame (gif_166_proof)",
+    )
     p.add_argument("--extract", action="store_true", help="Extract all GIF frames first")
     args = p.parse_args()
     if args.extract and GIF_PATH.exists():
@@ -503,7 +575,7 @@ def main() -> int:
         )
         if r.returncode != 0:
             return 1
-    return run(save_every=args.save_every)
+    return run(save_every=args.save_every, save_all=args.save_all)
 
 
 if __name__ == "__main__":

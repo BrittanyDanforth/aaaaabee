@@ -451,6 +451,18 @@ def apply_target_lock(
         new_t = result.target
         new_is_env = _env_fp(new_t)
         locked = state.locked_target
+        pool_hold = any(
+            "sticky_pool_hold" in ln for ln in (result.debug_lines or [])
+        )
+        if (
+            pool_hold
+            and locked is not None
+            and _same_lock_identity(locked, new_t)
+        ):
+            state.target_lost_frames = 0
+            state.switch_candidate = None
+            state.switch_frames = 0
+            return result, False
         if locked is not None and _env_fp(locked):
             state.reset()
             if on_lock_expired is not None:
