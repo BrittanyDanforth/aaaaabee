@@ -579,6 +579,108 @@ class AssistRuntime:
             logger.exception("debug frame save failed")
 
 
+    # Sub-tick clipping bounds.  vy clip mirrors motion._MAX_UPWARD_LEAD_PX
+    # (4 px) divided by ~4 subticks per detect frame at 180 Hz / 60 Hz.
+    _SUBTICK_MAX_EXTRAP_Y = 1.0
+    _SUBTICK_MAX_EXTRAP_X = 2.5
+
+    @staticmethod
+    def _precise_sleep(seconds: float) -> None:
+        """Sleep with sub-millisecond accuracy.
+
+        On Linux ``time.sleep`` already has ~1 ms granularity, but on
+        Windows the default scheduler tick is 15.6 ms which would
+        coalesce a 180 Hz subtick down to ~64 Hz.  We sleep for the
+        bulk of the interval and busy-wait the tail so the subtick
+        rate is honoured on both OSes.
+        """
+        if seconds <= 0.0:
+            return
+        if seconds > 0.002:
+            time.sleep(seconds - 0.001)
+        deadline = time.perf_counter() + max(0.0, seconds - (seconds - 0.001))
+        # Spin the last ~1 ms for accuracy.
+        while time.perf_counter() < deadline:
+            pass
+
+    def _run_pull_subticks(
+        self,
+        pull_target,
+        motion,
+        *,
+        frame_cx: float,
+        frame_cy: float,
+        deadline: float,
+        subtick_hz: int,
+        stale_det: bool,
+        firing_now: bool,
+        sleep_fn=None,
+        now_fn=None,
+    ) -> list[tuple[int, int]]:
+        """Run extra PullController.compute_delta + mouse_move sub-ticks
+        between detect frames so the cursor receives a smooth corrective
+        stream rather than one big jump per capture frame.
+
+        Refactored out of the main loop so tests can drive it with a
+        synthetic clock (``sleep_fn`` / ``now_fn``).  Returns the list
+        of (dx, dy) tuples actually sent to the mouse, for assertion.
+        """
+        if subtick_hz <= 0 or pull_target is None or motion is None:
+            return []
+        if self._pull is None:
+            return []
+        sub_dt = max(1.0 / 480.0, 1.0 / float(subtick_hz))
+        sub_anchor_x = float(pull_target.centroid_x)
+        sub_anchor_y = float(pull_target.centroid_y)
+        vx = float(motion.vx) if math.isfinite(motion.vx) else 0.0
+        vy = float(motion.vy) if math.isfinite(motion.vy) else 0.0
+        bbox_xy = self._aim_tracker._body_bbox
+        from dataclasses import replace as _replace
+        sleep_fn = sleep_fn or self._precise_sleep
+        now_fn = now_fn or time.perf_counter
+        emitted: list[tuple[int, int]] = []
+        while True:
+            now = now_fn()
+            if now + sub_dt > deadline:
+                break
+            sleep_fn(sub_dt)
+            now2 = now_fn()
+            ex = vx * sub_dt
+            ey = vy * sub_dt
+            if ex > self._SUBTICK_MAX_EXTRAP_X:
+                ex = self._SUBTICK_MAX_EXTRAP_X
+            elif ex < -self._SUBTICK_MAX_EXTRAP_X:
+                ex = -self._SUBTICK_MAX_EXTRAP_X
+            if ey > self._SUBTICK_MAX_EXTRAP_Y:
+                ey = self._SUBTICK_MAX_EXTRAP_Y
+            elif ey < -self._SUBTICK_MAX_EXTRAP_Y:
+                ey = -self._SUBTICK_MAX_EXTRAP_Y
+            sub_anchor_x += ex
+            sub_anchor_y += ey
+            if bbox_xy is not None:
+                bx, by, bw, bh = bbox_xy
+                sub_anchor_x = max(
+                    bx + bw * 0.18, min(bx + bw * 0.82, sub_anchor_x)
+                )
+                sub_anchor_y = max(
+                    by + bh * 0.28, min(by + bh * 0.52, sub_anchor_y)
+                )
+            sub_target = _replace(
+                pull_target,
+                centroid_x=sub_anchor_x,
+                centroid_y=sub_anchor_y,
+            )
+            sub_pr = self._pull.compute_delta(
+                sub_target, frame_cx, frame_cy,
+                time_sec=now2,
+                stale_detection=stale_det,
+                is_firing=firing_now,
+            )
+            if (sub_pr.dx != 0 or sub_pr.dy != 0) and self._should_run():
+                self._safe_mouse_move(sub_pr.dx, sub_pr.dy)
+            emitted.append((sub_pr.dx, sub_pr.dy))
+        return emitted
+
     def _safe_mouse_move(self, dx: int, dy: int) -> MouseGateResult:
         if dx == 0 and dy == 0:
             return MouseGateResult(True, "")
@@ -1677,62 +1779,16 @@ class AssistRuntime:
                         and motion is not None
                         and self._should_run()
                     ):
-                        sub_dt = max(1.0 / 480.0, 1.0 / float(pull_subtick_hz))
-                        # Cap the extrapolation distance per subtick so a
-                        # noisy vy/vx can never project the anchor outside
-                        # the body bbox.  Match the motion._MAX_UPWARD_LEAD_PX
-                        # contract for the y axis.
-                        max_extrap_y_per_sub = 1.0
-                        max_extrap_x_per_sub = 2.5
-                        sub_anchor_x = float(pull_target.centroid_x)
-                        sub_anchor_y = float(pull_target.centroid_y)
-                        # vx/vy come from the motion smoother; the cap
-                        # has already removed the spikes/upward-noise.
-                        vx = float(motion.vx) if math.isfinite(motion.vx) else 0.0
-                        vy = float(motion.vy) if math.isfinite(motion.vy) else 0.0
-                        bbox_xy = self._aim_tracker._body_bbox
-                        from dataclasses import replace as _replace
-                        while True:
-                            now = time.perf_counter()
-                            if now + sub_dt > deadline:
-                                break
-                            time.sleep(sub_dt)
-                            now2 = time.perf_counter()
-                            ex = vx * sub_dt
-                            ey = vy * sub_dt
-                            if ex > max_extrap_x_per_sub:
-                                ex = max_extrap_x_per_sub
-                            elif ex < -max_extrap_x_per_sub:
-                                ex = -max_extrap_x_per_sub
-                            if ey > max_extrap_y_per_sub:
-                                ey = max_extrap_y_per_sub
-                            elif ey < -max_extrap_y_per_sub:
-                                ey = -max_extrap_y_per_sub
-                            sub_anchor_x += ex
-                            sub_anchor_y += ey
-                            if bbox_xy is not None:
-                                bx, by, bw, bh = bbox_xy
-                                sub_anchor_x = max(
-                                    bx + bw * 0.18,
-                                    min(bx + bw * 0.82, sub_anchor_x),
-                                )
-                                sub_anchor_y = max(
-                                    by + bh * 0.28,
-                                    min(by + bh * 0.52, sub_anchor_y),
-                                )
-                            sub_target = _replace(
-                                pull_target,
-                                centroid_x=sub_anchor_x,
-                                centroid_y=sub_anchor_y,
-                            )
-                            sub_pr = self._pull.compute_delta(
-                                sub_target, frame_cx, frame_cy,
-                                time_sec=now2,
-                                stale_detection=stale_det,
-                                is_firing=firing_now,
-                            )
-                            if (sub_pr.dx != 0 or sub_pr.dy != 0) and self._should_run():
-                                self._safe_mouse_move(sub_pr.dx, sub_pr.dy)
+                        self._run_pull_subticks(
+                            pull_target,
+                            motion,
+                            frame_cx=frame_cx,
+                            frame_cy=frame_cy,
+                            deadline=deadline,
+                            subtick_hz=pull_subtick_hz,
+                            stale_det=stale_det,
+                            firing_now=firing_now,
+                        )
 
                     sleep_time = deadline - time.perf_counter()
                     self._sleep_interruptible(sleep_time)

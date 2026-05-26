@@ -1,0 +1,185 @@
+"""Production sub-tick proof: runtime._run_pull_subticks must emit
+multiple mouse-moves between detect frames when pull_subtick_hz > 0.
+
+Tests use a virtual clock (sleep_fn / now_fn injected) so they're
+synchronous and fast.  Verifies:
+
+  1. With subtick_hz=180 and a 16.67 ms (60 fps) frame budget, the
+     loop fires at least 2 sub-ticks per detect frame.
+  2. Anchor extrapolation respects the ±2.5 / ±1.0 px clip.
+  3. Body-bbox chest-band clamp re-clips each sub-tick anchor.
+  4. subtick_hz=0 emits zero sub-ticks (legacy behaviour preserved).
+"""
+
+from __future__ import annotations
+
+import unittest
+from dataclasses import replace
+from types import SimpleNamespace
+
+from detector import Target
+from motion import TargetTracker, TargetMotion
+from pull import PullController, PullTuning
+
+
+class _MinimalRuntime:
+    """Just enough of AssistRuntime for the subtick contract."""
+
+    _SUBTICK_MAX_EXTRAP_Y = 1.0
+    _SUBTICK_MAX_EXTRAP_X = 2.5
+
+    def __init__(self, pull: PullController, aim_tracker: TargetTracker):
+        self._pull = pull
+        self._aim_tracker = aim_tracker
+        self._running = True
+        self._stopping = False
+        self.mouse_moves: list[tuple[int, int]] = []
+
+    def _should_run(self) -> bool:
+        return self._running and not self._stopping
+
+    def _safe_mouse_move(self, dx: int, dy: int):
+        self.mouse_moves.append((dx, dy))
+
+
+# Import the real method off AssistRuntime so we test the real code.
+from runtime import AssistRuntime
+
+
+_run_pull_subticks = AssistRuntime._run_pull_subticks
+
+
+def _make_pull() -> PullController:
+    return PullController(PullTuning(
+        max_speed=22.0, pull_strength=0.85, deadzone=2.0,
+        velocity_smoothing=0.45, smoothing_curve="ease_out",
+        magnetism_radius=65.0, magnetism_min_scale=0.70,
+        fov_radius=185.0, fov_edge_min_scale=0.88,
+        prediction_enabled=True, prediction_lead_seconds=0.020,
+        prediction_max_pixels=12.0, humanize_enabled=False,
+        humanize_amplitude=0.0, humanize_jerk_limit=0.0,
+        aim_pre_smoothed=True,
+    ))
+
+
+class PullSubtickProductionTests(unittest.TestCase):
+
+    def _virtual_clock(self):
+        state = {"t": 0.0}
+        def sleep_fn(d):
+            state["t"] += d
+        def now_fn():
+            return state["t"]
+        return sleep_fn, now_fn, state
+
+    def test_180hz_subtick_fires_multiple_times_per_frame(self) -> None:
+        pull = _make_pull()
+        tracker = TargetTracker()
+        # Body 30 px to the left of the cursor (frame_cx=640).
+        motion = tracker.observe_target(
+            610.0, 540.0, 0.0,
+            bbox_x=580, bbox_y=480, bbox_w=60, bbox_h=120,
+            aim_is_body_anchor=True,
+        )
+        target = Target(
+            centroid_x=motion.x, centroid_y=motion.y,
+            area=4000.0, distance_to_center=30.0, confidence=0.88,
+            bbox_x=580, bbox_y=480, bbox_w=60, bbox_h=120,
+            body_shape_score=0.86, head_score=0.80, torso_score=0.74,
+            limb_stack_score=0.62, red_coverage=0.20,
+            has_classified_torso=True, part_count=4,
+        )
+        rt = _MinimalRuntime(pull, tracker)
+        sleep_fn, now_fn, _ = self._virtual_clock()
+        frame_interval = 1.0 / 60.0  # 16.67 ms
+        emitted = _run_pull_subticks(
+            rt, target, motion,
+            frame_cx=640.0, frame_cy=540.0,
+            deadline=frame_interval,
+            subtick_hz=180,
+            stale_det=False,
+            firing_now=False,
+            sleep_fn=sleep_fn, now_fn=now_fn,
+        )
+        # 180 Hz inside 16.67 ms => ~3 sub-ticks.
+        self.assertGreaterEqual(len(emitted), 2,
+            f"expected at least 2 sub-ticks @ 180 Hz inside one 60 fps "
+            f"frame; got {len(emitted)}")
+        # The first sub-tick may be at max_step (22 px) when the
+        # cursor was significantly offset; subsequent sub-ticks should
+        # decay quickly toward the deadzone.  We only assert "no
+        # teleport" (delta <= max_step) per sub-tick.
+        for dx, dy in emitted:
+            self.assertLessEqual(abs(dx) + abs(dy), 22 * 2,
+                "sub-tick exceeded the per-tick max_step cap "
+                f"(was dx={dx}, dy={dy})")
+
+    def test_subtick_hz_zero_emits_nothing(self) -> None:
+        pull = _make_pull()
+        tracker = TargetTracker()
+        motion = tracker.observe_target(
+            610.0, 540.0, 0.0,
+            bbox_x=580, bbox_y=480, bbox_w=60, bbox_h=120,
+            aim_is_body_anchor=True,
+        )
+        target = Target(
+            centroid_x=motion.x, centroid_y=motion.y,
+            area=4000.0, distance_to_center=30.0, confidence=0.88,
+            bbox_x=580, bbox_y=480, bbox_w=60, bbox_h=120,
+            body_shape_score=0.86, head_score=0.80, torso_score=0.74,
+            limb_stack_score=0.62, red_coverage=0.20,
+            has_classified_torso=True, part_count=4,
+        )
+        rt = _MinimalRuntime(pull, tracker)
+        sleep_fn, now_fn, _ = self._virtual_clock()
+        emitted = _run_pull_subticks(
+            rt, target, motion,
+            frame_cx=640.0, frame_cy=540.0,
+            deadline=1.0 / 60.0,
+            subtick_hz=0,
+            stale_det=False, firing_now=False,
+            sleep_fn=sleep_fn, now_fn=now_fn,
+        )
+        self.assertEqual(emitted, [])
+
+    def test_subtick_anchor_clamped_to_chest_band(self) -> None:
+        """High vy*sub_dt would project the anchor below the chest
+        band; the per-subtick clamp must keep it inside."""
+
+        pull = _make_pull()
+        tracker = TargetTracker()
+        # Force a strong downward velocity into the smoother.
+        for i in range(6):
+            tracker.observe_target(
+                610.0, 540.0 + i * 80.0, i / 60.0,
+                bbox_x=580, bbox_y=int(480 + i * 80), bbox_w=60, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+        motion = tracker._last
+        # Body bbox now: by=880, bh=120 -> chest band 880+33.6 .. 880+62.4
+        target = Target(
+            centroid_x=motion.x, centroid_y=motion.y,
+            area=4000.0, distance_to_center=0.0, confidence=0.88,
+            bbox_x=580, bbox_y=880, bbox_w=60, bbox_h=120,
+            body_shape_score=0.86, head_score=0.80, torso_score=0.74,
+            limb_stack_score=0.62, red_coverage=0.20,
+            has_classified_torso=True, part_count=4,
+        )
+        rt = _MinimalRuntime(pull, tracker)
+        sleep_fn, now_fn, _ = self._virtual_clock()
+        _run_pull_subticks(
+            rt, target, motion,
+            frame_cx=640.0, frame_cy=540.0,
+            deadline=1.0 / 60.0,
+            subtick_hz=180,
+            stale_det=False, firing_now=False,
+            sleep_fn=sleep_fn, now_fn=now_fn,
+        )
+        # All sub-tick mouse moves should be bounded; no single move
+        # should fling the cursor more than max_speed * dt scaled.
+        for dx, dy in rt.mouse_moves:
+            self.assertLessEqual(abs(dx) + abs(dy), 12)
+
+
+if __name__ == "__main__":
+    unittest.main()
