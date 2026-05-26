@@ -10,8 +10,8 @@ frame	state	overlay_y	violation
 8	no_target	0.0	
 9	no_target	0.0	
 10	no_target	0.0	
-11	fresh	146.5	
-12	stale	146.5	
+11	no_target	0.0	
+12	no_target	0.0	
 13	no_target	0.0	
 14	no_target	0.0	
 15	no_target	0.0	
@@ -28,20 +28,20 @@ frame	state	overlay_y	violation
 26	fresh	220.5	
 27	fresh	208.5	
 28	fresh	208.5	
-29	fresh	205.5	
-30	fresh	205.5	
-31	fresh	215.4	
-32	fresh	218.0	
-33	fresh	219.3	
-34	fresh	219.6	
-35	fresh	219.7	
-36	fresh	219.7	
-37	fresh	219.7	
-38	locked_lost	219.7	
-39	fresh	219.7	
-40	locked_lost	219.7	
-41	fresh	219.7	
-42	fresh	219.7	
+29	stale	208.5	
+30	fresh	208.5	
+31	fresh	216.2	
+32	fresh	217.9	
+33	fresh	218.7	
+34	fresh	219.2	
+35	fresh	219.4	
+36	fresh	219.5	
+37	fresh	219.6	
+38	locked_lost	219.6	
+39	fresh	219.6	
+40	locked_lost	219.6	
+41	fresh	219.6	
+42	fresh	219.6	
 43	fresh	219.7	
 44	fresh	219.7	
 45	fresh	219.7	
@@ -54,11 +54,11 @@ frame	state	overlay_y	violation
 52	fresh	217.5	
 53	fresh	217.5	
 54	fresh	213.5	
-55	above_chest	210.0	above_chest
-56	above_chest	207.7	above_chest
-57	stale	207.7	
-58	above_chest	206.9	above_chest
-59	stale	206.9	
+55	stale	213.5	
+56	stale	213.5	
+57	fresh	209.5	
+58	no_target	0.0	
+59	no_target	0.0	
 60	no_target	0.0	
 61	no_target	0.0	
 62	no_target	0.0	

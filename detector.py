@@ -108,9 +108,31 @@ def target_is_central_tower_banner_fp(
     if abs(col_cx - float(fov_cx)) > frame_w * 0.18:
         return False
     red = float(target.red_coverage)
-    if red < 0.10 or motion_overlap >= 0.09:
+    if motion_overlap >= 0.09:
         return False
     top_frac = float(target.bbox_y) / float(frame_h)
+    # gif_166_proof F11 / F59 class: central tower column locks (banner
+    # stack + score panel) at ADS start or after a previous lock expires.
+    # The column has bbox top in the upper 30% of frame, mid_y above the
+    # crosshair (mid_y_frac < ~0.45), medium-narrow width (32-62px) and
+    # **low red coverage** (0.03-0.13) because the column is mostly dark
+    # panel between the banner shapes — a real close humanoid in the same
+    # location has filled red torso (>= 0.13). The head score for this
+    # cluster can be high (banner top reads as head) so we do NOT gate on
+    # head_score; the red-coverage gate is the discriminator. Run BEFORE
+    # the red >= 0.10 early gate so we still catch the F11/F59 0.05-0.10
+    # band.
+    mid_y_frac = (float(target.bbox_y) + bh * 0.5) / float(frame_h)
+    if (
+        top_frac < 0.32
+        and 32.0 < bw <= max(62.0, frame_w * 0.085)
+        and aspect >= 1.6
+        and 0.03 <= red < 0.13
+        and mid_y_frac < 0.45
+    ):
+        return True
+    if red < 0.10:
+        return False
     skinny = bw <= max(30.0, frame_w * 0.065)
     if not skinny:
         return False
