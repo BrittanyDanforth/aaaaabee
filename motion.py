@@ -270,12 +270,20 @@ class TargetTracker:
         #     alpha ceiling ~0.85), matching the pull controller's
         #     responsiveness so the visible dot doesn't trail the cursor.
         speed = math.hypot(self._vx, self._vy)
+        # Compromise between snappy fast-motion tracking and single-
+        # frame-jump dampening.  Going below tau=0.012 lets a detector
+        # teleport (single-frame 50 px jump from a fragment switch)
+        # pull the dot 87 %+ of the way through the jump, which
+        # defeats the existing `test_overlay_follow_dampens_single_
+        # frame_jump` protection.  0.012 alpha=0.75 at 60 fps gives
+        # ~0.7 px steady-state lag per 4 px body motion (~1.3 px at
+        # 240 px/s) while still dampening 75 % through a single jump.
         if speed > 200.0:
-            tau_ov_base = _tau_moving * 0.78   # sharper than pull tau
+            tau_ov_base = 0.012
             tau_floor = 0.012
         elif speed > 70.0:
-            tau_ov_base = _tau_moving * 1.1
-            tau_floor = 0.018
+            tau_ov_base = _tau_moving * 1.0
+            tau_floor = 0.016
         else:
             tau_ov_base = _tau_still * 1.5
             tau_floor = 0.038
@@ -289,10 +297,10 @@ class TargetTracker:
         # speed climbs the ceiling lifts toward 0.90.  Detector-noise
         # jitter at rest stays clipped by dot_a.
         if speed > 200.0:
-            oa_hi = min(0.90, max(dot_a, 0.85))
+            oa_hi = min(0.95, max(dot_a, 0.92))
         elif speed > 70.0:
             speed_t = (speed - 70.0) / 130.0  # 0..1 across 70..200
-            oa_hi = min(0.90, max(dot_a, dot_a + (0.85 - dot_a) * speed_t))
+            oa_hi = min(0.95, max(dot_a, dot_a + (0.92 - dot_a) * speed_t))
         else:
             oa_hi = max(oa_lo, min(0.90, dot_a))
         oa = max(oa_lo, min(oa_hi, oa))

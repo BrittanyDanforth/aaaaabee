@@ -5,8 +5,8 @@ GIF playback: 166 frames
   pull_moved_frames:      20
   deadzoned_frames:       16
   rounded_to_zero:         0
-  detect_ms  mean/max:    9.82 /  21.79
-  loop_ms    mean/max:    9.84 /  21.84
+  detect_ms  mean/max:    9.97 /  21.89
+  loop_ms    mean/max:    9.98 /  21.93
   pull_dt_ms (moves):   mean=62.2 max=433.3
 
 Per-frame skip-reason breakdown:
@@ -16,9 +16,9 @@ Per-frame skip-reason breakdown:
   STALE_SUPPRESSED            6
 
 Synthetic moving-body sweeps (steady-state metrics, frames > N/2):
-  sweep[slow,   80 px/s]: steady_lag_mean=  5.64 px  max_lag=  6.40 px  final_lag=  5.27 px
-  sweep[medium,  240 px/s]: steady_lag_mean=  7.24 px  max_lag= 12.65 px  final_lag= 10.77 px
-  sweep[fast,  480 px/s]: steady_lag_mean= 12.20 px  max_lag= 22.36 px  final_lag=  4.47 px
+  sweep[slow,   80 px/s]: steady_lag_mean=  5.97 px  max_lag=  6.67 px  final_lag=  5.90 px
+  sweep[medium,  240 px/s]: steady_lag_mean=  6.97 px  max_lag= 13.34 px  final_lag=  8.94 px
+  sweep[fast,  480 px/s]: steady_lag_mean= 10.52 px  max_lag= 22.36 px  final_lag=  5.00 px
   direct[slow,   80 px/s]: steady_lag_mean=  1.71 px  max_lag=  3.33 px  final_lag=  1.67 px
   direct[medium,  240 px/s]: steady_lag_mean=  1.00 px  max_lag=  6.00 px  final_lag=  0.00 px
   direct[fast,  480 px/s]: steady_lag_mean=  1.72 px  max_lag=  4.00 px  final_lag=  1.00 px
