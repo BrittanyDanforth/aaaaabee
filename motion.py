@@ -831,6 +831,12 @@ class TargetTracker:
             OVERLAY_PULL_UPWARD_DIV_PX = 3.0
             if overlay_y < pull_y - OVERLAY_PULL_UPWARD_DIV_PX:
                 overlay_y = pull_y - OVERLAY_PULL_UPWARD_DIV_PX
+                # Re-clamp inside the chest band so we don't violate the
+                # body-bbox y_lo floor when pull was already at the
+                # upper edge.
+                overlay_x, overlay_y = self._clamp_aim_output(
+                    overlay_x, overlay_y
+                )
                 self._overlay_follow_y = overlay_y
             self._overlay_smooth = (overlay_x, overlay_y)
         else:

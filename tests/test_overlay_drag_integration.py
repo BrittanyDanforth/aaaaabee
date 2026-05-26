@@ -106,5 +106,60 @@ class OverlayDragIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(dist, 140.0 * 0.96, delta=3.0)
 
 
+class OverlayPullUpwardDivergenceTests(unittest.TestCase):
+    """Regression: motion.overlay_xy().y must not drift more than 3 px ABOVE
+    motion.x/y inside the body bbox (the user-audit 'red dot creeps into the
+    air while pull stays on the chest' symptom)."""
+
+    def test_overlay_y_capped_above_pull_in_body_bbox(self) -> None:
+        tr = TargetTracker()
+        bx, by, bw, bh = 470, 280, 60, 120
+        # Seed the smoother near the bottom chest band so pull settles low.
+        for i in range(10):
+            tr.observe_target(
+                500.0, 395.0, i / 60.0,
+                bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
+                aim_is_body_anchor=True,
+            )
+        # Now feed a measurement near the top of the chest band — the
+        # overlay path will race toward it via _advance_overlay_follow
+        # while pull continues to lag at the bottom edge.
+        for i in range(10, 25):
+            m = tr.observe_target(
+                500.0, 315.0, i / 60.0,
+                bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
+                aim_is_body_anchor=True,
+            )
+            ox, oy = m.overlay_xy()
+            self.assertGreaterEqual(
+                oy, m.y - 3.0,
+                f"frame {i}: overlay_y={oy} pull_y={m.y} -- overlay drifted "
+                f">3 px above pull (sky-drift symptom)",
+            )
+
+    def test_downward_divergence_not_clamped(self) -> None:
+        tr = TargetTracker()
+        bx, by, bw, bh = 470, 280, 60, 120
+        # Seed at top of band so pull settles high.
+        for i in range(10):
+            tr.observe_target(
+                500.0, 315.0, i / 60.0,
+                bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
+                aim_is_body_anchor=True,
+            )
+        # Then move detector to bottom-band; overlay will race down
+        # below pull.  This direction should NOT be capped — only
+        # the upward (sky) direction matters for the user-audit fix.
+        m = tr.observe_target(
+            500.0, 395.0, 10 / 60.0,
+            bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
+            aim_is_body_anchor=True,
+        )
+        # Just check it doesn't error and stays inside the bbox.
+        ox, oy = m.overlay_xy()
+        self.assertGreaterEqual(oy, by)
+        self.assertLessEqual(oy, by + bh)
+
+
 if __name__ == "__main__":
     unittest.main()
