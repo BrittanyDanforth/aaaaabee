@@ -410,7 +410,9 @@ def run(
                 bx, by, bw, bh = bb
                 y_lo = by + bh * CHEST_LO
                 y_hi = by + bh * CHEST_HI
+                row["bbox_x"] = bx
                 row["bbox_y"] = by
+                row["bbox_w"] = bw
                 row["bbox_h"] = bh
                 row["bbox_top_frac"] = round(by / h, 3)
                 row["chest_y_lo"] = round(y_lo, 1)

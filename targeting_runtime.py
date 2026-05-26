@@ -120,10 +120,27 @@ class TargetingRuntime:
     Uses the same frame lock + stale motion freeze as ``AssistRuntime``.
     """
 
+    # Visible-bbox smoothing alphas.  alpha_pos governs how quickly the
+    # displayed bbox follows the detector's centroid (higher = snappier);
+    # alpha_size governs width/height blending (lower = less visible
+    # stretch frame-to-frame).  These only smooth the *displayed* bbox
+    # (and the bbox passed to TargetTracker.observe_target); the
+    # underlying detector candidates and lock-state targets remain
+    # untouched so scoring / refine gates see the raw detection.
+    _BBOX_ALPHA_POS = 0.65
+    _BBOX_ALPHA_SIZE = 0.50
+    # IoU below this between consecutive detections is treated as an
+    # identity break and the smoother resets (snap to new bbox).  This
+    # mirrors how the user perceives a "fresh lock" — a totally new
+    # bbox in a different place should not gradually drift in from the
+    # previous lock location.
+    _BBOX_SMOOTH_RESET_IOU = 0.10
+
     def __init__(self) -> None:
         self.tracker = TargetTracker()
         self._lock_state = TargetLockState()
         self._last_observe_bbox: tuple[int, int, int, int] | None = None
+        self._smoothed_bbox: tuple[float, float, float, float] | None = None
         self._observe_target_calls: int = 0
         self._detect_ctx = detector.DetectionContext()
 
@@ -131,8 +148,54 @@ class TargetingRuntime:
         self.tracker.reset()
         self._lock_state.reset()
         self._last_observe_bbox = None
+        self._smoothed_bbox = None
         self._observe_target_calls = 0
         self._detect_ctx.reset()
+
+    @staticmethod
+    def _bbox_iou(
+        a: tuple[float, float, float, float],
+        b: tuple[float, float, float, float],
+    ) -> float:
+        ax, ay, aw, ah = a
+        bx, by, bw, bh = b
+        x0 = max(ax, bx)
+        y0 = max(ay, by)
+        x1 = min(ax + aw, bx + bw)
+        y1 = min(ay + ah, by + bh)
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+        inter = (x1 - x0) * (y1 - y0)
+        union = aw * ah + bw * bh - inter
+        return inter / max(union, 1.0)
+
+    def _smooth_visible_bbox(
+        self, new_bb: tuple[int, int, int, int]
+    ) -> tuple[int, int, int, int]:
+        nx, ny, nw, nh = new_bb
+        if self._smoothed_bbox is None or self._BBOX_ALPHA_POS >= 1.0:
+            self._smoothed_bbox = (float(nx), float(ny), float(nw), float(nh))
+            return new_bb
+        prev = self._smoothed_bbox
+        if self._bbox_iou(prev, (nx, ny, nw, nh)) < self._BBOX_SMOOTH_RESET_IOU:
+            # Identity break — snap so we don't visually slide in from
+            # the previous (unrelated) lock's location.
+            self._smoothed_bbox = (float(nx), float(ny), float(nw), float(nh))
+            return new_bb
+        ap = self._BBOX_ALPHA_POS
+        asz = self._BBOX_ALPHA_SIZE
+        sx = ap * nx + (1.0 - ap) * prev[0]
+        sy = ap * ny + (1.0 - ap) * prev[1]
+        sw = asz * nw + (1.0 - asz) * prev[2]
+        sh = asz * nh + (1.0 - asz) * prev[3]
+        self._smoothed_bbox = (sx, sy, sw, sh)
+        # Clamp minimum size 6 so a fully-collapsed box doesn't render.
+        return (
+            int(round(sx)),
+            int(round(sy)),
+            max(6, int(round(sw))),
+            max(6, int(round(sh))),
+        )
 
     @property
     def last_observe_bbox(self) -> tuple[int, int, int, int] | None:
@@ -274,15 +337,19 @@ class TargetingRuntime:
         else:
             self._observe_target_calls += 1
             observe_called = True
-            self._last_observe_bbox = (t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+            smoothed = self._smooth_visible_bbox(
+                (t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
+            )
+            self._last_observe_bbox = smoothed
+            sbx, sby, sbw, sbh = smoothed
             motion = self.tracker.observe_target(
                 t.centroid_x,
                 t.centroid_y,
                 tsec,
-                bbox_x=t.bbox_x,
-                bbox_y=t.bbox_y,
-                bbox_w=t.bbox_w,
-                bbox_h=t.bbox_h,
+                bbox_x=sbx,
+                bbox_y=sby,
+                bbox_w=sbw,
+                bbox_h=sbh,
                 aim_is_body_anchor=True,
             )
 

@@ -174,6 +174,22 @@ def target_is_environment_column(
         return False
     aspect = bh / bw
     top_sky = bbox_top_in_sky_band(float(target.bbox_y), center_y)
+    # Real close-range humanoids (img5_close_ads-style) often have a
+    # tall bbox whose top edge crosses into the sky band simply because
+    # the character is large in frame.  When the candidate has a
+    # *classified* head + torso + limb stack (body_shape>=0.85, all
+    # three roles present with strong scores) treat it as humanoid and
+    # bypass the column reject.  Environment columns / banners do not
+    # produce a complete head+torso+limb decomposition.
+    is_classified_humanoid = (
+        target.has_classified_torso
+        and float(target.body_shape_score) >= 0.85
+        and float(target.head_score) >= 0.6
+        and float(target.torso_score) >= 0.6
+        and float(target.limb_stack_score) >= 0.3
+    )
+    if is_classified_humanoid:
+        return False
     if top_sky and bh >= frame_h * 0.20 and aspect >= 1.35:
         return True
     if (

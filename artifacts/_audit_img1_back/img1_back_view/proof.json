@@ -1,0 +1,121 @@
+{
+  "name": "img1_back_view",
+  "frame": [
+    684,
+    536
+  ],
+  "active": false,
+  "selected": null,
+  "runtime_wired_bbox": null,
+  "runtime_aim": null,
+  "candidates": [
+    {
+      "idx": 0,
+      "accepted": false,
+      "reject": "horizontal_stripe",
+      "body": 0.0,
+      "head": 0.0,
+      "torso": 0.0,
+      "limb": 0.0,
+      "vert": 1.0,
+      "aspect": 0.2328767123287671,
+      "fill": 0.5882353186607361,
+      "circ": 0.7500369606007603,
+      "bbox": [
+        513,
+        314,
+        73,
+        17
+      ],
+      "aim": [
+        549.5,
+        320.12
+      ],
+      "parts": 2,
+      "detail": "horizontal_stripe"
+    },
+    {
+      "idx": 1,
+      "accepted": false,
+      "reject": "horizontal_stripe",
+      "body": 0.0,
+      "head": 0.0,
+      "torso": 0.0,
+      "limb": 0.0,
+      "vert": 0.0,
+      "aspect": 0.5625,
+      "fill": 0.0,
+      "circ": 0.5536907524903988,
+      "bbox": [
+        589,
+        321,
+        16,
+        9
+      ],
+      "aim": [
+        597.0,
+        324.24
+      ],
+      "parts": 1,
+      "detail": "horizontal_stripe"
+    },
+    {
+      "idx": 2,
+      "accepted": false,
+      "reject": "floating_cluster",
+      "body": 0.0,
+      "head": 0.0,
+      "torso": 0.0,
+      "limb": 0.0,
+      "vert": 0.72,
+      "aspect": 1.0,
+      "fill": 0.7222222089767456,
+      "circ": 0.28031761304766595,
+      "bbox": [
+        619,
+        161,
+        18,
+        18
+      ],
+      "aim": [
+        628.0,
+        167.48
+      ],
+      "parts": 1,
+      "detail": "floating_cluster"
+    },
+    {
+      "idx": 3,
+      "accepted": true,
+      "reject": "ok",
+      "body": 0.6392453441295547,
+      "head": 0.42,
+      "torso": 0.95,
+      "limb": 0.2,
+      "vert": 1.0,
+      "aspect": 2.740740740740741,
+      "fill": 0.8243243098258972,
+      "circ": 0.3530483098090182,
+      "bbox": [
+        657,
+        179,
+        27,
+        74
+      ],
+      "aim": [
+        664.8,
+        210.06
+      ],
+      "parts": 1,
+      "detail": "parts=1 head=0.42 torso=0.95 limb=0.20 vert=1.00 geom=0.83 align=0.00 circ=0.35 fill=0.82"
+    }
+  ],
+  "detection_debug": [
+    "cand[0] reject=horizontal_stripe body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=0.23 fill=0.59 circ=0.75 bbox=(513,314,73x17) area=600 dist=99 parts=2 | horizontal_stripe",
+    "cand[1] reject=horizontal_stripe body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=0.56 fill=0.00 circ=0.55 bbox=(589,321,16x9) area=71 dist=56 parts=1 | horizontal_stripe",
+    "cand[2] reject=floating_cluster body=0.00 head=0.00 torso=0.00 limb=0.00 aspect=1.00 fill=0.72 circ=0.28 bbox=(619,161,18x18) area=80 dist=193 parts=1 | floating_cluster",
+    "cand[3] reject=ok body=0.64 head=0.42 torso=0.95 limb=0.20 aspect=2.74 fill=0.82 circ=0.35 bbox=(657,179,27x74) area=1332 dist=152 parts=1 | parts=1 head=0.42 torso=0.95 limb=0.20 vert=1.00 geom=0.83 align=0.00 circ=0.35 fill=0.82",
+    "cand[3] drop viewmodel_column red_cov=0.680 align=0.00",
+    "accepted=0 from 4 clusters / 9 parts"
+  ]
+}
