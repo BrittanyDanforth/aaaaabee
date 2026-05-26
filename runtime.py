@@ -593,15 +593,30 @@ class AssistRuntime:
         coalesce a 180 Hz subtick down to ~64 Hz.  We sleep for the
         bulk of the interval and busy-wait the tail so the subtick
         rate is honoured on both OSes.
+
+        Deadline is computed against the call START so that, if
+        ``time.sleep`` oversleeps (Windows scheduler quantum), the
+        busy-wait short-circuits immediately rather than adding
+        another 1 ms on top.  Without this the actual sub-tick rate
+        on Windows would be ~64 Hz instead of 180 Hz.
         """
         if seconds <= 0.0:
             return
+        deadline = time.perf_counter() + seconds
         if seconds > 0.002:
             time.sleep(seconds - 0.001)
-        deadline = time.perf_counter() + max(0.0, seconds - (seconds - 0.001))
-        # Spin the last ~1 ms for accuracy.
         while time.perf_counter() < deadline:
             pass
+
+    # When stale_det=True the motion smoother is frozen — the .vx/.vy
+    # we'd extrapolate against is the LAST FRESH body velocity, not
+    # the current one.  Over a long stale-grace window that could
+    # drift the cursor by  velocity × grace = 240 px/s × 230 ms ≈
+    # 55 px past where the body actually is when it returns.
+    # Decay the extrapolation velocity each subtick during stale so
+    # the cursor freezes within ~10 subticks (~55 ms) of stale onset
+    # instead of drifting.  Fresh frames see no decay.
+    _SUBTICK_STALE_VELOCITY_DECAY = 0.92
 
     def _run_pull_subticks(
         self,
@@ -647,6 +662,12 @@ class AssistRuntime:
             now2 = now_fn()
             ex = vx * sub_dt
             ey = vy * sub_dt
+            if stale_det:
+                # Velocity-runaway guard: shrink the per-subtick velocity
+                # during stale so the cursor doesn't drift indefinitely
+                # on a frozen vx/vy snapshot.
+                vx *= self._SUBTICK_STALE_VELOCITY_DECAY
+                vy *= self._SUBTICK_STALE_VELOCITY_DECAY
             if ex > self._SUBTICK_MAX_EXTRAP_X:
                 ex = self._SUBTICK_MAX_EXTRAP_X
             elif ex < -self._SUBTICK_MAX_EXTRAP_X:

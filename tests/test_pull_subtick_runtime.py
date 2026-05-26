@@ -27,6 +27,7 @@ class _MinimalRuntime:
 
     _SUBTICK_MAX_EXTRAP_Y = 1.0
     _SUBTICK_MAX_EXTRAP_X = 2.5
+    _SUBTICK_STALE_VELOCITY_DECAY = 0.92
 
     def __init__(self, pull: PullController, aim_tracker: TargetTracker):
         self._pull = pull
@@ -141,6 +142,94 @@ class PullSubtickProductionTests(unittest.TestCase):
             sleep_fn=sleep_fn, now_fn=now_fn,
         )
         self.assertEqual(emitted, [])
+
+    def test_subtick_stale_velocity_decays(self) -> None:
+        """Long stale-grace window must not drift the cursor by
+        velocity × time forever.  With stale_det=True every sub-tick
+        must shrink the extrapolation velocity so total drift is
+        bounded even at 180 Hz × N frames of stale."""
+
+        pull = _make_pull()
+        tracker = TargetTracker()
+        # Seed strong rightward velocity (240 px/s) then stop observing.
+        for i in range(6):
+            tracker.observe_target(
+                610.0 + i * 4.0, 540.0, i / 60.0,
+                bbox_x=580 + i * 4, bbox_y=480, bbox_w=60, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+        motion = tracker._last
+        self.assertGreater(motion.vx, 100.0,
+            "test setup: vx should be strongly positive")
+        target = Target(
+            centroid_x=motion.x, centroid_y=motion.y,
+            area=4000.0, distance_to_center=0.0, confidence=0.88,
+            bbox_x=604, bbox_y=480, bbox_w=60, bbox_h=120,
+            body_shape_score=0.86, head_score=0.80, torso_score=0.74,
+            limb_stack_score=0.62, red_coverage=0.20,
+            has_classified_torso=True, part_count=4,
+        )
+        rt = _MinimalRuntime(pull, tracker)
+        # Run 10 consecutive "frames" of stale sub-ticks @ 180 Hz.
+        sleep_fn, now_fn, state = self._virtual_clock()
+        total_emitted: list[tuple[int, int]] = []
+        for frame in range(10):
+            deadline = state["t"] + 1.0 / 60.0
+            emitted = _run_pull_subticks(
+                rt, target, motion,
+                frame_cx=640.0, frame_cy=540.0,
+                deadline=deadline,
+                subtick_hz=180,
+                stale_det=True,   # critical: stale path
+                firing_now=False,
+                sleep_fn=sleep_fn, now_fn=now_fn,
+            )
+            total_emitted.extend(emitted)
+        # Total horizontal drift across 10 stale frames must stay
+        # bounded.  Without decay this would be vx * 10 frames * sub_dt
+        # * 3 subticks ≈ 22 px.  With decay it's well under that.
+        total_dx = sum(dx for dx, _dy in total_emitted)
+        self.assertLessEqual(
+            total_dx, 35,
+            f"stale sub-tick total drift = {total_dx} px (runaway)"
+        )
+
+    def test_precise_sleep_uses_call_start_deadline(self) -> None:
+        """If time.sleep oversleeps (Windows scheduler 15.6 ms tick),
+        _precise_sleep must NOT add another 1 ms busy-wait on top —
+        the deadline must be relative to the CALL START not the
+        post-sleep timestamp.  This prevents 180 Hz subtick from
+        coalescing to 64 Hz on Windows."""
+
+        import runtime
+        import time as _time
+        # Monkey-patch time.sleep to oversleep by ~3 ms each call.
+        orig_sleep = _time.sleep
+        oversleeps: list[float] = []
+
+        def _oversleep(s):
+            target = _time.perf_counter() + s + 0.003
+            while _time.perf_counter() < target:
+                pass
+            oversleeps.append(s)
+
+        runtime.time.sleep = _oversleep
+        try:
+            t0 = _time.perf_counter()
+            runtime.AssistRuntime._precise_sleep(0.005)
+            elapsed = _time.perf_counter() - t0
+        finally:
+            runtime.time.sleep = orig_sleep
+        # If the deadline bug existed, elapsed would be sleep_overshoot
+        # + 1 ms tail = 8 ms.  With the fix, elapsed must be the
+        # overshoot itself (~8 ms here, since oversleep already passes
+        # the start-deadline).  Either way it MUST NOT be > 9 ms (which
+        # would mean we added another tail on top of the oversleep).
+        self.assertLess(
+            elapsed, 0.009,
+            f"_precise_sleep added extra busy-wait after oversleep "
+            f"(elapsed = {elapsed*1000:.2f} ms, requested 5 ms)"
+        )
 
     def test_subtick_anchor_clamped_to_chest_band(self) -> None:
         """High vy*sub_dt would project the anchor below the chest
