@@ -323,11 +323,24 @@ def _scale(frame_w: int, frame_h: int) -> float:
     return min(frame_w, frame_h) / 1080.0
 
 
+_FOV_MASK_CACHE: dict[tuple[int, int, int, int, int], np.ndarray] = {}
+
+
 def _build_fov_mask(height: int, width: int, center_x: float, center_y: float, radius: int) -> np.ndarray:
-    y, x = np.ogrid[:height, :width]
     cx = round(center_x)
     cy = round(center_y)
-    return ((x - cx) ** 2 + (y - cy) ** 2 <= radius * radius).astype(np.uint8)
+    key = (int(height), int(width), int(cx), int(cy), int(radius))
+    cached = _FOV_MASK_CACHE.get(key)
+    if cached is not None:
+        return cached
+    y, x = np.ogrid[:height, :width]
+    mask = ((x - cx) ** 2 + (y - cy) ** 2 <= radius * radius).astype(np.uint8)
+    # Cap cache size to a small handful so we don't leak when the user
+    # is scrubbing FOV during tuning.
+    if len(_FOV_MASK_CACHE) >= 8:
+        _FOV_MASK_CACHE.pop(next(iter(_FOV_MASK_CACHE)))
+    _FOV_MASK_CACHE[key] = mask
+    return mask
 
 
 def _build_viewmodel_exclude_mask(height: int, width: int, exclude_bottom_frac: float) -> np.ndarray:

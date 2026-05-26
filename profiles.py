@@ -171,6 +171,12 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "detection_motion_threshold": 9,
         "body_shape_min_score": 0.40,
         "mouse_gate_stale_grace_frames": 14,
+        # Sub-tick pull at 180 Hz so mouse motion stays continuous when
+        # detect frame cost spikes above the 16.67 ms (60 fps) budget.
+        # See runtime.py PULL-SUBTICK block for the extrapolation rules
+        # (vy bounded ±1 px/subtick, vx bounded ±2.5 px/subtick, anchor
+        # always clamped inside the chest band).  0 disables.
+        "pull_subtick_hz": 180,
     },
     PROFILE_APEX_STYLE_PERF_TEST: {
         **_APEX_TUNING,

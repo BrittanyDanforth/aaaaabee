@@ -1619,7 +1619,97 @@ class AssistRuntime:
                         if cv2.waitKey(1) & 0xFF == ord("q"):
                             self.stop()
 
-                    sleep_time = frame_interval - (time.perf_counter() - t0)
+                    # PULL-SUBTICK (continuous-motion fix for the
+                    # 'pulls once every random interval' symptom):
+                    # the main loop runs detect at capture_fps which
+                    # also gates the pull tick.  Even with the inline
+                    # lead added to motion._finalize_pull_point, the
+                    # cursor only receives one mouse-move per loop —
+                    # so the user perceives chunky output whenever the
+                    # detect step varies in cost (measured p99 = 28.7 ms
+                    # vs 16.67 ms budget @ 60 fps capture).
+                    #
+                    # Between the last main-loop pull and the next
+                    # detect frame we still hold valid motion state
+                    # (vx, vy, last_known target).  Sub-ticking the
+                    # PullController at pull_subtick_hz with the
+                    # extrapolated target position emits smooth
+                    # corrections continuously instead of one big jump
+                    # per capture frame.
+                    #
+                    # Disabled (subtick_hz=0) preserves the legacy
+                    # behaviour.  Default is left off — flip via cfg
+                    # ['pull_subtick_hz'] to e.g. 240 for a 240 Hz
+                    # mouse-tick on top of 60 Hz detect.
+                    pull_subtick_hz = int(cfg.get("pull_subtick_hz", 0) or 0)
+                    deadline = t0 + frame_interval
+                    if (
+                        pull_subtick_hz > 0
+                        and self._pull is not None
+                        and ads_for_assist
+                        and not paused
+                        and pull_target is not None
+                        and motion is not None
+                        and self._should_run()
+                    ):
+                        sub_dt = max(1.0 / 480.0, 1.0 / float(pull_subtick_hz))
+                        # Cap the extrapolation distance per subtick so a
+                        # noisy vy/vx can never project the anchor outside
+                        # the body bbox.  Match the motion._MAX_UPWARD_LEAD_PX
+                        # contract for the y axis.
+                        max_extrap_y_per_sub = 1.0
+                        max_extrap_x_per_sub = 2.5
+                        sub_anchor_x = float(pull_target.centroid_x)
+                        sub_anchor_y = float(pull_target.centroid_y)
+                        # vx/vy come from the motion smoother; the cap
+                        # has already removed the spikes/upward-noise.
+                        vx = float(motion.vx) if math.isfinite(motion.vx) else 0.0
+                        vy = float(motion.vy) if math.isfinite(motion.vy) else 0.0
+                        bbox_xy = self._aim_tracker._body_bbox
+                        from dataclasses import replace as _replace
+                        while True:
+                            now = time.perf_counter()
+                            if now + sub_dt > deadline:
+                                break
+                            time.sleep(sub_dt)
+                            now2 = time.perf_counter()
+                            ex = vx * sub_dt
+                            ey = vy * sub_dt
+                            if ex > max_extrap_x_per_sub:
+                                ex = max_extrap_x_per_sub
+                            elif ex < -max_extrap_x_per_sub:
+                                ex = -max_extrap_x_per_sub
+                            if ey > max_extrap_y_per_sub:
+                                ey = max_extrap_y_per_sub
+                            elif ey < -max_extrap_y_per_sub:
+                                ey = -max_extrap_y_per_sub
+                            sub_anchor_x += ex
+                            sub_anchor_y += ey
+                            if bbox_xy is not None:
+                                bx, by, bw, bh = bbox_xy
+                                sub_anchor_x = max(
+                                    bx + bw * 0.18,
+                                    min(bx + bw * 0.82, sub_anchor_x),
+                                )
+                                sub_anchor_y = max(
+                                    by + bh * 0.28,
+                                    min(by + bh * 0.52, sub_anchor_y),
+                                )
+                            sub_target = _replace(
+                                pull_target,
+                                centroid_x=sub_anchor_x,
+                                centroid_y=sub_anchor_y,
+                            )
+                            sub_pr = self._pull.compute_delta(
+                                sub_target, frame_cx, frame_cy,
+                                time_sec=now2,
+                                stale_detection=stale_det,
+                                is_firing=firing_now,
+                            )
+                            if (sub_pr.dx != 0 or sub_pr.dy != 0) and self._should_run():
+                                self._safe_mouse_move(sub_pr.dx, sub_pr.dy)
+
+                    sleep_time = deadline - time.perf_counter()
                     self._sleep_interruptible(sleep_time)
             finally:
                 self._teardown(mouse_listener, keyboard_listener)
