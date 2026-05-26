@@ -5,8 +5,8 @@ GIF playback: 166 frames
   pull_moved_frames:      20
   deadzoned_frames:       16
   rounded_to_zero:         0
-  detect_ms  mean/max:    9.72 /  22.43
-  loop_ms    mean/max:    9.74 /  22.46
+  detect_ms  mean/max:    9.83 /  24.17
+  loop_ms    mean/max:    9.84 /  24.18
   pull_dt_ms (moves):   mean=62.2 max=433.3
 
 Per-frame skip-reason breakdown:

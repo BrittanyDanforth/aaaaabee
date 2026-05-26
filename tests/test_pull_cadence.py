@@ -286,6 +286,109 @@ class PullCadenceTests(unittest.TestCase):
         )
 
 
+class ActiveTargetJitterTests(unittest.TestCase):
+    """User-audit: 'PULL SUCKS' / 'WHY DONT YOU CARE THE PULL IS LAGGY'.
+    Direct measurement on a stationary body with realistic Apex detector
+    centroid noise (±1.5 px) showed 24 mouse-jitter ticks per second
+    — the cursor wobbling randomly even with no body motion.
+
+    These tests pin the new contract:
+      * stationary body + ±1.5 px detector centroid noise → ≤ 6 mouse
+        ticks per second (was 24 ticks/sec)
+      * close-range hold (body 5 px off-crosshair) settles in <3
+        frames and then emits ≤ 3 mouse ticks across the next
+        37 frames (i.e. a 'rock solid' hold)
+    """
+
+    def _body(self, cx: float, cy: float) -> Target:
+        return Target(
+            centroid_x=cx, centroid_y=cy,
+            area=4000.0, distance_to_center=math.hypot(cx-640.0, cy-540.0),
+            confidence=0.88,
+            bbox_x=int(cx - 30), bbox_y=int(cy - 60),
+            bbox_w=60, bbox_h=120,
+            body_shape_score=0.86, head_score=0.78, torso_score=0.74,
+            limb_stack_score=0.62, red_coverage=0.18,
+            has_classified_torso=True, part_count=4,
+        )
+
+    def test_stationary_body_with_detector_noise_emits_few_ticks(self) -> None:
+        import random
+        from motion import TargetTracker
+        tracker = TargetTracker()
+        pull = PullController(_make_tuning())
+        cursor = [0.0, 0.0]
+        random.seed(0)
+        emissions = 0
+        for i in range(60):
+            cx = 640.0 + random.uniform(-1.5, 1.5)
+            cy = 540.0 + random.uniform(-1.5, 1.5)
+            bx = int(cx - 30 + random.uniform(-1, 1))
+            by = int(cy - 60 + random.uniform(-1, 1))
+            motion = tracker.observe_target(
+                cx, cy, i / 60.0,
+                bbox_x=bx, bbox_y=by, bbox_w=60, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+            tgt = self._body(motion.x, motion.y)
+            tgt = replace(tgt, bbox_x=bx, bbox_y=by, bbox_w=60, bbox_h=120)
+            pr = pull.compute_delta(
+                tgt, 640.0 + cursor[0], 540.0 + cursor[1],
+                time_sec=i / 60.0,
+            )
+            if pr.dx != 0 or pr.dy != 0:
+                emissions += 1
+            cursor[0] += pr.dx
+            cursor[1] += pr.dy
+        self.assertLessEqual(
+            emissions, 6,
+            f"stationary body + ±1.5 px detector noise emitted "
+            f"{emissions} mouse-jitter ticks across 1 second "
+            f"— was 24 before the bbox-EMA + quadratic-deadzone fix"
+        )
+
+    def test_close_hold_settles_then_rock_solid(self) -> None:
+        import random
+        from motion import TargetTracker
+        tracker = TargetTracker()
+        pull = PullController(_make_tuning())
+        cursor = [0.0, 0.0]
+        random.seed(0)
+        # Body 5 px right of crosshair, near-stationary.
+        settle_emissions = 0
+        post_settle_emissions = 0
+        for i in range(40):
+            cx = 645.0 + random.uniform(-0.5, 0.5)
+            cy = 540.0 + random.uniform(-0.5, 0.5)
+            bx = int(cx - 30 + random.uniform(-1, 1))
+            motion = tracker.observe_target(
+                cx, cy, i / 60.0,
+                bbox_x=bx, bbox_y=480, bbox_w=60, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+            tgt = self._body(motion.x, motion.y)
+            tgt = replace(tgt, bbox_x=bx, bbox_y=480, bbox_w=60, bbox_h=120)
+            pr = pull.compute_delta(
+                tgt, 640.0 + cursor[0], 540.0 + cursor[1],
+                time_sec=i / 60.0,
+            )
+            if i < 3 and (pr.dx != 0 or pr.dy != 0):
+                settle_emissions += 1
+            elif i >= 3 and (pr.dx != 0 or pr.dy != 0):
+                post_settle_emissions += 1
+            cursor[0] += pr.dx
+            cursor[1] += pr.dy
+        # Settle: closes the 5 px gap.
+        self.assertGreaterEqual(settle_emissions, 1,
+            "controller failed to emit any settling ticks")
+        # Post-settle: rock solid, max 3 mouse ticks across 37 frames.
+        self.assertLessEqual(
+            post_settle_emissions, 3,
+            f"after settling, controller emitted {post_settle_emissions} "
+            f"mouse-ticks across 37 idle-hold frames — micro-jitter"
+        )
+
+
 class IdleNoiseResidualTests(unittest.TestCase):
     """Regression: a previous patch lowered the integer-residual drain
     threshold to 0.40 so slow targets would emit every-other frame.
