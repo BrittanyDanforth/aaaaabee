@@ -271,11 +271,11 @@ class TargetTracker:
         #     responsiveness so the visible dot doesn't trail the cursor.
         speed = math.hypot(self._vx, self._vy)
         if speed > 200.0:
-            tau_ov_base = _tau_moving
-            tau_floor = 0.014
+            tau_ov_base = _tau_moving * 0.78   # sharper than pull tau
+            tau_floor = 0.012
         elif speed > 70.0:
-            tau_ov_base = _tau_moving * 1.3
-            tau_floor = 0.022
+            tau_ov_base = _tau_moving * 1.1
+            tau_floor = 0.018
         else:
             tau_ov_base = _tau_still * 1.5
             tau_floor = 0.038
@@ -307,13 +307,24 @@ class TargetTracker:
             if fy < self._overlay_follow_y - 10.0:
                 fy = self._overlay_follow_y - 10.0
         elif speed > 25.0 and self._body_bbox is not None:
-            # Minimal upward lead when body bbox is active — full vy lead caused sky climb.
-            # FIX: use the raw (pre-attenuated) upward velocity threshold more
-            # generously.  The old -40.0 threshold rarely fired because _vy is
-            # already halved by the 0.55 factor in observe().  Use -15.0 so any
-            # meaningful upward movement gets a small correction without sky climb.
+            # OVERLAY-LAG FIX (user-audit: "the dot is laggy"): the
+            # previous 0.22 horizontal lead factor compensated only
+            # ~0.9 px out of the ~4 px the body moves between motion
+            # frames at 240 px/s.  Total visible dot lag ended up at
+            # 5-12 px on a strafing target because the lead
+            # underfilled and the overlay smoother filled the rest as
+            # delay.  Speed-adaptive lead: more lead the faster the
+            # body is moving so the dot doesn't trail behind the
+            # cursor on real motion.  Vertical lead stays minimal
+            # (sky-drift safety).
             lead = min(dt, 0.05)
-            fx += self._vx * lead * 0.22
+            if speed > 200.0:
+                lead_factor_x = 0.55
+            elif speed > 70.0:
+                lead_factor_x = 0.32
+            else:
+                lead_factor_x = 0.22
+            fx += self._vx * lead * lead_factor_x
             if self._vy > 0.0:
                 fy += self._vy * lead * 0.08
             elif self._vy < -15.0:
