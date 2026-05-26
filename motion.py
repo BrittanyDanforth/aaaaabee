@@ -142,6 +142,10 @@ class TargetTracker:
         self._prediction_max_px: float = _MAX_PRED_PX
         self._body_bbox: tuple[int, int, int, int] | None = None
         self._last_stable_bbox: tuple[int, int, int, int] | None = None
+        # Low-alpha EMA on the bbox used for the chest-band clamp.
+        # Separate from _last_stable_bbox which is the unsmoothed
+        # bbox used for fragment-hit detection.
+        self._smoothed_clamp_bbox: tuple[float, float, float, float] | None = None
         self._stable_bbox_hold_frames: int = 0
         self._aim_is_body_anchor: bool = True
         self._fov_cx: float | None = None
@@ -422,6 +426,7 @@ class TargetTracker:
         self._vy = 0.0
         self._body_bbox = None
         self._last_stable_bbox = None
+        self._smoothed_clamp_bbox = None
         self._stable_bbox_hold_frames = 0
         self._aim_is_body_anchor = True
         self._fov_cx = None
@@ -448,6 +453,7 @@ class TargetTracker:
         self._vy = 0.0
         self._body_bbox = None
         self._last_stable_bbox = None
+        self._smoothed_clamp_bbox = None
         self._stable_bbox_hold_frames = 0
         self._last_pred_offset = (0.0, 0.0)
         self._last_pre_predict = None
@@ -609,6 +615,48 @@ class TargetTracker:
             else:
                 self._last_stable_bbox = (bx, by, bw, bh)
                 self._stable_bbox_hold_frames = 0
+            # CURSOR-JITTER FIX (user-audit "PULL SUCKS"): detector bbox
+            # noise (±1-2 px frame-to-frame from a real Apex character)
+            # leaked into the chest-band clamp and made the cursor
+            # twitch on a stationary target.  Direct measurement: ±1.5
+            # px detector noise → 13 mouse-jitter ticks per second
+            # while locked.  Apply a low-alpha EMA on the bbox used
+            # for clamping so single-frame noise averages out.
+            # Only smooth when the new bbox is geometrically close to
+            # the previous smoothed bbox (centroid <12 px, size delta
+            # <25 %); on a real switch / fresh lock snap to the new
+            # bbox so we don't drag in stale geometry.
+            if self._smoothed_clamp_bbox is not None:
+                pbx, pby, pbw, pbh = self._smoothed_clamp_bbox
+                snap = (
+                    abs(cx - pbx) > 12
+                    or abs(cy - pby) > 12
+                    or abs(cw - pbw) > pbw * 0.25
+                    or abs(ch - pbh) > pbh * 0.25
+                )
+                if not snap:
+                    # Speed-adaptive bbox smoothing.  Position is
+                    # smoothed harder than size — bbox center drift
+                    # is what twitches the chest-band clamp; bbox
+                    # dimensions are mostly stable on a real Apex
+                    # character so we let them pass through with
+                    # only mild smoothing.
+                    speed_for_bbox = math.hypot(self._vx, self._vy)
+                    if speed_for_bbox > 200.0:
+                        a_pos = 0.85
+                        a_sz = 0.85
+                    elif speed_for_bbox > 70.0:
+                        t = (speed_for_bbox - 70.0) / 130.0
+                        a_pos = 0.40 + t * (0.85 - 0.40)
+                        a_sz = 0.50 + t * (0.85 - 0.50)
+                    else:
+                        a_pos = 0.40
+                        a_sz = 0.50
+                    cx = pbx + a_pos * (cx - pbx)
+                    cy = pby + a_pos * (cy - pby)
+                    cw = pbw + a_sz * (cw - pbw)
+                    ch = pbh + a_sz * (ch - pbh)
+            self._smoothed_clamp_bbox = (cx, cy, cw, ch)
             self._body_bbox = (cx, cy, cw, ch)
             bx, by, bw, bh = cx, cy, cw, ch
             if self._aim_is_body_anchor:

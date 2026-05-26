@@ -456,11 +456,20 @@ class PullController:
 
         deadzone_scale = 1.0
         if in_deadzone and self._tuning.aim_pre_smoothed:
+            # USER-AUDIT FIX: previous linear ramp with a 0.20 floor
+            # let near-zero detector noise (dist ~1 px on a stationary
+            # target with ±1.5 px detector jitter) drive 13+ mouse-
+            # jitter ticks/sec through the residual accumulator.
+            # Quadratic ramp with no floor — at dist <= 0.5 fully
+            # zeros pull, at dist=1.0 pull strength is just 12 % of
+            # full, at dist=2.0 it's 100 %.  Real-motion responsiveness
+            # is preserved at >2 px err; noise-jitter is fully damped.
             if dist <= 0.5:
                 deadzone_scale = 0.0
             else:
-                ramp = (dist - 0.5) / max(dead - 0.5, 1.0)
-                deadzone_scale = max(0.20, min(1.0, ramp))
+                t = (dist - 0.5) / max(dead - 0.5, 1.0)
+                t = min(1.0, t)
+                deadzone_scale = t * t
             if deadzone_scale <= 0.0 and is_firing and self._recoil.active:
                 return self._pull_result_from_bias_only(
                     is_firing=True, dt=dt, err_x=err_x, dist=dist

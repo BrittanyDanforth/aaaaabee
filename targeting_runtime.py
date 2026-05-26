@@ -337,21 +337,33 @@ class TargetingRuntime:
         else:
             self._observe_target_calls += 1
             observe_called = True
-            smoothed = self._smooth_visible_bbox(
-                (t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
-            )
-            self._last_observe_bbox = smoothed
-            sbx, sby, sbw, sbh = smoothed
+            # Pass RAW detector bbox to motion.observe_target.  Motion
+            # now has its own internal bbox EMA
+            # (TargetTracker._smoothed_clamp_bbox) that's used for the
+            # chest-band clamp.  Reading the smoothed bbox back from
+            # the tracker keeps the audit's reported bbox aligned with
+            # the bbox motion actually used for clamping.
             motion = self.tracker.observe_target(
                 t.centroid_x,
                 t.centroid_y,
                 tsec,
-                bbox_x=sbx,
-                bbox_y=sby,
-                bbox_w=sbw,
-                bbox_h=sbh,
+                bbox_x=t.bbox_x,
+                bbox_y=t.bbox_y,
+                bbox_w=t.bbox_w,
+                bbox_h=t.bbox_h,
                 aim_is_body_anchor=True,
             )
+            tracker_bbox = self.tracker._body_bbox
+            if tracker_bbox is not None:
+                bx_t, by_t, bw_t, bh_t = tracker_bbox
+                self._last_observe_bbox = (
+                    int(round(bx_t)), int(round(by_t)),
+                    int(round(bw_t)), int(round(bh_t)),
+                )
+            else:
+                self._last_observe_bbox = (
+                    t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h
+                )
 
         ox, oy = motion.overlay_xy()
         px, py = _ring_clamp_frame(ox, oy, cx, cy, float(fov))
