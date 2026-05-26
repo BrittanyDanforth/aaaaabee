@@ -2,12 +2,18 @@ PULL/MOTION INSTRUMENTATION SUMMARY
 ============================================================
 GIF playback: 166 frames
   active_frames:          19
-  pull_moved_frames:      22
-  deadzoned_frames:       14
+  pull_moved_frames:      31
+  deadzoned_frames:        5
   rounded_to_zero:         0
-  detect_ms  mean/max:   10.66 /  26.22
-  loop_ms    mean/max:   10.68 /  26.26
-  pull_dt_ms (moves):   mean=36.6 max=433.3
+  detect_ms  mean/max:    9.87 /  23.24
+  loop_ms    mean/max:    9.88 /  23.25
+  pull_dt_ms (moves):   mean=84.8 max=100.0
+
+Per-frame skip-reason breakdown:
+  NO_TARGET                 124
+  MOVED                      31
+  STALE_SUPPRESSED            6
+  DEADZONE                    5
 
 Synthetic moving-body sweeps (steady-state metrics, frames > N/2):
   sweep[slow,   80 px/s]: steady_lag_mean=  4.99 px  max_lag=  5.66 px  final_lag=  4.48 px

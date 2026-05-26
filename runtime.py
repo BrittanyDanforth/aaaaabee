@@ -1346,6 +1346,25 @@ class AssistRuntime:
                             self._aim_tracker.set_monitor_overlay_point(
                                 monitor_overlay[0], monitor_overlay[1]
                             )
+                    # PULL-CADENCE FIX (user-audit "LOCK_VALID_BUT_NO_PULL"):
+                    # the previous version built pull_target ONLY when
+                    # frame_overlay was non-None, which itself required
+                    # overlay_may_show_target() == True.  That gate is
+                    # explicitly OFF during stale-grace (detection_fresh
+                    # == False) — even though may_assist_pull_target()
+                    # was returning True and a valid locked target was
+                    # still held inside the grace window.  Result: pull
+                    # silently skipped *every* stale frame, so the dot
+                    # only updated when the detector produced a fresh
+                    # active hit (19/166 GIF frames in our trace).
+                    #
+                    # Decoupled behaviour: while may_assist_pull is True
+                    # we always build a pull_target.  Fresh path uses the
+                    # overlay-anchored body chest; stale path uses the
+                    # motion smoother's frozen anchor (_last_motion).
+                    # Both anchors are bbox-chest-band clamped, so this
+                    # never re-introduces the sky-drift cases we just
+                    # fixed.
                     pull_target = None
                     if target is not None and motion is not None:
                         if frame_overlay is not None:
@@ -1353,6 +1372,12 @@ class AssistRuntime:
                                 target,
                                 centroid_x=frame_overlay[0],
                                 centroid_y=frame_overlay[1],
+                            )
+                        elif may_assist_pull:
+                            pull_target = replace(
+                                target,
+                                centroid_x=float(motion.x),
+                                centroid_y=float(motion.y),
                             )
 
                     pull_px = 0.0

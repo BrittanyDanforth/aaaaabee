@@ -181,34 +181,51 @@ def _run_gif(
         deadzoned = False
         rounded_to_zero = False
         moved = False
+        skip_reason = "MOVED"
         pull_target = state.target
         err_dist = float("nan")
         desired = (0.0, 0.0)
         vel = (0.0, 0.0)
         from dataclasses import replace
 
-        if state.target is not None and state.overlay_x is not None:
-            # Match production runtime: pull anchor is the smoothed overlay xy.
+        # Mirror production runtime exactly: build pull_target from
+        # frame_overlay on fresh frames, otherwise fall back to the
+        # motion smoother's frozen anchor while stale-grace is open.
+        detection_fresh = bool(state.active and not state.is_stale)
+        may_assist = (
+            state.target is not None
+            and may_assist_pull_target(
+                state.target,
+                detection_fresh=detection_fresh,
+                center_y=cy,
+                target_lost_frames=rt.lock_state.target_lost_frames,
+                stale_grace_frames=12,
+                frame_w=w,
+                frame_h=h,
+                fov_cx=cx,
+                fov_cy=cy,
+            )
+        )
+        if state.target is not None and state.active and state.overlay_x is not None:
             pull_target = replace(
                 state.target,
                 centroid_x=state.overlay_x,
                 centroid_y=state.overlay_y,
             )
-        # Match the production gate exactly: may_assist_pull_target enforces
-        # both plausibility and stale-grace.
-        detection_fresh = bool(state.active and not state.is_stale)
-        may_pull = pull_target is not None and may_assist_pull_target(
-            state.target,
-            detection_fresh=detection_fresh,
-            center_y=cy,
-            target_lost_frames=rt.lock_state.target_lost_frames,
-            stale_grace_frames=12,
-            frame_w=w,
-            frame_h=h,
-            fov_cx=cx,
-            fov_cy=cy,
-        )
-        if may_pull:
+        elif state.target is not None and may_assist:
+            pull_target = replace(
+                state.target,
+                centroid_x=float(state.aim_x),
+                centroid_y=float(state.aim_y),
+            )
+        else:
+            pull_target = None
+        if state.target is None:
+            skip_reason = "NO_TARGET"
+            pull.reset()
+        elif not may_assist:
+            skip_reason = "STALE_SUPPRESSED"
+        elif pull_target is not None:
             pr = pull.compute_delta(
                 pull_target,
                 cursor_xy[0],
@@ -223,14 +240,17 @@ def _run_gif(
             if pull_dx == 0 and pull_dy == 0:
                 if pr.distance <= pull._tuning.deadzone:
                     deadzoned = True
+                    skip_reason = "DEADZONE"
                 else:
                     rounded_to_zero = True
+                    skip_reason = "ROUNDED_TO_ZERO"
             else:
                 moved = True
+                skip_reason = "MOVED"
                 cursor[0] += pull_dx
                 cursor[1] += pull_dy
-        elif pull_target is None:
-            pull.reset()
+        else:
+            skip_reason = "LOCK_VALID_BUT_NO_PULL"
         pull_ms = (time.perf_counter() - pull_t0) * 1000.0
 
         if last_pull_t is not None and (pull_dx != 0 or pull_dy != 0):
@@ -272,6 +292,7 @@ def _run_gif(
                 "deadzoned": int(deadzoned),
                 "rounded_to_zero": int(rounded_to_zero),
                 "moved": int(moved),
+                "skip_reason": skip_reason,
                 "pull_dt_ms": (
                     round(last_pull_dt_ms, 2)
                     if math.isfinite(last_pull_dt_ms) else None
@@ -286,11 +307,11 @@ def _run_gif(
                 f"active={state.active} stale={state.is_stale}  err={err_dist:.1f}"
                 if math.isfinite(err_dist) else
                 f"active={state.active} stale={state.is_stale}  err=--",
-                f"pull=(dx={pull_dx}, dy={pull_dy}) mag={math.hypot(pull_dx, pull_dy):.1f}  moved={moved}",
+                f"pull=(dx={pull_dx}, dy={pull_dy}) mag={math.hypot(pull_dx, pull_dy):.1f}  reason={skip_reason}",
                 f"desired=({desired[0]:.1f},{desired[1]:.1f})  vel=({vel[0]:.1f},{vel[1]:.1f})",
                 f"cursor=({cursor[0]:+.1f},{cursor[1]:+.1f})  pull_dt={last_pull_dt_ms:.1f}ms"
                 if math.isfinite(last_pull_dt_ms) else
-                f"cursor=({cursor[0]:+.1f},{cursor[1]:+.1f})",
+                f"cursor=({cursor[0]:+.1f},{cursor[1]:+.1f})  pull_dt=--",
             ]
             _draw_pull_overlay(
                 out,
@@ -566,7 +587,7 @@ def main() -> int:
         "active", "stale", "target_xy", "overlay_xy", "pull_anchor",
         "cursor_xy", "err_dist", "pull_desired", "pull_vel",
         "pull_dx_dy", "mouse_mag", "deadzoned", "rounded_to_zero",
-        "moved", "pull_dt_ms",
+        "moved", "skip_reason", "pull_dt_ms",
     ]
     with TSV.open("w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=fields_gif, delimiter="\t")
@@ -585,6 +606,9 @@ def main() -> int:
         r["pull_dt_ms"] for r in gif_rows
         if r["pull_dt_ms"] is not None
     ]
+    skip_counts: dict[str, int] = {}
+    for r in gif_rows:
+        skip_counts[r["skip_reason"]] = skip_counts.get(r["skip_reason"], 0) + 1
 
     print("[3/3] direct motion+pull sweeps (skip detect/lock) ...")
     for speed, tag in [(80.0, "slow"), (240.0, "medium"), (480.0, "fast")]:
@@ -626,8 +650,13 @@ def main() -> int:
         f"  pull_dt_ms (moves):   mean={sum(moved_dts)/len(moved_dts):.1f} max={max(moved_dts):.1f}"
         if moved_dts else "  pull_dt_ms (moves):   no moves",
         "",
-        "Synthetic moving-body sweeps (steady-state metrics, frames > N/2):",
+        "Per-frame skip-reason breakdown:",
     ]
+    for reason in sorted(skip_counts, key=lambda k: -skip_counts[k]):
+        summary.append(f"  {reason:24s} {skip_counts[reason]:4d}")
+    summary.extend(["",
+        "Synthetic moving-body sweeps (steady-state metrics, frames > N/2):",
+    ])
     summary.extend(summary_lines)
     txt = "\n".join(summary) + "\n"
     SUMMARY.write_text(txt)
