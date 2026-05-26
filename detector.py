@@ -341,6 +341,33 @@ def build_hsv_mask(frame_bgr: np.ndarray, hsv_ranges: list[dict[str, Any]]) -> n
     return combined
 
 
+def _bbox_red_coverage(
+    mask: np.ndarray,
+    bbox_x: int,
+    bbox_y: int,
+    bbox_w: int,
+    bbox_h: int,
+) -> float:
+    """Fraction of the bbox covered by red mask pixels (0.0-1.0).
+
+    Used in the detector pool_hold paths to validate that the locked
+    bbox still has red mass in the *current* frame. When the player
+    pans away or the enemy walks offscreen the sticky lock geometry
+    sits over empty pixels (gif_166_proof F39-F46 ghost class).
+    """
+    h, w = mask.shape[:2]
+    x0 = max(0, int(bbox_x))
+    y0 = max(0, int(bbox_y))
+    x1 = min(w, int(bbox_x) + int(bbox_w))
+    y1 = min(h, int(bbox_y) + int(bbox_h))
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
+    sub = mask[y0:y1, x0:x1]
+    if sub.size == 0:
+        return 0.0
+    return float((sub > 0).sum()) / float(sub.size)
+
+
 
 def _normalize_detection_mode(mode: str | None) -> str:
     m = (mode or DETECTION_MODE_DEFAULT).strip().lower()
@@ -4564,6 +4591,37 @@ def find_best_target(
         max_aspect=max_aspect,
         min_solidity=min_solidity,
     )
+
+    # Lazy red-mask coverage cache for pool-hold validation. Built only
+    # when we need to validate that the sticky lock still has red mass
+    # in the current frame (i.e. when we're about to return a synthesised
+    # sticky_pool_hold lock). ~1-2 ms per build on 800x450 frames.
+    _validation_mask: list[np.ndarray | None] = [None]
+
+    def _sticky_has_red_evidence(t: Target) -> bool:
+        if t is None:
+            return False
+        # When no HSV ranges are configured (e.g. shape-only callers, unit
+        # tests with synthetic frames), there is no red mask to validate
+        # against — fall back to the legacy "trust the sticky" behaviour
+        # so we don't break shape-only detection pipelines.
+        if not hsv_ranges:
+            return True
+        if _validation_mask[0] is None:
+            _validation_mask[0] = build_hsv_mask(frame_bgr, hsv_ranges or [])
+        cov = _bbox_red_coverage(
+            _validation_mask[0], t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h
+        )
+        # Real enemy bodies score 0.10-0.30+ red coverage in their bbox.
+        # The floor for "still red enough to hold" is half of the locked
+        # target's original red_coverage, clamped to [0.05, 0.08]. This
+        # lets brief partial occlusion (~50% red drop) keep the lock alive
+        # while a sustained drop (no red mass where the lock thinks the
+        # enemy is) instantly invalidates the pool-hold ghost.
+        base = float(getattr(t, "red_coverage", 0.0))
+        floor = max(0.05, min(0.08, base * 0.5))
+        return cov >= floor
+
     if min_height_px is not None and min_height_px > 0:
         eff_min_h = float(min_height_px)
         if currently_locked and sticky_target is not None:
@@ -4651,6 +4709,18 @@ def find_best_target(
             and float(sticky_target.bbox_h) > float(h) * 0.20
         )
         if currently_locked and sticky_target is not None and not _sph_high_close:
+            # Hard evidence gate: if the locked bbox has no red mass in
+            # the CURRENT frame, the enemy is gone (panned off / walked
+            # offscreen) and holding the lock geometry as active=True
+            # produces the gif_166_proof F39-F46 ghost class — green
+            # box + red dot sitting on empty firing-range floor. Skip
+            # the hold entirely when the bbox has < ~5% red coverage.
+            if not _sticky_has_red_evidence(sticky_target):
+                dbg.append(
+                    f"sticky_pool_drop_no_red dist={sticky_target.distance_to_center:.0f} "
+                    f"h={sticky_target.bbox_h}"
+                )
+                return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
             _s_mov = (
                 context.motion_coverage_ratio(
                     sticky_target.bbox_x, sticky_target.bbox_y,
@@ -4711,6 +4781,12 @@ def find_best_target(
             and float(sticky_target.bbox_h) > float(h) * 0.20
         )
         if currently_locked and sticky_target is not None and not _sph_high_close2:
+            if not _sticky_has_red_evidence(sticky_target):
+                dbg.append(
+                    f"sticky_pool_drop_no_red dist={sticky_target.distance_to_center:.0f} "
+                    f"h={sticky_target.bbox_h}"
+                )
+                return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
             _s_mov2 = (
                 context.motion_coverage_ratio(
                     sticky_target.bbox_x, sticky_target.bbox_y,
@@ -5157,6 +5233,14 @@ def find_best_target(
         # PHASE-6 (D-HIGH6): empty sticky pool while locked — hold last lock
         # geometry (do not return None or apply_target_lock drops the lock).
         if currently_locked and sticky_target is not None:
+            if not _sticky_has_red_evidence(sticky_target):
+                dbg.append(
+                    f"sticky_pool_drop_no_red dist={sticky_target.distance_to_center:.0f} "
+                    f"h={sticky_target.bbox_h}"
+                )
+                return DetectionResult(
+                    None, len(candidates), 0.0, debug_lines=dbg, active=False
+                )
             hold_active = (
                 sticky_target.body_shape_score >= 0.55
                 and sticky_target.bbox_h >= 26

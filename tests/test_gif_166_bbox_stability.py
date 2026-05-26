@@ -225,6 +225,100 @@ class PoolHoldStreakTests(unittest.TestCase):
         self.assertGreater(state.pool_hold_streak, CONSECUTIVE_POOL_HOLD_HIDE_AT)
 
 
+class StickyRedEvidenceValidationTests(unittest.TestCase):
+    """Detector-level pool-hold red-mask validation (gif_166_proof F39-F46).
+
+    The find_best_target pool_hold paths must drop the lock when the
+    sticky bbox sits over pixels that no longer have red mass. Without
+    this, the F31 sticky bbox (351,198,66x62) persisted as a ghost
+    overlay through F39-F46 after the dummy walked offscreen. Real
+    HSV ranges are required (synthetic shape-only callers fall back
+    to legacy hold-the-sticky behaviour).
+    """
+
+    def _real_hsv(self) -> list[dict]:
+        cfg = copy.deepcopy(
+            profiles.PROFILE_DEFAULTS[profiles.PROFILE_APEX_STYLE_LIVE_TRACE]
+        )
+        return cfg["hsv_ranges"]
+
+    def test_pool_hold_dropped_when_bbox_has_no_red(self) -> None:
+        import numpy as np
+        import cv2
+
+        from detector import find_best_target
+
+        h, w = 450, 800
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        # No red anywhere — synthetic empty-frame mirror of F39/F42.
+        sticky = _body(
+            centroid_x=384.0, centroid_y=229.0,
+            bbox_x=351, bbox_y=198, bbox_w=66, bbox_h=62,
+            distance_to_center=21.0, red_coverage=0.056,
+        )
+        result = find_best_target(
+            img,
+            self._real_hsv(),
+            fov_radius=200,
+            min_area=40.0,
+            fov_center_x=400.0,
+            fov_center_y=225.0,
+            sticky_target=sticky,
+            currently_locked=True,
+            min_height_px=16,
+            min_aspect=1.2,
+            max_aspect=4.5,
+            min_solidity=0.25,
+            detection_mode="apex",
+            debug=True,
+        )
+        self.assertIsNone(result.target, result.debug_lines)
+        self.assertFalse(result.active)
+        self.assertTrue(
+            any("sticky_pool_drop_no_red" in ln for ln in result.debug_lines),
+            result.debug_lines,
+        )
+
+    def test_pool_hold_kept_when_bbox_still_has_red(self) -> None:
+        import numpy as np
+        import cv2
+
+        from detector import find_best_target
+
+        h, w = 450, 800
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        cv2.rectangle(img, (360, 205), (410, 250), (40, 40, 220), -1)
+        sticky = _body(
+            centroid_x=384.0, centroid_y=229.0,
+            bbox_x=351, bbox_y=198, bbox_w=66, bbox_h=62,
+            distance_to_center=21.0, red_coverage=0.20,
+        )
+        result = find_best_target(
+            img,
+            self._real_hsv(),
+            fov_radius=200,
+            min_area=40.0,
+            fov_center_x=400.0,
+            fov_center_y=225.0,
+            sticky_target=sticky,
+            currently_locked=True,
+            min_height_px=16,
+            min_aspect=1.2,
+            max_aspect=4.5,
+            min_solidity=0.25,
+            detection_mode="apex",
+            debug=True,
+        )
+        self.assertTrue(
+            any(
+                "sticky_pool_hold" in ln or "sticky_identity" in ln
+                or "in_ring_nearest" in ln or "SELECTED" in ln
+                for ln in result.debug_lines
+            ),
+            result.debug_lines,
+        )
+
+
 class Gif166ProofPostfixSummary(unittest.TestCase):
     """End-to-end audit summary — proves the user-reported frames are clean."""
 

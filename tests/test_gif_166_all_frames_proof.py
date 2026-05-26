@@ -59,14 +59,29 @@ class Gif166AllFramesProofTests(unittest.TestCase):
         self.assertTrue(png.exists(), "regenerate with audit_gif_full_sequence.py --save-all")
         self.assertGreater(png.stat().st_size, 5000)
 
-    def test_frame_45_center_dummy_metrics(self) -> None:
+    def test_frame_45_46_ghost_lock_purged_then_re_adopt_at_47(self) -> None:
+        """F45-F46 stale pool-hold ghost must NOT render — the locked bbox
+        (351,198,66x62) was the F31 dummy position; by F45 the dummy has
+        walked ~60px to the left and the bbox sits over the empty score-
+        panel column.  The bbox red coverage at F45 / F46 falls under the
+        post-lock validation floor (build_hsv_mask of the locked region
+        is <0.05), so the pool-hold synthesised lock is dropped as a
+        ghost.  The next genuine center-dummy detection adopts at F47
+        (bbox_y=205, bbox_h=28).  See user-reported gif_166_proof
+        "Frames 41-44: random false detection happens again with no
+        enemy" — F45-F46 belong to the same ghost class.
+        """
         data = json.loads(SUMMARY.read_text(encoding="utf-8"))
-        row = next(r for r in data["rows"] if r["frame_idx"] == 45)
-        self.assertTrue(row["active"], row)
-        self.assertLess(row.get("overlay_x", 999), 450)
-        self.assertGreater(row.get("bbox_y", 0), 180, "bbox top on lower body band")
-        self.assertLess(row.get("bbox_top_frac", 1.0), 0.50)
-        self.assertNotIn("high_bbox_flag", row)
+        rows = {r["frame_idx"]: r for r in data["rows"]}
+        for fi in (45, 46):
+            row = rows[fi]
+            self.assertFalse(row["active"], f"F{fi}: ghost should NOT be LIVE: {row}")
+        row47 = rows[47]
+        self.assertTrue(row47["active"], f"F47 should re-adopt: {row47}")
+        self.assertGreater(row47.get("bbox_y", 0), 180, row47)
+        self.assertLess(row47.get("bbox_top_frac", 1.0), 0.50, row47)
+        self.assertLess(row47.get("overlay_x", 999), 450, row47)
+        self.assertNotIn("high_bbox_flag", row47)
 
     def test_frame_77_no_live_dot_on_weapon_sight(self) -> None:
         """Frame 77 must not lock onto the weapon iron sight geometry.
