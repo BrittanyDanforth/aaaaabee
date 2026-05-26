@@ -815,6 +815,24 @@ class TargetTracker:
             )
             overlay_x, overlay_y = self._advance_overlay_follow(fx, fy, dt)
             overlay_x, overlay_y = self._clamp_aim_output(overlay_x, overlay_y)
+            # CRIT (user-audit): cap *upward* overlay→pull divergence
+            # inside the body bbox so the visible dot can never drift
+            # more than OVERLAY_PULL_UPWARD_DIV_PX above the mouse-pull
+            # point.  The overlay path (_advance_overlay_follow) uses
+            # raw aim_x/y while pull uses _smooth_x/y → the two can
+            # drift apart frame-to-frame (observed: F57 of gif_166_proof
+            # had a 4.8 px overlay-above-pull divergence with overlay
+            # sitting in the upper chest band while pull was at the
+            # lower edge).  Capping only the *upward* y divergence
+            # preserves the existing horizontal-follow behaviour used
+            # by sync_overlay_follow_frame (test_ring_reclamp_syncs_
+            # follow_state) and the downward bias used by the chest-
+            # band clamp (y_hi).
+            OVERLAY_PULL_UPWARD_DIV_PX = 3.0
+            if overlay_y < pull_y - OVERLAY_PULL_UPWARD_DIV_PX:
+                overlay_y = pull_y - OVERLAY_PULL_UPWARD_DIV_PX
+                self._overlay_follow_y = overlay_y
+            self._overlay_smooth = (overlay_x, overlay_y)
         else:
             overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
             # No body bbox path: still keep _overlay_smooth current.
