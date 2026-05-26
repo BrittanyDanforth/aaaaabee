@@ -677,7 +677,6 @@ class AssistRuntime:
         vx = float(motion.vx) if math.isfinite(motion.vx) else 0.0
         vy = float(motion.vy) if math.isfinite(motion.vy) else 0.0
         bbox_xy = self._aim_tracker._body_bbox
-        from dataclasses import replace as _replace
         sleep_fn = sleep_fn or self._precise_sleep
         now_fn = now_fn or time.perf_counter
         emitted: list[tuple[int, int]] = []
@@ -717,7 +716,7 @@ class AssistRuntime:
                 sub_anchor_y = max(
                     by + bh * 0.28, min(by + bh * 0.52, sub_anchor_y)
                 )
-            sub_target = _replace(
+            sub_target = replace(
                 pull_target,
                 centroid_x=sub_anchor_x,
                 centroid_y=sub_anchor_y,
