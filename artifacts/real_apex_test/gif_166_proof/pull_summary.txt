@@ -1,0 +1,18 @@
+PULL/MOTION INSTRUMENTATION SUMMARY
+============================================================
+GIF playback: 166 frames
+  active_frames:          19
+  pull_moved_frames:      22
+  deadzoned_frames:       14
+  rounded_to_zero:         0
+  detect_ms  mean/max:   10.65 /  23.01
+  loop_ms    mean/max:   10.67 /  23.04
+  pull_dt_ms (moves):   mean=36.6 max=433.3
+
+Synthetic moving-body sweeps (steady-state metrics, frames > N/2):
+  sweep[slow,   80 px/s]: steady_lag_mean=  4.99 px  max_lag=  5.66 px  final_lag=  4.48 px
+  sweep[medium,  240 px/s]: steady_lag_mean=  9.15 px  max_lag= 15.52 px  final_lag= 14.56 px
+  sweep[fast,  480 px/s]: steady_lag_mean= 18.38 px  max_lag= 29.43 px  final_lag= 11.18 px
+  direct[slow,   80 px/s]: steady_lag_mean=  1.63 px  max_lag=  2.67 px  final_lag=  2.67 px
+  direct[medium,  240 px/s]: steady_lag_mean=  1.03 px  max_lag=  6.00 px  final_lag=  1.00 px
+  direct[fast,  480 px/s]: steady_lag_mean=  1.72 px  max_lag=  4.00 px  final_lag=  1.00 px

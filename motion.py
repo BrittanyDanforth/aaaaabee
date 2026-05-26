@@ -629,17 +629,40 @@ class TargetTracker:
         dt: float,
         in_deadband: bool,
     ) -> tuple[float, float]:
-        use_inline_lead = (
-            self._prediction_enabled
-            and not (self._aim_is_body_anchor and self._body_bbox is not None)
-            and not in_deadband
+        # PULL-LAG FIX: previously inline lead was completely disabled
+        # whenever aim_is_body_anchor + body_bbox were both set, which
+        # is the *normal* case in production.  That left ~5–18 px of
+        # cumulative smoothing lag (measured via scripts/trace_pull_motion.py:
+        # direct=5.8 px / full=18 px @ 480 px/s strafing) on every
+        # moving body — which is exactly the user-reported "pull is
+        # laggy, only pulls once every random interval" feel.
+        #
+        # Re-enable a *bounded* lead for body-anchor cases: horizontal
+        # lead uses the full vx (chest-band clamp keeps it inside the
+        # bbox anyway), vertical lead is hard-clipped to ±_MAX_UPWARD_LEAD_PX
+        # so the dot can never drift upward into sky on detector noise.
+        # Deadband still suppresses lead so a stationary target doesn't
+        # get a phantom velocity nudge.
+        use_inline_lead = self._prediction_enabled and not in_deadband
+        body_anchor_path = (
+            self._aim_is_body_anchor and self._body_bbox is not None
         )
         if use_inline_lead:
             lead_dt = min(dt, _MAX_PRED_LEAD_S)
             pred_x = pre_x + self._vx * lead_dt
-            pred_y = pre_y + self._vy * lead_dt
-            if pred_y < pre_y:
-                pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
+            if body_anchor_path:
+                # Hard-cap vertical lead in BOTH directions so the lead
+                # never adds the smoothing-lag-as-sky-drift the previous
+                # `if use_inline_lead` block was protecting against.
+                vy_lead = max(
+                    -_MAX_UPWARD_LEAD_PX,
+                    min(_MAX_UPWARD_LEAD_PX, self._vy * lead_dt),
+                )
+                pred_y = pre_y + vy_lead
+            else:
+                pred_y = pre_y + self._vy * lead_dt
+                if pred_y < pre_y:
+                    pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
             if self._body_bbox is not None:
                 bx, by, bw, bh = self._body_bbox
                 mx = bw * _BODY_X_MARGIN_FRAC

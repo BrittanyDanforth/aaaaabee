@@ -258,11 +258,19 @@ class PullController:
         move_y = int(self._residual_y)
         self._residual_x -= move_x
         self._residual_y -= move_y
-        # Drain fractional bank so slow correction is not stuck at 0 for many frames.
-        if move_x == 0 and abs(self._residual_x) >= 0.55:
+        # PULL-SMOOTHNESS FIX: dropped the sub-pixel drain threshold from
+        # 0.55 → 0.40 so partial-pixel motion drains every-other frame
+        # instead of every-third.  At 60 fps with a slow target moving
+        # ~0.4 px/frame the old threshold left the cursor stuck at 0 for
+        # 2–3 frames before emitting a 1-px tick — exactly the "pulls
+        # once every random interval" chunkiness the user reported.
+        # 0.40 still preserves dead-zone behaviour (residual <0.40 stays
+        # banked, no flicker), and the residual is always cleared on
+        # full-pixel emits above.
+        if move_x == 0 and abs(self._residual_x) >= 0.40:
             move_x = 1 if self._residual_x > 0 else -1
             self._residual_x -= move_x
-        if move_y == 0 and abs(self._residual_y) >= 0.55:
+        if move_y == 0 and abs(self._residual_y) >= 0.40:
             move_y = 1 if self._residual_y > 0 else -1
             self._residual_y -= move_y
         return move_x, move_y
