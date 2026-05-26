@@ -651,14 +651,17 @@ class TargetTracker:
             lead_dt = min(dt, _MAX_PRED_LEAD_S)
             pred_x = pre_x + self._vx * lead_dt
             if body_anchor_path:
-                # Hard-cap vertical lead in BOTH directions so the lead
-                # never adds the smoothing-lag-as-sky-drift the previous
-                # `if use_inline_lead` block was protecting against.
-                vy_lead = max(
-                    -_MAX_UPWARD_LEAD_PX,
-                    min(_MAX_UPWARD_LEAD_PX, self._vy * lead_dt),
-                )
-                pred_y = pre_y + vy_lead
+                # Cap UPWARD lead only — downward lead is bounded by
+                # the chest-band y_hi clamp downstream, and over-
+                # restricting it (the previous symmetric ±4 px clip)
+                # was adding ~tau×velocity of lag on bodies that
+                # actually move down (crouch, fall, slide, jump-pad
+                # descent).  Sky drift on detector noise is the only
+                # asymmetric concern.
+                raw_vy_lead = self._vy * lead_dt
+                if raw_vy_lead < -_MAX_UPWARD_LEAD_PX:
+                    raw_vy_lead = -_MAX_UPWARD_LEAD_PX
+                pred_y = pre_y + raw_vy_lead
             else:
                 pred_y = pre_y + self._vy * lead_dt
                 if pred_y < pre_y:

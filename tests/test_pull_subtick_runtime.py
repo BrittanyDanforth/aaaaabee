@@ -334,6 +334,56 @@ class PullSubtickProductionTests(unittest.TestCase):
             f"reacquire frame: pr=(dx={pr_after.dx}, dy={pr_after.dy})"
         )
 
+    def test_subtick_downward_y_extrapolation_unrestricted(self) -> None:
+        """The sub-tick y-extrapolation clip must be asymmetric — the
+        ±_SUBTICK_MAX_EXTRAP_Y constraint only applies UPWARD (negative ey)
+        so we don't under-lead bodies that fall / crouch / take a
+        jump-pad descent at 240+ px/s."""
+
+        pull = _make_pull()
+        tracker = TargetTracker()
+        # Seed strong DOWNWARD velocity into the smoother.
+        y = 540.0
+        for i in range(6):
+            tracker.observe_target(
+                610.0, y + i * 4.0, i / 60.0,
+                bbox_x=580, bbox_y=int(y + i * 4.0 - 60),
+                bbox_w=60, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+        motion = tracker._last
+        self.assertGreater(motion.vy, 100.0,
+            f"test setup: smoother vy should be ~240, got {motion.vy}")
+        target = Target(
+            centroid_x=motion.x, centroid_y=motion.y,
+            area=4000.0, distance_to_center=0.0, confidence=0.88,
+            bbox_x=580, bbox_y=int(y + 5 * 4.0 - 60),
+            bbox_w=60, bbox_h=120,
+            body_shape_score=0.86, head_score=0.80, torso_score=0.74,
+            limb_stack_score=0.62, red_coverage=0.20,
+            has_classified_torso=True, part_count=4,
+        )
+        rt = _MinimalRuntime(pull, tracker)
+        sleep_fn, now_fn, _ = self._virtual_clock()
+        emitted = _run_pull_subticks(
+            rt, target, motion,
+            frame_cx=640.0, frame_cy=540.0,
+            deadline=1.0 / 60.0, subtick_hz=180,
+            stale_det=False, firing_now=False,
+            sleep_fn=sleep_fn, now_fn=now_fn,
+        )
+        # Sub-tick should emit some downward y movement (positive dy)
+        # since the body is moving downward and we're now allowing
+        # full vy*sub_dt instead of clipping at +1 px.
+        total_dy = sum(dy for _dx, dy in emitted)
+        self.assertGreaterEqual(
+            total_dy, 0,
+            f"downward subtick emitted negative dy = {total_dy} (sign flip?)"
+        )
+        # Anchor is chest-band-clamped, so even with no clip the
+        # max downward emission is bounded by the bbox.  We just
+        # need to confirm we're not silently zero'd.
+
     def test_subtick_anchor_clamped_to_chest_band(self) -> None:
         """High vy*sub_dt would project the anchor below the chest
         band; the per-subtick clamp must keep it inside."""

@@ -699,9 +699,13 @@ class AssistRuntime:
                 ex = self._SUBTICK_MAX_EXTRAP_X
             elif ex < -self._SUBTICK_MAX_EXTRAP_X:
                 ex = -self._SUBTICK_MAX_EXTRAP_X
-            if ey > self._SUBTICK_MAX_EXTRAP_Y:
-                ey = self._SUBTICK_MAX_EXTRAP_Y
-            elif ey < -self._SUBTICK_MAX_EXTRAP_Y:
+            # Asymmetric y clip — only the UPWARD direction (negative
+            # ey) carries sky-drift risk and must be capped tight.
+            # Downward extrapolation is bounded by the chest-band
+            # y_hi clamp downstream; clipping it symmetrically (the
+            # previous 1 px cap) under-leads bodies that fall, crouch,
+            # or take a jump-pad descent at 240+ px/s.
+            if ey < -self._SUBTICK_MAX_EXTRAP_Y:
                 ey = -self._SUBTICK_MAX_EXTRAP_Y
             sub_anchor_x += ex
             sub_anchor_y += ey
