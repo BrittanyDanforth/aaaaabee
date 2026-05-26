@@ -99,6 +99,10 @@ class PullController:
         self._vel_y = 0.0
         self._residual_x = 0.0
         self._residual_y = 0.0
+        # Track previous integer-emit input for sign-flip noise
+        # detection in _emit_integer_delta.
+        self._prev_out_x = 0.0
+        self._prev_out_y = 0.0
         self._stale_count = 0
         self._last_time: float | None = None
         self._tracker = TargetTracker()
@@ -143,6 +147,8 @@ class PullController:
         self._vel_y = 0.0
         self._residual_x = 0.0
         self._residual_y = 0.0
+        self._prev_out_x = 0.0
+        self._prev_out_y = 0.0
         self._stale_count = 0
         self._last_time = None
         self._tracker.reset()
@@ -155,6 +161,8 @@ class PullController:
         self._vel_y = 0.0
         self._residual_x = 0.0
         self._residual_y = 0.0
+        self._prev_out_x = 0.0
+        self._prev_out_y = 0.0
         self._stale_count = 0
 
     def recoil_pull_down_active(self) -> bool:
@@ -252,25 +260,67 @@ class PullController:
         )
 
     def _emit_integer_delta(self, out_x: float, out_y: float) -> tuple[int, int]:
+        # SELF-AUDIT FIX (caught in pull_trace TSV F35-F46): a previous
+        # patch dropped the residual-drain threshold 0.55 → 0.40 so slow
+        # targets emit every other frame.  On STALE-grace frames where
+        # the controller is ticked with tiny near-zero out_* (~±0.1 px)
+        # the residual crossed 0.40 and emitted alternating ±1 px ticks
+        # every frame — the "chunky pull at idle" feel the user
+        # reported.
+        #
+        # Two discriminators, both required to be safe:
+        #   1. ``_stale_count > 0`` — we're in stale grace, motion
+        #      smoother is frozen, anything reaching the integer
+        #      stage is by definition noise.  Decay residual 50 %
+        #      and require the classic 0.55 drain threshold so a
+        #      one-shot ±0.1 spike can't bank a 1-px tick.
+        #   2. Sign-flip on |out|<0.30 — protect non-stale paths
+        #      where the controller might still see oscillating
+        #      detector noise.  (Sign-stable small out_* — recoil
+        #      bias 0.166 px/frame, slow target tracking — still
+        #      drain promptly at 0.40 so they emit correctly.)
+        is_stale_noise = self._stale_count > 0
+        flip_x = (
+            not is_stale_noise
+            and (out_x * self._prev_out_x) < 0.0
+            and abs(out_x) < 0.30
+        )
+        flip_y = (
+            not is_stale_noise
+            and (out_y * self._prev_out_y) < 0.0
+            and abs(out_y) < 0.30
+        )
+        if is_stale_noise:
+            # Aggressive residual leak during stale grace.
+            self._residual_x *= 0.50
+            self._residual_y *= 0.50
+        elif flip_x:
+            self._residual_x *= 0.70
+        elif flip_y:
+            self._residual_y *= 0.70
+        self._prev_out_x = out_x
+        self._prev_out_y = out_y
+
         self._residual_x += out_x
         self._residual_y += out_y
         move_x = int(self._residual_x)
         move_y = int(self._residual_y)
         self._residual_x -= move_x
         self._residual_y -= move_y
-        # PULL-SMOOTHNESS FIX: dropped the sub-pixel drain threshold from
-        # 0.55 → 0.40 so partial-pixel motion drains every-other frame
-        # instead of every-third.  At 60 fps with a slow target moving
-        # ~0.4 px/frame the old threshold left the cursor stuck at 0 for
-        # 2–3 frames before emitting a 1-px tick — exactly the "pulls
-        # once every random interval" chunkiness the user reported.
-        # 0.40 still preserves dead-zone behaviour (residual <0.40 stays
-        # banked, no flicker), and the residual is always cleared on
-        # full-pixel emits above.
-        if move_x == 0 and abs(self._residual_x) >= 0.40:
+        # Higher drain threshold when in stale-noise or sign-flip
+        # mode; snappy 0.40 otherwise.
+        if is_stale_noise or flip_x:
+            drain_thresh_x = 0.55
+        else:
+            drain_thresh_x = 0.40
+        if is_stale_noise or flip_y:
+            drain_thresh_y = 0.55
+        else:
+            drain_thresh_y = 0.40
+        if move_x == 0 and abs(self._residual_x) >= drain_thresh_x:
             move_x = 1 if self._residual_x > 0 else -1
             self._residual_x -= move_x
-        if move_y == 0 and abs(self._residual_y) >= 0.40:
+        if move_y == 0 and abs(self._residual_y) >= drain_thresh_y:
             move_y = 1 if self._residual_y > 0 else -1
             self._residual_y -= move_y
         return move_x, move_y

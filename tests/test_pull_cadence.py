@@ -286,5 +286,75 @@ class PullCadenceTests(unittest.TestCase):
         )
 
 
+class IdleNoiseResidualTests(unittest.TestCase):
+    """Regression: a previous patch lowered the integer-residual drain
+    threshold to 0.40 so slow targets would emit every-other frame.
+    Side-effect: on STALE frames where the controller has near-zero
+    desired (~0.1 px from the frozen motion smoother), the residual
+    crossed the 0.40 boundary and emitted alternating ±1 px micro-
+    jitter on every other frame — exactly the 'chunky pull at idle'
+    feel the user reported.  Verified by gif_166_proof F35-F46 in
+    the trace.
+
+    These tests pin the new contract using the *real* compute_delta
+    path with stale_detection=True so the in-controller stale-noise
+    leak is exercised end-to-end."""
+
+    def _stale_target(self, cx: float, cy: float) -> Target:
+        return Target(
+            centroid_x=cx, centroid_y=cy,
+            area=4000.0, distance_to_center=2.0, confidence=0.88,
+            bbox_x=int(cx - 30), bbox_y=int(cy - 60),
+            bbox_w=60, bbox_h=120,
+            body_shape_score=0.86, head_score=0.78, torso_score=0.74,
+            limb_stack_score=0.62, red_coverage=0.18,
+            has_classified_torso=True, part_count=4,
+        )
+
+    def test_idle_noise_during_stale_does_not_emit_chunky_ticks(self) -> None:
+        pull = PullController(_make_tuning())
+        emissions = 0
+        # Seed the controller on a target very near the crosshair so
+        # the per-frame "desired" amplitude is sub-pixel idle noise.
+        for i in range(30):
+            # Wobble the target ±0.5 px to simulate idle smoother noise.
+            cx = 640.0 + (0.5 if i % 2 == 0 else -0.5)
+            tgt = self._stale_target(cx, 540.0)
+            pr = pull.compute_delta(
+                tgt, 640.0, 540.0,
+                time_sec=i / 60.0,
+                stale_detection=True,   # critical: stale grace
+            )
+            if pr.dx != 0 or pr.dy != 0:
+                emissions += 1
+        # With the in-controller stale-noise leak, ±0.5 px wobble must
+        # not emit more than ~3 ticks across 30 frames.  Without the
+        # fix this burns 10+ alternating-direction micro-jitter ticks.
+        self.assertLessEqual(
+            emissions, 3,
+            f"stale-frame idle noise emitted {emissions} mouse ticks "
+            f"across 30 frames — micro-jitter regression"
+        )
+
+    def test_real_motion_still_drains_promptly(self) -> None:
+        """Counter-test: a stable-sign sub-pixel bias (e.g. recoil ramp
+        @ 0.166 px/frame) must STILL drain every ~6 frames at most.
+        Tests the integer-emit path directly with consistent-sign small
+        out so the stale-noise leak does NOT activate."""
+        pull = PullController(_make_tuning())
+        emissions = 0
+        for _ in range(60):
+            dx, dy = pull._emit_integer_delta(0.166, 0.0)
+            if dx != 0:
+                emissions += 1
+        # 0.166 px/frame × 60 frames = 9.96 px; expect roughly 9-10
+        # emissions on a consistent-sign stable bias.
+        self.assertGreaterEqual(
+            emissions, 7,
+            f"stable sub-pixel bias only drained {emissions} times in "
+            f"60 frames — leak is over-aggressive"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
