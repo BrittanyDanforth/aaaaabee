@@ -658,6 +658,11 @@ class AssistRuntime:
         firing_now: bool,
         sleep_fn=None,
         now_fn=None,
+        cap_region=None,
+        center_x: float | None = None,
+        center_y: float | None = None,
+        detect_fov: float = 0.0,
+        display_fov: float = 0.0,
     ) -> list[tuple[int, int]]:
         """Run extra PullController.compute_delta + mouse_move sub-ticks
         between detect frames so the cursor receives a smooth corrective
@@ -729,6 +734,41 @@ class AssistRuntime:
             )
             if (sub_pr.dx != 0 or sub_pr.dy != 0) and self._should_run():
                 self._safe_mouse_move(sub_pr.dx, sub_pr.dy)
+                # Sub-tick OVERLAY update — keep the visible dot in
+                # sync with the mouse cursor during the inter-detect
+                # gap.  Without this the dot moves once per capture
+                # frame while the cursor moves 3-4× faster via the
+                # sub-tick, so the visible dot trails the mouse by
+                # the cumulative sub-tick distance.  Skip if the
+                # runtime didn't pass cap_region (test harness path).
+                if (
+                    cap_region is not None
+                    and center_x is not None
+                    and center_y is not None
+                ):
+                    try:
+                        ov_dest = self._frame_overlay_point(
+                            TargetMotion(
+                                sub_anchor_x, sub_anchor_y,
+                                vx, vy,
+                                overlay_x=sub_anchor_x,
+                                overlay_y=sub_anchor_y,
+                            ),
+                            cap_region,
+                            center_x=center_x, center_y=center_y,
+                            detect_fov=detect_fov, display_fov=display_fov,
+                        )
+                        if ov_dest is not None:
+                            mon = to_monitor_coords(
+                                ov_dest[0], ov_dest[1], cap_region
+                            )
+                            self._aim_tracker.set_monitor_overlay_point(
+                                mon[0], mon[1]
+                            )
+                            if self._overlay is not None:
+                                self._overlay.set_state(True, mon)
+                    except Exception:
+                        pass
             emitted.append((sub_pr.dx, sub_pr.dy))
         return emitted
 
@@ -1839,6 +1879,11 @@ class AssistRuntime:
                             subtick_hz=pull_subtick_hz,
                             stale_det=stale_det,
                             firing_now=firing_now,
+                            cap_region=cap_region,
+                            center_x=float(center_x),
+                            center_y=float(center_y),
+                            detect_fov=float(detect_fov),
+                            display_fov=float(overlay_fov),
                         )
 
                     sleep_time = deadline - time.perf_counter()
