@@ -53,10 +53,19 @@ def _live_cfg() -> dict:
     return cfg
 
 
-def _draw_red_dot(img, x, y):
+def _draw_aim_dot(img, x, y):
+    """Final overlay aim dot — bright MAGENTA with halo + 'AIM' label
+    so it can never be confused with in-game red pixels (dummy bodies,
+    hazard-board Xs, score-panel icons)."""
     ix, iy = int(round(x)), int(round(y))
-    cv2.circle(img, (ix, iy), 6, (0, 0, 255), -1)
-    cv2.circle(img, (ix, iy), 8, (255, 255, 255), 1)
+    cv2.circle(img, (ix, iy), 7, (255, 0, 255), -1)
+    cv2.circle(img, (ix, iy), 10, (255, 255, 255), 2)
+    cv2.line(img, (ix - 14, iy), (ix - 9, iy), (255, 0, 255), 1)
+    cv2.line(img, (ix + 9, iy), (ix + 14, iy), (255, 0, 255), 1)
+    cv2.line(img, (ix, iy - 14), (ix, iy - 9), (255, 0, 255), 1)
+    cv2.line(img, (ix, iy + 9), (ix, iy + 14), (255, 0, 255), 1)
+    cv2.putText(img, "AIM", (ix + 12, iy - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 0, 255), 1, cv2.LINE_AA)
 
 
 def _draw_crosshair(img, cx, cy):
@@ -66,7 +75,26 @@ def _draw_crosshair(img, cx, cy):
     cv2.circle(img, (cx, cy), 80, (0, 200, 0), 1)
 
 
+def _draw_dashed_rect(img, x, y, w, h, color, dash=6):
+    for i in range(x, x + w, dash * 2):
+        cv2.line(img, (i, y), (min(i + dash, x + w), y), color, 1)
+        cv2.line(img, (i, y + h), (min(i + dash, x + w), y + h), color, 1)
+    for j in range(y, y + h, dash * 2):
+        cv2.line(img, (x, j), (x, min(j + dash, y + h)), color, 1)
+        cv2.line(img, (x + w, j), (x + w, min(j + dash, y + h)), color, 1)
+
+
 def _annotate(img, aim, lock_state, h, w):
+    """Visual overlay rules (the user contract):
+
+    * Only the final selected valid target gets the AIM dot.
+    * If there is no valid final target, no AIM dot.
+    * If the target is stale/lost, no AIM dot AND the held lock
+      geometry is drawn as a thin DASHED grey rectangle clearly
+      labelled "HELD (no aim)" so it can't be confused with LIVE.
+    * Green LIVE box + magenta AIM dot always come from the same
+      final selected target state.
+    """
     vis = img.copy()
     cx, cy = w / 2.0, h / 2.0
     _draw_crosshair(vis, cx, cy)
@@ -75,23 +103,23 @@ def _annotate(img, aim, lock_state, h, w):
         bb = aim.bbox_used or (target.bbox_x, target.bbox_y, target.bbox_w, target.bbox_h)
         bx, by, bw, bh = bb
         if aim.active and not aim.is_stale:
-            color = (0, 255, 0)
-            tag = "LIVE"
-        elif aim.is_stale:
-            color = (0, 200, 200)
-            tag = "STALE"
+            cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), (0, 255, 0), 2)
+            y_lo = int(by + bh * 0.28)
+            y_hi = int(by + bh * 0.52)
+            cv2.line(vis, (bx, y_lo), (bx + bw, y_lo), (255, 200, 0), 1)
+            cv2.line(vis, (bx, y_hi), (bx + bw, y_hi), (255, 200, 0), 1)
+            cv2.putText(vis, "LIVE (final target)", (bx, max(12, by - 4)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2, cv2.LINE_AA)
         else:
-            color = (0, 120, 255)
-            tag = "LOCKED_LOST"
-        cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), color, 2)
-        y_lo = int(by + bh * 0.28)
-        y_hi = int(by + bh * 0.52)
-        cv2.line(vis, (bx, y_lo), (bx + bw, y_lo), (255, 200, 0), 1)
-        cv2.line(vis, (bx, y_hi), (bx + bw, y_hi), (255, 200, 0), 1)
-        cv2.putText(vis, tag, (bx, max(12, by - 4)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA)
+            # Held lock geometry only — NOT a LIVE detection.  Dashed,
+            # dim grey, explicitly labelled so no one mistakes it for
+            # the LIVE box.
+            _draw_dashed_rect(vis, bx, by, bw, bh, (120, 120, 120))
+            label = "HELD (stale, no aim)" if aim.is_stale else "HELD (lost, no aim)"
+            cv2.putText(vis, label, (bx, max(12, by - 4)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (120, 120, 120), 1, cv2.LINE_AA)
     if aim.active and aim.overlay_x is not None and aim.overlay_y is not None:
-        _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
+        _draw_aim_dot(vis, aim.overlay_x, aim.overlay_y)
     return vis
 
 

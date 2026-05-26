@@ -33,7 +33,7 @@ frame_idx,file,active,is_stale,plausible_lock,aim_x,aim_y,overlay_x,overlay_y,lo
 31,frame_0031.png,True,False,True,379.5,219.7,385.7,221.2,0
 32,frame_0032.png,True,False,True,379.5,219.7,382.4,220.5,1
 33,frame_0033.png,True,False,True,379.5,219.7,381.0,220.1,2
-34,frame_0034.png,True,False,True,379.5,219.7,380.3,219.9,3
+34,frame_0034.png,False,False,True,379.5,219.7,380.3,219.9,3
 35,frame_0035.png,False,True,True,379.5,219.7,380.3,219.9,4
 36,frame_0036.png,False,True,True,379.5,219.7,380.3,219.9,5
 37,frame_0037.png,False,True,True,379.5,219.7,380.3,219.9,6

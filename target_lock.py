@@ -89,7 +89,15 @@ LOCK_BBOX_EXPLOSION_HEIGHT_RATIO = 2.6
 # weak transient refreshes so the per-frame lost_frames cap (8) never
 # trips while the visible green box and red dot sit on a dummy that
 # walked offscreen many frames ago.
-CONSECUTIVE_POOL_HOLD_HIDE_AT = 6
+# Cap drop: gif_166_proof F33-F37 visually showed the LIVE dot sitting on
+# the F31 lock geometry while the dummy had walked ~60 px to the left and
+# the bbox was clearly off the enemy.  The user's frame breakdown calls
+# F34 onwards "dot not following the enemy correctly" — so any streak of
+# 3+ synthesised holds (no real candidate adoption in between) should
+# downgrade the overlay to STALE rather than LIVE.  Going lower than 2
+# would start hiding genuine 1-2 frame partial occlusions (e.g. F25-F26
+# transient blur frames).
+CONSECUTIVE_POOL_HOLD_HIDE_AT = 2
 
 # Consecutive bbox-explosion rejects (see ``_locked_bbox_explosion``)
 # tolerated before we drop the lock entirely.  A sustained explosion run
