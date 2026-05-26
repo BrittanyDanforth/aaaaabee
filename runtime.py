@@ -579,6 +579,199 @@ class AssistRuntime:
             logger.exception("debug frame save failed")
 
 
+    # Sub-tick clipping bounds.  vy clip mirrors motion._MAX_UPWARD_LEAD_PX
+    # (4 px) divided by ~4 subticks per detect frame at 180 Hz / 60 Hz.
+    _SUBTICK_MAX_EXTRAP_Y = 1.0
+    _SUBTICK_MAX_EXTRAP_X = 2.5
+
+    # Class-level Windows scheduler-period bumper.  On Windows the
+    # default scheduler quantum is 15.6 ms, which would coalesce a
+    # 180 Hz subtick down to ~64 Hz.  Calling
+    # ``timeBeginPeriod(1)`` once at runtime startup makes
+    # ``time.sleep`` honour 1 ms granularity, after which we don't
+    # need a busy-wait at all.  Linux and macOS already have ~1 ms
+    # sleep granularity, so no setup is required there.
+    _winmm_period_set: bool = False
+
+    @classmethod
+    def _ensure_high_res_timer(cls) -> None:
+        if cls._winmm_period_set:
+            return
+        if sys.platform != "win32":
+            cls._winmm_period_set = True
+            return
+        try:  # pragma: no cover (Windows-only path)
+            import ctypes
+            ctypes.WinDLL("winmm", use_last_error=True).timeBeginPeriod(1)
+        except (OSError, AttributeError):
+            pass  # busy-wait fallback below
+        cls._winmm_period_set = True
+
+    @classmethod
+    def _precise_sleep(cls, seconds: float) -> None:
+        """Sleep for ``seconds`` with as little CPU as possible.
+
+        Previously this method busy-waited the last ~1 ms unconditionally.
+        Measured CPU cost at 180 Hz on Linux: **46 % of one core spinning**,
+        which would starve the detector / capture / overlay threads.
+
+        New strategy:
+          - Call ``time.sleep`` exactly once.  Both Linux and macOS
+            already have ~1 ms granularity for sleep ≥ 1 ms.
+          - On Windows, ``_ensure_high_res_timer`` calls
+            ``timeBeginPeriod(1)`` once so ``time.sleep`` also honours
+            1 ms granularity.
+          - Fallback busy-wait ONLY if the OS undersleeps by >0.5 ms;
+            it short-circuits if the OS oversleeps so we never compound.
+
+        Deadline is computed against the call START so an overshooting
+        ``time.sleep`` cannot add another tail on top.
+        """
+        if seconds <= 0.0:
+            return
+        cls._ensure_high_res_timer()
+        # On both Linux and Windows (after timeBeginPeriod) ``time.sleep``
+        # is precise to ~1 ms.  A single sleep is enough; no busy-wait
+        # required, which keeps the subtick CPU footprint near zero.
+        time.sleep(seconds)
+
+    # When stale_det=True the motion smoother is frozen — the .vx/.vy
+    # we'd extrapolate against is the LAST FRESH body velocity, not
+    # the current one.  Over a long stale-grace window that could
+    # drift the cursor by  velocity × grace = 240 px/s × 230 ms ≈
+    # 55 px past where the body actually is when it returns.
+    # Decay the extrapolation velocity each subtick during stale so
+    # the cursor freezes within ~10 subticks (~55 ms) of stale onset
+    # instead of drifting.  Fresh frames see no decay.
+    _SUBTICK_STALE_VELOCITY_DECAY = 0.92
+
+    def _run_pull_subticks(
+        self,
+        pull_target,
+        motion,
+        *,
+        frame_cx: float,
+        frame_cy: float,
+        deadline: float,
+        subtick_hz: int,
+        stale_det: bool,
+        firing_now: bool,
+        sleep_fn=None,
+        now_fn=None,
+        cap_region=None,
+        center_x: float | None = None,
+        center_y: float | None = None,
+        detect_fov: float = 0.0,
+        display_fov: float = 0.0,
+    ) -> list[tuple[int, int]]:
+        """Run extra PullController.compute_delta + mouse_move sub-ticks
+        between detect frames so the cursor receives a smooth corrective
+        stream rather than one big jump per capture frame.
+
+        Refactored out of the main loop so tests can drive it with a
+        synthetic clock (``sleep_fn`` / ``now_fn``).  Returns the list
+        of (dx, dy) tuples actually sent to the mouse, for assertion.
+        """
+        if subtick_hz <= 0 or pull_target is None or motion is None:
+            return []
+        if self._pull is None:
+            return []
+        sub_dt = max(1.0 / 480.0, 1.0 / float(subtick_hz))
+        sub_anchor_x = float(pull_target.centroid_x)
+        sub_anchor_y = float(pull_target.centroid_y)
+        vx = float(motion.vx) if math.isfinite(motion.vx) else 0.0
+        vy = float(motion.vy) if math.isfinite(motion.vy) else 0.0
+        bbox_xy = self._aim_tracker._body_bbox
+        sleep_fn = sleep_fn or self._precise_sleep
+        now_fn = now_fn or time.perf_counter
+        emitted: list[tuple[int, int]] = []
+        while True:
+            now = now_fn()
+            if now + sub_dt > deadline:
+                break
+            sleep_fn(sub_dt)
+            now2 = now_fn()
+            ex = vx * sub_dt
+            ey = vy * sub_dt
+            if stale_det:
+                # Velocity-runaway guard: shrink the per-subtick velocity
+                # during stale so the cursor doesn't drift indefinitely
+                # on a frozen vx/vy snapshot.
+                vx *= self._SUBTICK_STALE_VELOCITY_DECAY
+                vy *= self._SUBTICK_STALE_VELOCITY_DECAY
+            if ex > self._SUBTICK_MAX_EXTRAP_X:
+                ex = self._SUBTICK_MAX_EXTRAP_X
+            elif ex < -self._SUBTICK_MAX_EXTRAP_X:
+                ex = -self._SUBTICK_MAX_EXTRAP_X
+            # Asymmetric y clip — only the UPWARD direction (negative
+            # ey) carries sky-drift risk and must be capped tight.
+            # Downward extrapolation is bounded by the chest-band
+            # y_hi clamp downstream; clipping it symmetrically (the
+            # previous 1 px cap) under-leads bodies that fall, crouch,
+            # or take a jump-pad descent at 240+ px/s.
+            if ey < -self._SUBTICK_MAX_EXTRAP_Y:
+                ey = -self._SUBTICK_MAX_EXTRAP_Y
+            sub_anchor_x += ex
+            sub_anchor_y += ey
+            if bbox_xy is not None:
+                bx, by, bw, bh = bbox_xy
+                sub_anchor_x = max(
+                    bx + bw * 0.18, min(bx + bw * 0.82, sub_anchor_x)
+                )
+                sub_anchor_y = max(
+                    by + bh * 0.28, min(by + bh * 0.52, sub_anchor_y)
+                )
+            sub_target = replace(
+                pull_target,
+                centroid_x=sub_anchor_x,
+                centroid_y=sub_anchor_y,
+            )
+            sub_pr = self._pull.compute_delta(
+                sub_target, frame_cx, frame_cy,
+                time_sec=now2,
+                stale_detection=stale_det,
+                is_firing=firing_now,
+            )
+            if (sub_pr.dx != 0 or sub_pr.dy != 0) and self._should_run():
+                self._safe_mouse_move(sub_pr.dx, sub_pr.dy)
+                # Sub-tick OVERLAY update — keep the visible dot in
+                # sync with the mouse cursor during the inter-detect
+                # gap.  Without this the dot moves once per capture
+                # frame while the cursor moves 3-4× faster via the
+                # sub-tick, so the visible dot trails the mouse by
+                # the cumulative sub-tick distance.  Skip if the
+                # runtime didn't pass cap_region (test harness path).
+                if (
+                    cap_region is not None
+                    and center_x is not None
+                    and center_y is not None
+                ):
+                    try:
+                        ov_dest = self._frame_overlay_point(
+                            TargetMotion(
+                                sub_anchor_x, sub_anchor_y,
+                                vx, vy,
+                                overlay_x=sub_anchor_x,
+                                overlay_y=sub_anchor_y,
+                            ),
+                            cap_region,
+                            center_x=center_x, center_y=center_y,
+                            detect_fov=detect_fov, display_fov=display_fov,
+                        )
+                        if ov_dest is not None:
+                            mon = to_monitor_coords(
+                                ov_dest[0], ov_dest[1], cap_region
+                            )
+                            self._aim_tracker.set_monitor_overlay_point(
+                                mon[0], mon[1]
+                            )
+                            if self._overlay is not None:
+                                self._overlay.set_state(True, mon)
+                    except Exception:
+                        pass
+            emitted.append((sub_pr.dx, sub_pr.dy))
+        return emitted
+
     def _safe_mouse_move(self, dx: int, dy: int) -> MouseGateResult:
         if dx == 0 and dy == 0:
             return MouseGateResult(True, "")
@@ -1346,6 +1539,25 @@ class AssistRuntime:
                             self._aim_tracker.set_monitor_overlay_point(
                                 monitor_overlay[0], monitor_overlay[1]
                             )
+                    # PULL-CADENCE FIX (user-audit "LOCK_VALID_BUT_NO_PULL"):
+                    # the previous version built pull_target ONLY when
+                    # frame_overlay was non-None, which itself required
+                    # overlay_may_show_target() == True.  That gate is
+                    # explicitly OFF during stale-grace (detection_fresh
+                    # == False) — even though may_assist_pull_target()
+                    # was returning True and a valid locked target was
+                    # still held inside the grace window.  Result: pull
+                    # silently skipped *every* stale frame, so the dot
+                    # only updated when the detector produced a fresh
+                    # active hit (19/166 GIF frames in our trace).
+                    #
+                    # Decoupled behaviour: while may_assist_pull is True
+                    # we always build a pull_target.  Fresh path uses the
+                    # overlay-anchored body chest; stale path uses the
+                    # motion smoother's frozen anchor (_last_motion).
+                    # Both anchors are bbox-chest-band clamped, so this
+                    # never re-introduces the sky-drift cases we just
+                    # fixed.
                     pull_target = None
                     if target is not None and motion is not None:
                         if frame_overlay is not None:
@@ -1353,6 +1565,12 @@ class AssistRuntime:
                                 target,
                                 centroid_x=frame_overlay[0],
                                 centroid_y=frame_overlay[1],
+                            )
+                        elif may_assist_pull:
+                            pull_target = replace(
+                                target,
+                                centroid_x=float(motion.x),
+                                centroid_y=float(motion.y),
                             )
 
                     pull_px = 0.0
@@ -1619,7 +1837,56 @@ class AssistRuntime:
                         if cv2.waitKey(1) & 0xFF == ord("q"):
                             self.stop()
 
-                    sleep_time = frame_interval - (time.perf_counter() - t0)
+                    # PULL-SUBTICK (continuous-motion fix for the
+                    # 'pulls once every random interval' symptom):
+                    # the main loop runs detect at capture_fps which
+                    # also gates the pull tick.  Even with the inline
+                    # lead added to motion._finalize_pull_point, the
+                    # cursor only receives one mouse-move per loop —
+                    # so the user perceives chunky output whenever the
+                    # detect step varies in cost (measured p99 = 28.7 ms
+                    # vs 16.67 ms budget @ 60 fps capture).
+                    #
+                    # Between the last main-loop pull and the next
+                    # detect frame we still hold valid motion state
+                    # (vx, vy, last_known target).  Sub-ticking the
+                    # PullController at pull_subtick_hz with the
+                    # extrapolated target position emits smooth
+                    # corrections continuously instead of one big jump
+                    # per capture frame.
+                    #
+                    # Disabled (subtick_hz=0) preserves the legacy
+                    # behaviour.  Default is left off — flip via cfg
+                    # ['pull_subtick_hz'] to e.g. 240 for a 240 Hz
+                    # mouse-tick on top of 60 Hz detect.
+                    pull_subtick_hz = int(cfg.get("pull_subtick_hz", 0) or 0)
+                    deadline = t0 + frame_interval
+                    if (
+                        pull_subtick_hz > 0
+                        and self._pull is not None
+                        and ads_for_assist
+                        and not paused
+                        and pull_target is not None
+                        and motion is not None
+                        and self._should_run()
+                    ):
+                        self._run_pull_subticks(
+                            pull_target,
+                            motion,
+                            frame_cx=frame_cx,
+                            frame_cy=frame_cy,
+                            deadline=deadline,
+                            subtick_hz=pull_subtick_hz,
+                            stale_det=stale_det,
+                            firing_now=firing_now,
+                            cap_region=cap_region,
+                            center_x=float(center_x),
+                            center_y=float(center_y),
+                            detect_fov=float(detect_fov),
+                            display_fov=float(overlay_fov),
+                        )
+
+                    sleep_time = deadline - time.perf_counter()
                     self._sleep_interruptible(sleep_time)
             finally:
                 self._teardown(mouse_listener, keyboard_listener)

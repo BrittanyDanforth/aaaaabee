@@ -142,6 +142,10 @@ class TargetTracker:
         self._prediction_max_px: float = _MAX_PRED_PX
         self._body_bbox: tuple[int, int, int, int] | None = None
         self._last_stable_bbox: tuple[int, int, int, int] | None = None
+        # Low-alpha EMA on the bbox used for the chest-band clamp.
+        # Separate from _last_stable_bbox which is the unsmoothed
+        # bbox used for fragment-hit detection.
+        self._smoothed_clamp_bbox: tuple[float, float, float, float] | None = None
         self._stable_bbox_hold_frames: int = 0
         self._aim_is_body_anchor: bool = True
         self._fov_cx: float | None = None
@@ -251,13 +255,54 @@ class TargetTracker:
             self._overlay_smooth = (aim_x, aim_y)
             return aim_x, aim_y
 
+        # OVERLAY DOT LAG FIX (user-audit: "the dot is laggy"):
+        # the previous tau_ov floor (0.038 s) AND dot_a alpha ceiling
+        # (0.58 default) combined to cap overlay alpha at ~0.35-0.58
+        # regardless of how fast the body was moving.  Measured
+        # steady-state dot lag at 240 px/s strafing: ~7 px (vs ~1-2 px
+        # pull lag — the dot was visibly trailing the cursor).
+        #
+        # Scale BOTH the tau floor AND the alpha ceiling with motion
+        # speed so:
+        #   - at rest (speed < 30): smooth, jitter-resistant (tau 0.06)
+        #   - at slow motion: moderate response (tau 0.025-0.04)
+        #   - at fast strafe (>200 px/s): snappy follow (tau 0.014,
+        #     alpha ceiling ~0.85), matching the pull controller's
+        #     responsiveness so the visible dot doesn't trail the cursor.
         speed = math.hypot(self._vx, self._vy)
-        tau_ov = _tau_moving if speed > 70.0 else _tau_still
-        tau_ov = max(0.038, min(float(tau_ov) * 1.5, 0.11))
+        # Compromise between snappy fast-motion tracking and single-
+        # frame-jump dampening.  Going below tau=0.012 lets a detector
+        # teleport (single-frame 50 px jump from a fragment switch)
+        # pull the dot 87 %+ of the way through the jump, which
+        # defeats the existing `test_overlay_follow_dampens_single_
+        # frame_jump` protection.  0.012 alpha=0.75 at 60 fps gives
+        # ~0.7 px steady-state lag per 4 px body motion (~1.3 px at
+        # 240 px/s) while still dampening 75 % through a single jump.
+        if speed > 200.0:
+            tau_ov_base = 0.012
+            tau_floor = 0.012
+        elif speed > 70.0:
+            tau_ov_base = _tau_moving * 1.0
+            tau_floor = 0.016
+        else:
+            tau_ov_base = _tau_still * 1.5
+            tau_floor = 0.038
+        tau_ov = max(tau_floor, min(tau_ov_base, 0.11))
         oa = alpha_from_tau(dt, tau_ov)
         dot_a = self._overlay_dot_alpha
         oa_lo = max(0.06, dot_a * 0.18)
-        oa_hi = max(oa_lo, min(0.90, dot_a))
+        # Scale the alpha ceiling with speed so a clear motion target
+        # can be followed without the user-tunable dot_a value
+        # arbitrarily clipping it.  At rest dot_a is the ceiling; as
+        # speed climbs the ceiling lifts toward 0.90.  Detector-noise
+        # jitter at rest stays clipped by dot_a.
+        if speed > 200.0:
+            oa_hi = min(0.95, max(dot_a, 0.92))
+        elif speed > 70.0:
+            speed_t = (speed - 70.0) / 130.0  # 0..1 across 70..200
+            oa_hi = min(0.95, max(dot_a, dot_a + (0.92 - dot_a) * speed_t))
+        else:
+            oa_hi = max(oa_lo, min(0.90, dot_a))
         oa = max(oa_lo, min(oa_hi, oa))
 
         fx = self._overlay_follow_x + oa * (aim_x - self._overlay_follow_x)
@@ -270,13 +315,24 @@ class TargetTracker:
             if fy < self._overlay_follow_y - 10.0:
                 fy = self._overlay_follow_y - 10.0
         elif speed > 25.0 and self._body_bbox is not None:
-            # Minimal upward lead when body bbox is active — full vy lead caused sky climb.
-            # FIX: use the raw (pre-attenuated) upward velocity threshold more
-            # generously.  The old -40.0 threshold rarely fired because _vy is
-            # already halved by the 0.55 factor in observe().  Use -15.0 so any
-            # meaningful upward movement gets a small correction without sky climb.
+            # OVERLAY-LAG FIX (user-audit: "the dot is laggy"): the
+            # previous 0.22 horizontal lead factor compensated only
+            # ~0.9 px out of the ~4 px the body moves between motion
+            # frames at 240 px/s.  Total visible dot lag ended up at
+            # 5-12 px on a strafing target because the lead
+            # underfilled and the overlay smoother filled the rest as
+            # delay.  Speed-adaptive lead: more lead the faster the
+            # body is moving so the dot doesn't trail behind the
+            # cursor on real motion.  Vertical lead stays minimal
+            # (sky-drift safety).
             lead = min(dt, 0.05)
-            fx += self._vx * lead * 0.22
+            if speed > 200.0:
+                lead_factor_x = 0.55
+            elif speed > 70.0:
+                lead_factor_x = 0.32
+            else:
+                lead_factor_x = 0.22
+            fx += self._vx * lead * lead_factor_x
             if self._vy > 0.0:
                 fy += self._vy * lead * 0.08
             elif self._vy < -15.0:
@@ -389,6 +445,7 @@ class TargetTracker:
         self._vy = 0.0
         self._body_bbox = None
         self._last_stable_bbox = None
+        self._smoothed_clamp_bbox = None
         self._stable_bbox_hold_frames = 0
         self._aim_is_body_anchor = True
         self._fov_cx = None
@@ -415,6 +472,7 @@ class TargetTracker:
         self._vy = 0.0
         self._body_bbox = None
         self._last_stable_bbox = None
+        self._smoothed_clamp_bbox = None
         self._stable_bbox_hold_frames = 0
         self._last_pred_offset = (0.0, 0.0)
         self._last_pre_predict = None
@@ -576,6 +634,48 @@ class TargetTracker:
             else:
                 self._last_stable_bbox = (bx, by, bw, bh)
                 self._stable_bbox_hold_frames = 0
+            # CURSOR-JITTER FIX (user-audit "PULL SUCKS"): detector bbox
+            # noise (±1-2 px frame-to-frame from a real Apex character)
+            # leaked into the chest-band clamp and made the cursor
+            # twitch on a stationary target.  Direct measurement: ±1.5
+            # px detector noise → 13 mouse-jitter ticks per second
+            # while locked.  Apply a low-alpha EMA on the bbox used
+            # for clamping so single-frame noise averages out.
+            # Only smooth when the new bbox is geometrically close to
+            # the previous smoothed bbox (centroid <12 px, size delta
+            # <25 %); on a real switch / fresh lock snap to the new
+            # bbox so we don't drag in stale geometry.
+            if self._smoothed_clamp_bbox is not None:
+                pbx, pby, pbw, pbh = self._smoothed_clamp_bbox
+                snap = (
+                    abs(cx - pbx) > 12
+                    or abs(cy - pby) > 12
+                    or abs(cw - pbw) > pbw * 0.25
+                    or abs(ch - pbh) > pbh * 0.25
+                )
+                if not snap:
+                    # Speed-adaptive bbox smoothing.  Position is
+                    # smoothed harder than size — bbox center drift
+                    # is what twitches the chest-band clamp; bbox
+                    # dimensions are mostly stable on a real Apex
+                    # character so we let them pass through with
+                    # only mild smoothing.
+                    speed_for_bbox = math.hypot(self._vx, self._vy)
+                    if speed_for_bbox > 200.0:
+                        a_pos = 0.85
+                        a_sz = 0.85
+                    elif speed_for_bbox > 70.0:
+                        t = (speed_for_bbox - 70.0) / 130.0
+                        a_pos = 0.40 + t * (0.85 - 0.40)
+                        a_sz = 0.50 + t * (0.85 - 0.50)
+                    else:
+                        a_pos = 0.40
+                        a_sz = 0.50
+                    cx = pbx + a_pos * (cx - pbx)
+                    cy = pby + a_pos * (cy - pby)
+                    cw = pbw + a_sz * (cw - pbw)
+                    ch = pbh + a_sz * (ch - pbh)
+            self._smoothed_clamp_bbox = (cx, cy, cw, ch)
             self._body_bbox = (cx, cy, cw, ch)
             bx, by, bw, bh = cx, cy, cw, ch
             if self._aim_is_body_anchor:
@@ -629,17 +729,43 @@ class TargetTracker:
         dt: float,
         in_deadband: bool,
     ) -> tuple[float, float]:
-        use_inline_lead = (
-            self._prediction_enabled
-            and not (self._aim_is_body_anchor and self._body_bbox is not None)
-            and not in_deadband
+        # PULL-LAG FIX: previously inline lead was completely disabled
+        # whenever aim_is_body_anchor + body_bbox were both set, which
+        # is the *normal* case in production.  That left ~5–18 px of
+        # cumulative smoothing lag (measured via scripts/trace_pull_motion.py:
+        # direct=5.8 px / full=18 px @ 480 px/s strafing) on every
+        # moving body — which is exactly the user-reported "pull is
+        # laggy, only pulls once every random interval" feel.
+        #
+        # Re-enable a *bounded* lead for body-anchor cases: horizontal
+        # lead uses the full vx (chest-band clamp keeps it inside the
+        # bbox anyway), vertical lead is hard-clipped to ±_MAX_UPWARD_LEAD_PX
+        # so the dot can never drift upward into sky on detector noise.
+        # Deadband still suppresses lead so a stationary target doesn't
+        # get a phantom velocity nudge.
+        use_inline_lead = self._prediction_enabled and not in_deadband
+        body_anchor_path = (
+            self._aim_is_body_anchor and self._body_bbox is not None
         )
         if use_inline_lead:
             lead_dt = min(dt, _MAX_PRED_LEAD_S)
             pred_x = pre_x + self._vx * lead_dt
-            pred_y = pre_y + self._vy * lead_dt
-            if pred_y < pre_y:
-                pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
+            if body_anchor_path:
+                # Cap UPWARD lead only — downward lead is bounded by
+                # the chest-band y_hi clamp downstream, and over-
+                # restricting it (the previous symmetric ±4 px clip)
+                # was adding ~tau×velocity of lag on bodies that
+                # actually move down (crouch, fall, slide, jump-pad
+                # descent).  Sky drift on detector noise is the only
+                # asymmetric concern.
+                raw_vy_lead = self._vy * lead_dt
+                if raw_vy_lead < -_MAX_UPWARD_LEAD_PX:
+                    raw_vy_lead = -_MAX_UPWARD_LEAD_PX
+                pred_y = pre_y + raw_vy_lead
+            else:
+                pred_y = pre_y + self._vy * lead_dt
+                if pred_y < pre_y:
+                    pred_y = max(pred_y, pre_y - _MAX_UPWARD_LEAD_PX)
             if self._body_bbox is not None:
                 bx, by, bw, bh = self._body_bbox
                 mx = bw * _BODY_X_MARGIN_FRAC
@@ -815,6 +941,30 @@ class TargetTracker:
             )
             overlay_x, overlay_y = self._advance_overlay_follow(fx, fy, dt)
             overlay_x, overlay_y = self._clamp_aim_output(overlay_x, overlay_y)
+            # CRIT (user-audit): cap *upward* overlay→pull divergence
+            # inside the body bbox so the visible dot can never drift
+            # more than OVERLAY_PULL_UPWARD_DIV_PX above the mouse-pull
+            # point.  The overlay path (_advance_overlay_follow) uses
+            # raw aim_x/y while pull uses _smooth_x/y → the two can
+            # drift apart frame-to-frame (observed: F57 of gif_166_proof
+            # had a 4.8 px overlay-above-pull divergence with overlay
+            # sitting in the upper chest band while pull was at the
+            # lower edge).  Capping only the *upward* y divergence
+            # preserves the existing horizontal-follow behaviour used
+            # by sync_overlay_follow_frame (test_ring_reclamp_syncs_
+            # follow_state) and the downward bias used by the chest-
+            # band clamp (y_hi).
+            OVERLAY_PULL_UPWARD_DIV_PX = 3.0
+            if overlay_y < pull_y - OVERLAY_PULL_UPWARD_DIV_PX:
+                overlay_y = pull_y - OVERLAY_PULL_UPWARD_DIV_PX
+                # Re-clamp inside the chest band so we don't violate the
+                # body-bbox y_lo floor when pull was already at the
+                # upper edge.
+                overlay_x, overlay_y = self._clamp_aim_output(
+                    overlay_x, overlay_y
+                )
+                self._overlay_follow_y = overlay_y
+            self._overlay_smooth = (overlay_x, overlay_y)
         else:
             overlay_x, overlay_y = self._clamp_aim_output(self._smooth_x, self._smooth_y)
             # No body bbox path: still keep _overlay_smooth current.

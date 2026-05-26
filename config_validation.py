@@ -114,6 +114,19 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         cfg, "fov_edge_min_pull_scale", default=0.55, minimum=0.0, maximum=1.0
     )
 
+    # Pull sub-tick rate (Hz) — when > 0, runtime emits extra
+    # PullController.compute_delta + mouse_move ticks between detect
+    # frames so the cursor receives a smooth corrective stream rather
+    # than one big jump per capture frame.  0 disables (legacy
+    # behaviour).  Capped at 480 so a misconfig can't try to issue
+    # > 8 sub-ticks per 60 fps frame and burn the budget.
+    cfg["pull_subtick_hz"] = int(
+        _require_number(
+            cfg, "pull_subtick_hz", default=0.0,
+            minimum=0.0, maximum=480.0,
+        )
+    )
+
     cfg["prediction_enabled"] = bool(cfg.get("prediction_enabled", True))
     cfg["prediction_lead_seconds"] = _require_number(
         cfg, "prediction_lead_seconds", default=0.04, minimum=0.0, maximum=0.5

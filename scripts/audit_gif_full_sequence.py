@@ -69,10 +69,31 @@ def _frame_paths() -> list[Path]:
     return []
 
 
-def _draw_red_dot(img: np.ndarray, x: float, y: float) -> None:
+def _draw_aim_dot(img: np.ndarray, x: float, y: float) -> None:
+    """Draw the final overlay aim dot in bright MAGENTA with a white halo
+    and an explicit 'AIM' label.
+
+    Game red elements (dummy bodies, hazard-board Xs, score-panel icons)
+    saturate the red channel; using BGR=(255,0,255) with a white outline
+    keeps the overlay dot visually unambiguous in the proof PNGs.  This
+    is *only* the final selected-target marker — rejected candidates
+    never draw a marker (see _annotate_frame).
+    """
     ix, iy = int(round(x)), int(round(y))
-    cv2.circle(img, (ix, iy), 6, (0, 0, 255), -1)
-    cv2.circle(img, (ix, iy), 8, (255, 255, 255), 1)
+    cv2.circle(img, (ix, iy), 7, (255, 0, 255), -1)
+    cv2.circle(img, (ix, iy), 10, (255, 255, 255), 2)
+    cv2.line(img, (ix - 14, iy), (ix - 9, iy), (255, 0, 255), 1)
+    cv2.line(img, (ix + 9, iy), (ix + 14, iy), (255, 0, 255), 1)
+    cv2.line(img, (ix, iy - 14), (ix, iy - 9), (255, 0, 255), 1)
+    cv2.line(img, (ix, iy + 9), (ix, iy + 14), (255, 0, 255), 1)
+    cv2.putText(
+        img, "AIM", (ix + 12, iy - 10),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 0, 255), 1, cv2.LINE_AA,
+    )
+
+
+# Backwards-compat alias used by other callers in this file.
+_draw_red_dot = _draw_aim_dot
 
 
 def _draw_chest_band(
@@ -389,7 +410,9 @@ def run(
                 bx, by, bw, bh = bb
                 y_lo = by + bh * CHEST_LO
                 y_hi = by + bh * CHEST_HI
+                row["bbox_x"] = bx
                 row["bbox_y"] = by
+                row["bbox_w"] = bw
                 row["bbox_h"] = bh
                 row["bbox_top_frac"] = round(by / h, 3)
                 row["chest_y_lo"] = round(y_lo, 1)

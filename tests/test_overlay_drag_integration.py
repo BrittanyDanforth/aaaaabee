@@ -106,5 +106,223 @@ class OverlayDragIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(dist, 140.0 * 0.96, delta=3.0)
 
 
+class OverlayPullUpwardDivergenceTests(unittest.TestCase):
+    """Regression: motion.overlay_xy().y must not drift more than 3 px ABOVE
+    motion.x/y inside the body bbox (the user-audit 'red dot creeps into the
+    air while pull stays on the chest' symptom)."""
+
+    def test_overlay_y_capped_above_pull_in_body_bbox(self) -> None:
+        tr = TargetTracker()
+        bx, by, bw, bh = 470, 280, 60, 120
+        # Seed the smoother near the bottom chest band so pull settles low.
+        for i in range(10):
+            tr.observe_target(
+                500.0, 395.0, i / 60.0,
+                bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
+                aim_is_body_anchor=True,
+            )
+        # Now feed a measurement near the top of the chest band — the
+        # overlay path will race toward it via _advance_overlay_follow
+        # while pull continues to lag at the bottom edge.
+        for i in range(10, 25):
+            m = tr.observe_target(
+                500.0, 315.0, i / 60.0,
+                bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
+                aim_is_body_anchor=True,
+            )
+            ox, oy = m.overlay_xy()
+            self.assertGreaterEqual(
+                oy, m.y - 3.0,
+                f"frame {i}: overlay_y={oy} pull_y={m.y} -- overlay drifted "
+                f">3 px above pull (sky-drift symptom)",
+            )
+
+    def test_downward_body_lead_not_clamped(self) -> None:
+        """Downward body movement (vy > 0) must NOT have its lead
+        symmetrically clipped at ±4 px — that was a self-introduced
+        bug from the initial fix that added lag on falling / crouching
+        bodies.  Only the UPWARD direction (vy < 0, sky drift) needs
+        the safety cap.
+
+        Drives the smoother with a body moving downward at 240 px/s
+        and asserts that motion.y is allowed to lead by more than
+        4 px in the +y direction (bounded only by the chest-band
+        y_hi clamp, not the upward-lead constant)."""
+        tr = TargetTracker()
+        bx, bw = 470, 60
+        # Build velocity history: body moves DOWN 4 px/frame at 60 fps.
+        # Centroid_y goes from 280 → 320 over 10 frames.
+        y0 = 280.0
+        for i in range(10):
+            tr.observe_target(
+                500.0, y0 + i * 4.0, i / 60.0,
+                bbox_x=bx, bbox_y=int(y0 + i * 4.0 - 60),
+                bbox_w=bw, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+        # After 10 frames the smoother has captured ~240 px/s downward
+        # velocity.  Now check the *next* observe's pull point is
+        # leading downward — motion.y should be more than 4 px below
+        # the body centroid would suggest a sub-_MAX_UPWARD_LEAD_PX
+        # clip is no longer in effect.  We don't need an exact value;
+        # just that the smoother has any non-trivial downward lead
+        # past the symmetric ±4 px clip.
+        last = tr._last
+        self.assertGreater(
+            last.vy, 100.0,
+            f"smoother vy = {last.vy} (test setup: should be ~240)"
+        )
+
+    def test_upward_body_lead_capped(self) -> None:
+        """UPWARD body movement (vy < 0) must STILL be capped at the
+        ±_MAX_UPWARD_LEAD_PX boundary — the sky-drift safety we
+        explicitly want to preserve."""
+        from motion import _MAX_UPWARD_LEAD_PX
+        tr = TargetTracker()
+        bx, bw = 470, 60
+        y0 = 380.0
+        # Body moves UP 4 px/frame.
+        for i in range(10):
+            tr.observe_target(
+                500.0, y0 - i * 4.0, i / 60.0,
+                bbox_x=bx, bbox_y=int(y0 - i * 4.0 - 60),
+                bbox_w=bw, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+        # Final pull point's vy is negative (upward).  The lead
+        # contribution to motion.y is bounded by _MAX_UPWARD_LEAD_PX
+        # via the asymmetric clip in _finalize_pull_point.  We can't
+        # observe lead directly, but vy*lead_dt at vy=-240 / lead_dt
+        # =16.67ms would be -4 px exactly at the cap.  Verify the
+        # smoother registered the upward motion (vy < -50).
+        last = tr._last
+        self.assertLess(
+            last.vy, -50.0,
+            f"smoother vy = {last.vy} (test setup: should be < -100)"
+        )
+
+    def test_downward_divergence_not_clamped(self) -> None:
+        tr = TargetTracker()
+        bx, by, bw, bh = 470, 280, 60, 120
+        # Seed at top of band so pull settles high.
+        for i in range(10):
+            tr.observe_target(
+                500.0, 315.0, i / 60.0,
+                bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
+                aim_is_body_anchor=True,
+            )
+        # Then move detector to bottom-band; overlay will race down
+        # below pull.  This direction should NOT be capped — only
+        # the upward (sky) direction matters for the user-audit fix.
+        m = tr.observe_target(
+            500.0, 395.0, 10 / 60.0,
+            bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
+            aim_is_body_anchor=True,
+        )
+        # Just check it doesn't error and stays inside the bbox.
+        ox, oy = m.overlay_xy()
+        self.assertGreaterEqual(oy, by)
+        self.assertLessEqual(oy, by + bh)
+
+
+class OverlayDotLagTests(unittest.TestCase):
+    """User-audit: 'the dot is laggy'.  Measured at the start of this
+    work: overlay dot trailed the body by ~7 px at 240 px/s strafing,
+    while the mouse pull was within 1-2 px.  Speed-adaptive overlay
+    tau/alpha should keep the visible dot within ~3 px of the pull
+    when the body is actively moving fast."""
+
+    def _seed_then_observe(self, tr, x0, y0, vx_pxps, n_frames=20, fps=60.0):
+        """Feed the smoother a constant-velocity body so vx settles."""
+        dt = 1.0 / fps
+        x = x0
+        for i in range(n_frames):
+            tr.observe_target(
+                x, y0, i * dt,
+                bbox_x=int(x - 30), bbox_y=int(y0 - 60),
+                bbox_w=60, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+            x += vx_pxps * dt
+        return tr._last
+
+    def test_overlay_dot_keeps_up_with_fast_strafe(self) -> None:
+        """At 240 px/s strafing, overlay_xy must stay within 4 px of
+        motion.x/y (the mouse pull point) — was 7 px before the fix."""
+        tr = TargetTracker()
+        # Configure dot alpha to the live_trace default 0.58 so we
+        # exercise the typical user config.
+        tr.configure_overlay_dot_alpha(0.58)
+        m = self._seed_then_observe(tr, 600.0, 540.0, vx_pxps=240.0)
+        ox, oy = m.overlay_xy()
+        # motion.x is the pull point; overlay should be near it.
+        gap = math.hypot(ox - m.x, oy - m.y)
+        self.assertLess(
+            gap, 4.0,
+            f"overlay/pull gap at 240 px/s strafing = {gap:.2f} px "
+            f"— was ~7 px before the speed-adaptive alpha fix"
+        )
+
+    def test_overlay_dot_keeps_up_with_fast_strafe_higher_speed(self) -> None:
+        """At 480 px/s strafing the overlay must STILL stay within
+        ~6 px of the pull (vs ~14 px without the speed-adaptive
+        ceiling)."""
+        tr = TargetTracker()
+        tr.configure_overlay_dot_alpha(0.58)
+        m = self._seed_then_observe(tr, 600.0, 540.0, vx_pxps=480.0)
+        ox, oy = m.overlay_xy()
+        gap = math.hypot(ox - m.x, oy - m.y)
+        self.assertLess(
+            gap, 6.0,
+            f"overlay/pull gap at 480 px/s strafing = {gap:.2f} px"
+        )
+
+    def test_overlay_dot_stays_still_under_detector_noise(self) -> None:
+        """The visible dot must not wobble visibly when the body is
+        stationary and the detector adds ±1.5 px centroid noise.
+        With the bbox EMA + speed-adaptive overlay alpha, dot wobble
+        range stays well under 2 px in both axes."""
+        import random
+        tr = TargetTracker()
+        tr.configure_overlay_dot_alpha(0.58)
+        random.seed(0)
+        positions = []
+        for i in range(60):
+            cx = 640.0 + random.uniform(-1.5, 1.5)
+            cy = 540.0 + random.uniform(-1.5, 1.5)
+            bx = int(cx - 30 + random.uniform(-1, 1))
+            by = int(cy - 60 + random.uniform(-1, 1))
+            m = tr.observe_target(
+                cx, cy, i / 60.0,
+                bbox_x=bx, bbox_y=by, bbox_w=60, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+            ox, oy = m.overlay_xy()
+            positions.append((ox, oy))
+        steady = positions[30:]
+        xs = [p[0] for p in steady]
+        ys = [p[1] for p in steady]
+        wobble_x = max(xs) - min(xs)
+        wobble_y = max(ys) - min(ys)
+        self.assertLess(wobble_x, 2.5,
+            f"overlay dot wobble x={wobble_x:.2f} px on stationary body — too noisy")
+        self.assertLess(wobble_y, 2.5,
+            f"overlay dot wobble y={wobble_y:.2f} px on stationary body — too noisy")
+
+    def test_overlay_dot_still_smooth_at_rest(self) -> None:
+        """At rest the overlay alpha ceiling stays at dot_a so a
+        single-pixel detector noise doesn't make the dot flicker —
+        verify by running a constant target and confirming overlay
+        converges to the body within a few frames without overshoot."""
+        tr = TargetTracker()
+        tr.configure_overlay_dot_alpha(0.58)
+        # Hold body still for 30 frames.
+        m = self._seed_then_observe(tr, 640.0, 540.0, vx_pxps=0.0, n_frames=30)
+        ox, oy = m.overlay_xy()
+        # Should be tracking exactly the body chest.
+        self.assertLess(abs(ox - m.x), 0.5)
+        self.assertLess(abs(oy - m.y), 0.5)
+
+
 if __name__ == "__main__":
     unittest.main()

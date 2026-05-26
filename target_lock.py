@@ -63,6 +63,50 @@ MAX_LOCK_UPWARD_DRIFT_PX = 28.0
 # off an enemy-free FOV but the detector keeps recycling a banner/rim FP.
 POOL_HOLD_DOT_ACTIVE_MAX = 8
 
+# Bbox-explosion guard: when the detector emits a new candidate whose bbox
+# is dramatically larger than the existing locked target's bbox AND the
+# locked geometry sits INSIDE the new bbox (i.e. the new cluster is a merge
+# that swallowed the prior lock), we reject the explosion and hold the
+# previous lock as stale.  The two real-frame regressions this addresses
+# are the gif_166_proof F29-class (horizontal merge of the close dummy with
+# an adjacent firing-range hazard board) and F55-class (vertical merge of
+# the dummy with the central tower banner strip).  In both cases the new
+# bbox is plausible in isolation (body_shape >= 0.5, head + torso parts)
+# but its dimensions encompass and exceed the previously-tight lock by 2x
+# or more, which manifests as the "huge box appearing then jumping off the
+# enemy" the user reported.
+LOCK_BBOX_EXPLOSION_AREA_RATIO = 3.8
+LOCK_BBOX_EXPLOSION_TOP_JUMP_FRAC = 0.95  # full locked.bbox_h above locked top
+LOCK_BBOX_EXPLOSION_WIDTH_RATIO = 2.8
+LOCK_BBOX_EXPLOSION_HEIGHT_RATIO = 2.6
+
+# Consecutive pool-hold cap: detector emits sticky_pool_hold whenever it
+# synthesises the previous lock geometry (no current candidate confirms it
+# via IoU/identity). When this happens for too many frames in a row we
+# stop driving the dot active even if target_lost_frames briefly resets to
+# zero on intermediate frames where a transient cluster shares lock
+# identity. This is the F33-F46 ghost class — pool_hold alternates with
+# weak transient refreshes so the per-frame lost_frames cap (8) never
+# trips while the visible green box and red dot sit on a dummy that
+# walked offscreen many frames ago.
+# Cap drop: gif_166_proof F33-F37 visually showed the LIVE dot sitting on
+# the F31 lock geometry while the dummy had walked ~60 px to the left and
+# the bbox was clearly off the enemy.  The user's frame breakdown calls
+# F34 onwards "dot not following the enemy correctly" — so any streak of
+# 3+ synthesised holds (no real candidate adoption in between) should
+# downgrade the overlay to STALE rather than LIVE.  Going lower than 2
+# would start hiding genuine 1-2 frame partial occlusions (e.g. F25-F26
+# transient blur frames).
+CONSECUTIVE_POOL_HOLD_HIDE_AT = 2
+
+# Consecutive bbox-explosion rejects (see ``_locked_bbox_explosion``)
+# tolerated before we drop the lock entirely.  A sustained explosion run
+# means the visual target is gone and the cluster has been replaced by a
+# structural FP we keep refusing — at that point the previous tight lock
+# is no longer a useful anchor (real enemy has either moved out or been
+# occluded for too long for the small held bbox to remain accurate).
+EXPLOSION_LOCK_EXPIRE_AT = 2
+
 
 def viewmodel_exclude_bottom(cfg: dict[str, Any]) -> float:
     """Bottom-of-frame mask fraction — must match production runtime."""
@@ -98,6 +142,12 @@ def _commit_locked_target(
     if is_new_lock or state._lock_anchor_cy is None:
         state._lock_anchor_cy = float(target.centroid_y)
         state._lock_anchor_bbox_y = int(target.bbox_y)
+    # Real adoption clears any accumulated pool-hold / explosion-reject
+    # streak from prior synthesized-only frames — the detector saw a
+    # fresh cluster that actually IoU/identity-matched the lock
+    # geometry, so future ghost holds start counting from zero again.
+    state.pool_hold_streak = 0
+    state.explosion_reject_streak = 0
 
 
 def _same_lock_identity(a: Target, b: Target) -> bool:
@@ -458,6 +508,18 @@ class TargetLockState:
     _overlay_last_cy: float | None = None
     _lock_anchor_cy: float | None = None
     _lock_anchor_bbox_y: int | None = None
+    # Number of consecutive frames the detector synthesised the lock via
+    # sticky_pool_hold (no candidate confirmed it via IoU/identity). Used to
+    # hide the overlay dot/box on long-running ghost holds where the per-
+    # frame ``target_lost_frames`` counter briefly resets on transient
+    # same-identity refreshes that don't represent a real re-acquisition.
+    pool_hold_streak: int = 0
+    # Number of consecutive frames the bbox-explosion guard rejected a
+    # candidate as a merge that swallowed the lock. Sustained run means
+    # the locked geometry is no longer matched by a real cluster and we
+    # should drop the lock entirely instead of refining onto the next
+    # adjacent structural FP.
+    explosion_reject_streak: int = 0
 
     def reset(self) -> None:
         self.locked_target = None
@@ -470,6 +532,61 @@ class TargetLockState:
         self._overlay_last_cy = None
         self._lock_anchor_cy = None
         self._lock_anchor_bbox_y = None
+        self.pool_hold_streak = 0
+        self.explosion_reject_streak = 0
+
+
+def _locked_bbox_explosion(locked: Target, new_t: Target) -> bool:
+    """Detect new_t bbox dramatically swallowing the locked bbox via merge.
+
+    Used by ``apply_target_lock`` to reject candidates that came from a
+    detector cluster that merged the locked enemy with an adjacent
+    structural FP (firing-range hazard board, central tower banner strip,
+    scope/HUD bar). Such candidates can carry a strong body/head score in
+    isolation but visibly explode the green bbox far past the actual
+    enemy silhouette, dragging the overlay dot off the chest. See the
+    gif_166_proof F29 / F55 regressions.
+    """
+    if locked is None or new_t is None:
+        return False
+    lw = max(1, int(locked.bbox_w))
+    lh = max(1, int(locked.bbox_h))
+    nw = max(1, int(new_t.bbox_w))
+    nh = max(1, int(new_t.bbox_h))
+    locked_area = float(lw) * float(lh)
+    new_area = float(nw) * float(nh)
+    area_ratio = new_area / max(1.0, locked_area)
+    w_ratio = nw / float(lw)
+    h_ratio = nh / float(lh)
+    # Cheap pre-filter: at least one dimension or area must explode.
+    if (
+        area_ratio < LOCK_BBOX_EXPLOSION_AREA_RATIO
+        and w_ratio < LOCK_BBOX_EXPLOSION_WIDTH_RATIO
+        and h_ratio < LOCK_BBOX_EXPLOSION_HEIGHT_RATIO
+    ):
+        return False
+    # Locked center must lie inside the new bbox (with small slack) — this
+    # is the "merge that swallowed the lock" signature. If the new bbox
+    # sits next to the lock rather than over it, that's a different-object
+    # candidate and the standard switch / retarget paths should handle it.
+    locked_cx = float(locked.bbox_x) + lw * 0.5
+    locked_cy = float(locked.bbox_y) + lh * 0.5
+    slack_x = max(4.0, lw * 0.5)
+    slack_y = max(4.0, lh * 0.5)
+    if not (
+        float(new_t.bbox_x) - slack_x <= locked_cx <= float(new_t.bbox_x + nw) + slack_x
+        and float(new_t.bbox_y) - slack_y <= locked_cy <= float(new_t.bbox_y + nh) + slack_y
+    ):
+        return False
+    # Strong explosion signatures: bbox top jumped far above locked top
+    # (banner merge), or width / height blew up out of humanoid proportion.
+    top_jump_up = (
+        float(new_t.bbox_y)
+        < float(locked.bbox_y) - lh * LOCK_BBOX_EXPLOSION_TOP_JUMP_FRAC
+    )
+    width_explosion = w_ratio >= LOCK_BBOX_EXPLOSION_WIDTH_RATIO
+    height_explosion = h_ratio >= LOCK_BBOX_EXPLOSION_HEIGHT_RATIO
+    return top_jump_up or width_explosion or height_explosion
 
 
 def locked_target_may_refresh_motion_memory(
@@ -586,6 +703,7 @@ def apply_target_lock(
             # genuine re-detection (which resets lost_frames=0 on the normal
             # adopt/refine paths above).
             state.target_lost_frames += 1
+            state.pool_hold_streak += 1
             if state.target_lost_frames >= lost_max:
                 state.reset()
                 if on_lock_expired is not None:
@@ -597,6 +715,18 @@ def apply_target_lock(
             # POOL_HOLD_DOT_ACTIVE_MAX consecutive pool_hold frames so the
             # dot doesn't sit on a structural FP for the entire grace.
             if state.target_lost_frames > POOL_HOLD_DOT_ACTIVE_MAX:
+                hold_active = False
+            # Independent consecutive-pool-hold cap: gif_166_proof F33-F46
+            # showed pool_hold alternating with transient refreshes that
+            # briefly reset target_lost_frames to 0 (clutter cand sharing
+            # lock identity for a frame). The lost_frames counter never
+            # crossed POOL_HOLD_DOT_ACTIVE_MAX, so the ghost overlay
+            # rendered for ~14 frames after the dummy walked offscreen.
+            # The pool_hold_streak counter only resets on a true non-pool-
+            # hold adoption (committed via the refine / adopt / closer-
+            # retarget paths below) so persistent ghosting still expires
+            # the dot/box.
+            if state.pool_hold_streak > CONSECUTIVE_POOL_HOLD_HIDE_AT:
                 hold_active = False
             state.switch_candidate = None
             state.switch_frames = 0
@@ -612,6 +742,35 @@ def apply_target_lock(
             if on_lock_expired is not None:
                 on_lock_expired()
             locked = None
+        if locked is not None and _locked_bbox_explosion(locked, new_t):
+            # New candidate is a merged-cluster explosion that swallowed
+            # the existing locked geometry (gif_166_proof F29 horizontal
+            # merge with the adjacent firing-range hazard board, and the
+            # F55-58 vertical merge with the central tower banner strip).
+            # Hold the previous tight lock rather than redrawing the
+            # explosion as the dot/box.  Thresholds are deliberately
+            # strict (~3x area, ~2.8x width, ~2.6x height, full-bbox-h
+            # top jump) so gradual close-enemy approach (~1.3x growth per
+            # frame) still adopts normally; only structural merges that
+            # also enclose the lock center trigger the hold.
+            state.target_lost_frames = max(1, state.target_lost_frames)
+            state.switch_candidate = None
+            state.switch_frames = 0
+            state.explosion_reject_streak += 1
+            if state.explosion_reject_streak > EXPLOSION_LOCK_EXPIRE_AT:
+                # Sustained explosion run — drop the lock entirely so the
+                # next frame starts fresh new-lock confirm gates rather
+                # than refining onto an adjacent structural FP via the
+                # held bbox (F59-class "small banner element next to where
+                # the real enemy used to be" steals the lock otherwise).
+                state.reset()
+                if on_lock_expired is not None:
+                    on_lock_expired()
+                return DetectionResult(None, result.candidates, 0.0), False
+            return (
+                DetectionResult(locked, result.candidates, locked.confidence),
+                True,
+            )
         if locked is not None:
             display_fov = float(
                 cfg.get("_runtime_overlay_fov")
@@ -837,6 +996,7 @@ def apply_target_lock(
                 # Hold the PREVIOUS good lock with active=True so the dot stays.
                 if _same_lock_identity(locked, new_t):
                     state.target_lost_frames = 0
+                    state.pool_hold_streak = 0
                     return (
                         DetectionResult(
                             locked,
@@ -867,6 +1027,7 @@ def apply_target_lock(
                     and locked.distance_to_center < display_fov * 0.45
                 ):
                     state.target_lost_frames = 0
+                    state.pool_hold_streak = 0
                     return (
                         DetectionResult(locked, result.candidates, locked.confidence),
                         False,
