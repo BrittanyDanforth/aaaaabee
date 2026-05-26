@@ -135,6 +135,13 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "capture_fps": 30,
         "ads_input_mode": "both",
         "dry_run_force_detect": False,
+        # Pull sub-tick (see runtime._run_pull_subticks).  At
+        # capture_fps=30 each detect frame is 33 ms wide, which is
+        # exactly the cadence the user reported as "feels chunky";
+        # 120 Hz sub-tick gives 4 mouse-moves between captures so
+        # the cursor receives a smooth corrective stream instead of
+        # one big jump per detect frame.
+        "pull_subtick_hz": 120,
     },
     PROFILE_APEX_STYLE_LIVE_TRACE: {
         **_APEX_TUNING,
@@ -194,6 +201,9 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "capture_fps": 90,
         "ads_input_mode": "both",
         "dry_run_force_detect": False,
+        # Higher capture rate → smaller sub-tick budget per frame;
+        # 240 Hz keeps ~2-3 sub-ticks per 11 ms detect frame.
+        "pull_subtick_hz": 240,
     },
     PROFILE_LEGACY_APEX: {
         **_APEX_TUNING,
