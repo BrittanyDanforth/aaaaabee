@@ -251,13 +251,46 @@ class TargetTracker:
             self._overlay_smooth = (aim_x, aim_y)
             return aim_x, aim_y
 
+        # OVERLAY DOT LAG FIX (user-audit: "the dot is laggy"):
+        # the previous tau_ov floor (0.038 s) AND dot_a alpha ceiling
+        # (0.58 default) combined to cap overlay alpha at ~0.35-0.58
+        # regardless of how fast the body was moving.  Measured
+        # steady-state dot lag at 240 px/s strafing: ~7 px (vs ~1-2 px
+        # pull lag — the dot was visibly trailing the cursor).
+        #
+        # Scale BOTH the tau floor AND the alpha ceiling with motion
+        # speed so:
+        #   - at rest (speed < 30): smooth, jitter-resistant (tau 0.06)
+        #   - at slow motion: moderate response (tau 0.025-0.04)
+        #   - at fast strafe (>200 px/s): snappy follow (tau 0.014,
+        #     alpha ceiling ~0.85), matching the pull controller's
+        #     responsiveness so the visible dot doesn't trail the cursor.
         speed = math.hypot(self._vx, self._vy)
-        tau_ov = _tau_moving if speed > 70.0 else _tau_still
-        tau_ov = max(0.038, min(float(tau_ov) * 1.5, 0.11))
+        if speed > 200.0:
+            tau_ov_base = _tau_moving
+            tau_floor = 0.014
+        elif speed > 70.0:
+            tau_ov_base = _tau_moving * 1.3
+            tau_floor = 0.022
+        else:
+            tau_ov_base = _tau_still * 1.5
+            tau_floor = 0.038
+        tau_ov = max(tau_floor, min(tau_ov_base, 0.11))
         oa = alpha_from_tau(dt, tau_ov)
         dot_a = self._overlay_dot_alpha
         oa_lo = max(0.06, dot_a * 0.18)
-        oa_hi = max(oa_lo, min(0.90, dot_a))
+        # Scale the alpha ceiling with speed so a clear motion target
+        # can be followed without the user-tunable dot_a value
+        # arbitrarily clipping it.  At rest dot_a is the ceiling; as
+        # speed climbs the ceiling lifts toward 0.90.  Detector-noise
+        # jitter at rest stays clipped by dot_a.
+        if speed > 200.0:
+            oa_hi = min(0.90, max(dot_a, 0.85))
+        elif speed > 70.0:
+            speed_t = (speed - 70.0) / 130.0  # 0..1 across 70..200
+            oa_hi = min(0.90, max(dot_a, dot_a + (0.85 - dot_a) * speed_t))
+        else:
+            oa_hi = max(oa_lo, min(0.90, dot_a))
         oa = max(oa_lo, min(oa_hi, oa))
 
         fx = self._overlay_follow_x + oa * (aim_x - self._overlay_follow_x)

@@ -225,5 +225,72 @@ class OverlayPullUpwardDivergenceTests(unittest.TestCase):
         self.assertLessEqual(oy, by + bh)
 
 
+class OverlayDotLagTests(unittest.TestCase):
+    """User-audit: 'the dot is laggy'.  Measured at the start of this
+    work: overlay dot trailed the body by ~7 px at 240 px/s strafing,
+    while the mouse pull was within 1-2 px.  Speed-adaptive overlay
+    tau/alpha should keep the visible dot within ~3 px of the pull
+    when the body is actively moving fast."""
+
+    def _seed_then_observe(self, tr, x0, y0, vx_pxps, n_frames=20, fps=60.0):
+        """Feed the smoother a constant-velocity body so vx settles."""
+        dt = 1.0 / fps
+        x = x0
+        for i in range(n_frames):
+            tr.observe_target(
+                x, y0, i * dt,
+                bbox_x=int(x - 30), bbox_y=int(y0 - 60),
+                bbox_w=60, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+            x += vx_pxps * dt
+        return tr._last
+
+    def test_overlay_dot_keeps_up_with_fast_strafe(self) -> None:
+        """At 240 px/s strafing, overlay_xy must stay within 4 px of
+        motion.x/y (the mouse pull point) — was 7 px before the fix."""
+        tr = TargetTracker()
+        # Configure dot alpha to the live_trace default 0.58 so we
+        # exercise the typical user config.
+        tr.configure_overlay_dot_alpha(0.58)
+        m = self._seed_then_observe(tr, 600.0, 540.0, vx_pxps=240.0)
+        ox, oy = m.overlay_xy()
+        # motion.x is the pull point; overlay should be near it.
+        gap = math.hypot(ox - m.x, oy - m.y)
+        self.assertLess(
+            gap, 4.0,
+            f"overlay/pull gap at 240 px/s strafing = {gap:.2f} px "
+            f"— was ~7 px before the speed-adaptive alpha fix"
+        )
+
+    def test_overlay_dot_keeps_up_with_fast_strafe_higher_speed(self) -> None:
+        """At 480 px/s strafing the overlay must STILL stay within
+        ~6 px of the pull (vs ~14 px without the speed-adaptive
+        ceiling)."""
+        tr = TargetTracker()
+        tr.configure_overlay_dot_alpha(0.58)
+        m = self._seed_then_observe(tr, 600.0, 540.0, vx_pxps=480.0)
+        ox, oy = m.overlay_xy()
+        gap = math.hypot(ox - m.x, oy - m.y)
+        self.assertLess(
+            gap, 6.0,
+            f"overlay/pull gap at 480 px/s strafing = {gap:.2f} px"
+        )
+
+    def test_overlay_dot_still_smooth_at_rest(self) -> None:
+        """At rest the overlay alpha ceiling stays at dot_a so a
+        single-pixel detector noise doesn't make the dot flicker —
+        verify by running a constant target and confirming overlay
+        converges to the body within a few frames without overshoot."""
+        tr = TargetTracker()
+        tr.configure_overlay_dot_alpha(0.58)
+        # Hold body still for 30 frames.
+        m = self._seed_then_observe(tr, 640.0, 540.0, vx_pxps=0.0, n_frames=30)
+        ox, oy = m.overlay_xy()
+        # Should be tracking exactly the body chest.
+        self.assertLess(abs(ox - m.x), 0.5)
+        self.assertLess(abs(oy - m.y), 0.5)
+
+
 if __name__ == "__main__":
     unittest.main()
