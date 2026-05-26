@@ -277,6 +277,38 @@ class OverlayDotLagTests(unittest.TestCase):
             f"overlay/pull gap at 480 px/s strafing = {gap:.2f} px"
         )
 
+    def test_overlay_dot_stays_still_under_detector_noise(self) -> None:
+        """The visible dot must not wobble visibly when the body is
+        stationary and the detector adds ±1.5 px centroid noise.
+        With the bbox EMA + speed-adaptive overlay alpha, dot wobble
+        range stays well under 2 px in both axes."""
+        import random
+        tr = TargetTracker()
+        tr.configure_overlay_dot_alpha(0.58)
+        random.seed(0)
+        positions = []
+        for i in range(60):
+            cx = 640.0 + random.uniform(-1.5, 1.5)
+            cy = 540.0 + random.uniform(-1.5, 1.5)
+            bx = int(cx - 30 + random.uniform(-1, 1))
+            by = int(cy - 60 + random.uniform(-1, 1))
+            m = tr.observe_target(
+                cx, cy, i / 60.0,
+                bbox_x=bx, bbox_y=by, bbox_w=60, bbox_h=120,
+                aim_is_body_anchor=True,
+            )
+            ox, oy = m.overlay_xy()
+            positions.append((ox, oy))
+        steady = positions[30:]
+        xs = [p[0] for p in steady]
+        ys = [p[1] for p in steady]
+        wobble_x = max(xs) - min(xs)
+        wobble_y = max(ys) - min(ys)
+        self.assertLess(wobble_x, 2.5,
+            f"overlay dot wobble x={wobble_x:.2f} px on stationary body — too noisy")
+        self.assertLess(wobble_y, 2.5,
+            f"overlay dot wobble y={wobble_y:.2f} px on stationary body — too noisy")
+
     def test_overlay_dot_still_smooth_at_rest(self) -> None:
         """At rest the overlay alpha ceiling stays at dot_a so a
         single-pixel detector noise doesn't make the dot flicker —
