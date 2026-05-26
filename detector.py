@@ -411,14 +411,19 @@ def _normalize_detection_mode(mode: str | None) -> str:
     return m
 
 
-def build_shape_mask(frame_bgr: np.ndarray) -> np.ndarray:
+def build_shape_mask(
+    frame_bgr: np.ndarray,
+    *,
+    gray: np.ndarray | None = None,
+) -> np.ndarray:
     """
     Color-free foreground mask: local contrast + edges, morphology to join body plates.
     Works across Apex skin colors; shape scoring rejects UI/HUD blobs.
     """
     h, w = frame_bgr.shape[:2]
     scale = _scale(w, h)
-    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    if gray is None:
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
     k_small = max(3, int(3 * scale) | 1)
     k_large = max(5, int(7 * scale) | 1)
@@ -622,6 +627,11 @@ class DetectionContext:
     # find_best_target sets ``_frame_hsv`` once at entry and clears it on
     # exit; the mask builders look here before computing fresh.
     _frame_hsv: np.ndarray | None = None
+    # Per-frame GRAY cache (PERF): build_shape_mask AND
+    # build_detection_mask each call ``cv2.cvtColor(BGR2GRAY)``.
+    # Cache the result once per find_best_target invocation so the
+    # second call reuses it.
+    _frame_gray: np.ndarray | None = None
 
     def reset(self) -> None:
         self.prev_gray = None
@@ -631,6 +641,7 @@ class DetectionContext:
         self._validated_credit = 0
         self.pan_detected = False
         self._frame_hsv = None
+        self._frame_gray = None
 
     def update_prev(self, gray: np.ndarray) -> None:
         if self.prev_gray is None or self.prev_gray.shape != gray.shape:
@@ -712,8 +723,11 @@ def build_detection_mask(
     into the background but who move dynamically.
     """
     mode = _normalize_detection_mode(detection_mode)
-    shape_m = build_shape_mask(frame_bgr)
-    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    cached_gray = context._frame_gray if context is not None else None
+    shape_m = build_shape_mask(frame_bgr, gray=cached_gray)
+    gray = cached_gray if cached_gray is not None else cv2.cvtColor(
+        frame_bgr, cv2.COLOR_BGR2GRAY
+    )
     bg_mean = float(np.mean(gray))
     shape_px = int((shape_m > 0).sum())
 
@@ -4637,6 +4651,7 @@ def find_best_target(
     # frame-overrun rate in the 60 fps capture loop.
     if context is not None:
         context._frame_hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+        context._frame_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     ring_fov = (
         float(display_fov_radius)
         if display_fov_radius is not None and display_fov_radius > 0
