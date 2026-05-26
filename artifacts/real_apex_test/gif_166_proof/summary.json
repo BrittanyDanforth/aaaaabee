@@ -11,7 +11,7 @@
     "detector_bbox_top_in_sky": 0,
     "chest_band_violations": 0,
     "high_bbox_close_frames": 0,
-    "frames_written": 12,
+    "frames_written": 166,
     "pass_high_bbox_close": true,
     "pass_red_dot_sky": true,
     "pass_no_implausible_lock": false,
