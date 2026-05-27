@@ -337,4 +337,31 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
 
         cfg["log_file"] = resolve_log_path(cfg["log_file"])
 
+    sel = str(cfg.get("target_selection_mode", "apex")).strip().lower()
+    valid_sel = ("apex", "nearest", "nearest_center", "valoai", "apex_yolo_fusion")
+    if sel not in valid_sel:
+        raise ConfigError(
+            f"target_selection_mode must be one of {sorted(valid_sel)}, got {sel!r}"
+        )
+    cfg["target_selection_mode"] = sel
+
+    cfg["yolo_assist_enabled"] = bool(cfg.get("yolo_assist_enabled", False))
+    cfg["yolo_weights_path"] = str(cfg.get("yolo_weights_path", "") or "").strip()
+    cfg["yolo_yolov5_root"] = str(cfg.get("yolo_yolov5_root", "") or "").strip()
+    cfg["yolo_inference_size"] = int(
+        _require_number(cfg, "yolo_inference_size", default=320.0, minimum=160, maximum=1280)
+    )
+    cfg["yolo_confidence_min"] = _require_number(
+        cfg, "yolo_confidence_min", default=0.35, minimum=0.05, maximum=0.99
+    )
+    cfg["yolo_fusion_boost"] = _require_number(
+        cfg, "yolo_fusion_boost", default=0.30, minimum=0.0, maximum=1.5
+    )
+    cfg["yolo_fusion_min_iou"] = _require_number(
+        cfg, "yolo_fusion_min_iou", default=0.28, minimum=0.05, maximum=0.95
+    )
+    cfg["yolo_device"] = str(cfg.get("yolo_device", "auto")).strip().lower()
+    if cfg["yolo_device"] not in ("auto", "cpu", "cuda"):
+        raise ConfigError("yolo_device must be auto, cpu, or cuda")
+
     return cfg

@@ -97,6 +97,9 @@ class AssistRuntime:
             motion_assist=bool(config.get("detection_motion_assist", True)),
             motion_threshold=int(config.get("detection_motion_threshold", 10)),
         )
+        from yolo_assist import try_create_yolo_assist
+
+        self._yolo = try_create_yolo_assist(config)
 
         if mouse_backend is not None:
             self._mouse = mouse_backend
@@ -980,6 +983,13 @@ class AssistRuntime:
             sticky, currently_locked, _lost_max = detection_sticky_context(
                 self._target_lock, cfg
             )
+        external_boxes = None
+        yolo = self._yolo
+        if yolo is not None:
+            try:
+                external_boxes = yolo.detect(frame_bgr)
+            except Exception as exc:
+                logger.warning("YoloAssist detect failed: %s", exc)
         result = find_best_target(
             frame_bgr,
             hsv_ranges,
@@ -1010,6 +1020,10 @@ class AssistRuntime:
             display_fov_radius=float(
                 effective_overlay_fov_radius(cfg)
             ),
+            target_selection_mode=str(cfg.get("target_selection_mode", "apex")),
+            external_boxes=external_boxes,
+            yolo_fusion_boost=float(cfg.get("yolo_fusion_boost", 0.30)),
+            yolo_fusion_min_iou=float(cfg.get("yolo_fusion_min_iou", 0.28)),
         )
         with self._lock:
 

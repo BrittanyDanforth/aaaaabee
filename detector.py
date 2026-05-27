@@ -6,10 +6,17 @@ import logging
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Sequence
 
 import cv2
 import numpy as np
+
+from tracking_fusion import (
+    ExternalBox,
+    apply_external_box_fusion,
+    select_ranked_target,
+    summarize_boxes,
+)
 
 logger = logging.getLogger("targeting")
 
@@ -4639,6 +4646,10 @@ def find_best_target(
     context: DetectionContext | None = None,
     currently_locked: bool = False,
     display_fov_radius: float | None = None,
+    target_selection_mode: str = "apex",
+    external_boxes: Sequence[ExternalBox] | None = None,
+    yolo_fusion_boost: float = 0.30,
+    yolo_fusion_min_iou: float = 0.28,
 ) -> DetectionResult:
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
@@ -4928,6 +4939,24 @@ def find_best_target(
 
     pool_max_h = max(int(t.bbox_h) for t in candidates)
 
+    fusion_boosts: dict[int, float] = {}
+    if external_boxes:
+        fusion_boosts = apply_external_box_fusion(
+            candidates,
+            external_boxes,
+            fov_radius=float(fov_radius),
+            boost_scale=float(yolo_fusion_boost),
+            min_iou=float(yolo_fusion_min_iou),
+            min_box_conf=0.25,
+        )
+        if fusion_boosts:
+            dbg.append(
+                f"{summarize_boxes(external_boxes)} fusion_hits={len(fusion_boosts)}"
+            )
+
+    _body_min = float(body_shape_min_score or _MIN_BODY_SHAPE_ACCEPT)
+    _selection_mode = str(target_selection_mode or "apex").strip().lower()
+
     def _motion_overlap(t: Target) -> float:
         if context is None:
             return 0.0
@@ -4970,7 +4999,7 @@ def find_best_target(
             ):
                 high_frac = max(0.0, 0.40 - float(t.bbox_y) / float(h))
                 raw -= float(fov_radius) * high_frac * 2.8
-        return raw
+        return raw + fusion_boosts.get(id(t), 0.0)
 
     def finalize(t: Target) -> Target:
         raw = score_target(
@@ -5077,7 +5106,13 @@ def find_best_target(
                 pool = []
         if pool:
             sticky_best = max(pool, key=rank)
-            global_best = max(candidates, key=rank)
+            global_best = select_ranked_target(
+                candidates,
+                rank,
+                selection_mode=_selection_mode,
+                fov_radius=float(fov_radius),
+                body_shape_min=_body_min,
+            )
             closer_challengers = [
                 t
                 for t in candidates
@@ -5371,7 +5406,15 @@ def find_best_target(
                 active=hold_active,
             )
 
-    best = finalize(max(candidates, key=rank))
+    best = finalize(
+        select_ranked_target(
+            candidates,
+            rank,
+            selection_mode=_selection_mode,
+            fov_radius=float(fov_radius),
+            body_shape_min=_body_min,
+        )
+    )
     if target_is_background_clutter(best):
         dbg.append(
             f"free-max reject {RejectReason.BACKGROUND_CLUTTER.value} "
