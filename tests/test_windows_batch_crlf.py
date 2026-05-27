@@ -33,3 +33,20 @@ def test_run_windows_has_hwid_fail_label() -> None:
     text = (REPO_ROOT / "run_windows.bat").read_text(encoding="utf-8")
     assert ":HwidFail" in text
     assert "goto :HwidFail" in text
+
+
+def test_run_windows_avoids_if_exist_paren_blocks() -> None:
+    """IF ( ) blocks break when %ROOT% expands to a path containing (1)."""
+    text = (REPO_ROOT / "run_windows.bat").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        stripped = line.strip().lower()
+        if stripped.startswith("if not exist") and stripped.endswith("("):
+            raise AssertionError(
+                "run_windows.bat uses IF EXIST (...); unsafe with ( ) in folder paths: "
+                + line.strip()
+            )
+        if stripped.startswith("if exist") and "%" in stripped and stripped.endswith("("):
+            raise AssertionError(
+                "run_windows.bat uses IF EXIST path (...); unsafe with ( ) in folder paths: "
+                + line.strip()
+            )

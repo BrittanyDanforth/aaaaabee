@@ -19,6 +19,8 @@ Failures **pause once** with a clear message. Log: `logs\aba_setup.log`
 
 **Run as administrator:** the script merges your user `PATH` (so `py` / `python` work), skips redundant HWID UAC popups, and uses `cmd /k` so the window stays open if setup errors before `pause`.
 
+**Folder path has `(1)` or other parentheses** (common in `Downloads\... (1)\...`): that is supported. If you still see `was unexpected at this time`, move the repo to a path without parentheses (e.g. `C:\OverlayAssist`).
+
 ### If setup fails
 
 ```bat
