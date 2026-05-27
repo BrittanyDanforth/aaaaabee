@@ -84,6 +84,41 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
     # PHASE-5 AUDIT: "Tracking" preset sits between Responsive and Strong.
     # Looser body-shape gate + tighter smoothing + slightly higher pull
     # speed than Responsive, without arming Strong's recoil / jitter.
+    # ApexAimBot-style: YOLO primary detect + nearest pick (needs weights — see docs).
+    "ApexAimBot": {
+        "pull_strength": 0.92,
+        "smoothing_tau_still": 0.028,
+        "smoothing_tau_moving": 0.012,
+        "velocity_smoothing": 0.36,
+        "max_pull_speed_pixels_per_frame": 28.0,
+        "torso_aim_fraction": 0.36,
+        "target_stickiness_pixels": 55,
+        "body_shape_min_score": 0.40,
+        "deadzone_pixels": 2,
+        "magnetism_radius_pixels": 72,
+        "target_selection_mode": "nearest",
+        "detection_mode": "yolo",
+        "pull_mode": "apexaimbot_pid",
+        "yolo_weights_path": "third_party/apexaimbot/weights/APEX416SFP32.engine",
+        "yolo_yolov5_root": "third_party/apexaimbot",
+        "yolo_inference_size": 416,
+        "yolo_grab_width": 416,
+        "yolo_grab_height": 416,
+        "yolo_confidence_min": 0.5,
+        "yolo_iou_thres": 0.25,
+        "yolo_max_det": 3,
+        "yolo_aim_fraction": 0.2,
+        "yolo_exclude_labels": ["teammate"],
+        "apexaimbot_pid_x_p": 0.36,
+        "apexaimbot_pid_x_i": 0.032,
+        "apexaimbot_pid_x_d": 0.01,
+        "apexaimbot_pid_y_p": 0.2,
+        "apexaimbot_min_step": 10,
+        "apexaimbot_max_step": 6,
+        "prediction_vertical_cap_pixels": 4.0,
+        "recoil_compensation_enabled": False,
+        "jitter_enabled": False,
+    },
     "Tracking": {
         "body_shape_min_score": 0.42,
         "target_stickiness_pixels": 70,
@@ -154,6 +189,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
 # the Apex red-enemy-outline cue with shape edges, saturation, and motion difference.
 DETECTION_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("apex", "Apex (default — auto-fuses red outline + shape + motion)"),
+    ("yolo", "YOLO (neural — requires yolo_weights_path + torch)"),
     ("shape", "Shape only (no colour cue)"),
     ("hybrid", "Hybrid (shape + HSV)"),
     ("hsv", "HSV only (legacy colour mask)"),
@@ -886,7 +922,7 @@ class AbaApplication:
         # the audit fixes specifically validate.
         self._section(parent, "Detection mode")
         current = str(self.config.get("detection_mode", "apex")).lower()
-        if current not in {"apex", "shape", "hsv", "hybrid"}:
+        if current not in {"apex", "shape", "hsv", "hybrid", "yolo"}:
             current = "apex"
         self._detection_mode_var = tk.StringVar(value=current)
         row = tk.Frame(parent, bg=UI_PANEL)
@@ -898,7 +934,7 @@ class AbaApplication:
         combo = ttk.Combobox(
             row,
             textvariable=self._detection_mode_var,
-            values=("apex", "shape", "hsv", "hybrid"),
+            values=("apex", "yolo", "shape", "hsv", "hybrid"),
             state="readonly",
             width=12,
         )
@@ -909,8 +945,9 @@ class AbaApplication:
         )
         tk.Label(
             parent,
-            text="apex = Apex enemy red outline + shape/chroma/motion fusion (default).\n"
-                 "shape/hsv/hybrid are legacy modes kept for back-compat only.",
+            text="apex = red outline + shape/chroma/motion (default).\n"
+                 "yolo = YOLOv5 primary detect (set yolo_weights_path; pip install -r requirements-yolo.txt).\n"
+                 "shape/hsv/hybrid = legacy CV modes.",
             bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
         ).pack(anchor="w", pady=(0, 8))
 
@@ -924,7 +961,7 @@ class AbaApplication:
 
     def _on_detection_mode_change(self) -> None:
         mode = self._detection_mode_var.get().strip().lower()
-        if mode not in {"apex", "shape", "hsv", "hybrid"}:
+        if mode not in {"apex", "shape", "hsv", "hybrid", "yolo"}:
             mode = "apex"
         try:
             self.config = self._controller.apply_config_patch(

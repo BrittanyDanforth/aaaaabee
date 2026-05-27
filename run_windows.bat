@@ -189,6 +189,14 @@ if errorlevel 1 (
 )
 
 echo.
+echo Verifying ApexAimBot bundle (weights + vendor tree)...
+"%PY%" scripts\ensure_apexaimbot_bundle.py
+if errorlevel 1 (
+  set "FAILMSG=ApexAimBot bundle incomplete. Run: python scripts\ensure_apexaimbot_bundle.py
+  goto :SetupFail
+)
+
+echo.
 echo Running self-check...
 call :Log "Self-check starting"
 "%PY%" aba.py --self-check

@@ -76,8 +76,8 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
 
     cfg: dict[str, Any] = dict(raw)
     mode = str(cfg.get("detection_mode", "apex")).strip().lower()
-    if mode not in ("shape", "hsv", "hybrid", "apex"):
-        raise ConfigError("detection_mode must be apex, shape, hsv, or hybrid")
+    if mode not in ("shape", "hsv", "hybrid", "apex", "yolo"):
+        raise ConfigError("detection_mode must be apex, shape, hsv, hybrid, or yolo")
     cfg["detection_mode"] = mode
     if mode in ("hsv", "hybrid"):
         cfg["hsv_ranges"] = _validate_hsv_ranges(cfg.get("hsv_ranges"))
@@ -336,5 +336,77 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         from path_utils import resolve_log_path
 
         cfg["log_file"] = resolve_log_path(cfg["log_file"])
+
+    sel = str(cfg.get("target_selection_mode", "apex")).strip().lower()
+    valid_sel = ("apex", "nearest", "nearest_center", "valoai", "apex_yolo_fusion")
+    if sel not in valid_sel:
+        raise ConfigError(
+            f"target_selection_mode must be one of {sorted(valid_sel)}, got {sel!r}"
+        )
+    cfg["target_selection_mode"] = sel
+
+    cfg["yolo_assist_enabled"] = bool(cfg.get("yolo_assist_enabled", False))
+    cfg["yolo_weights_path"] = str(cfg.get("yolo_weights_path", "") or "").strip()
+    cfg["yolo_yolov5_root"] = str(cfg.get("yolo_yolov5_root", "") or "").strip()
+    cfg["yolo_inference_size"] = int(
+        _require_number(cfg, "yolo_inference_size", default=320.0, minimum=160, maximum=1280)
+    )
+    cfg["yolo_confidence_min"] = _require_number(
+        cfg, "yolo_confidence_min", default=0.35, minimum=0.05, maximum=0.99
+    )
+    cfg["yolo_fusion_boost"] = _require_number(
+        cfg, "yolo_fusion_boost", default=0.30, minimum=0.0, maximum=1.5
+    )
+    cfg["yolo_fusion_min_iou"] = _require_number(
+        cfg, "yolo_fusion_min_iou", default=0.28, minimum=0.05, maximum=0.95
+    )
+    cfg["yolo_device"] = str(cfg.get("yolo_device", "auto")).strip().lower()
+    if cfg["yolo_device"] not in ("auto", "cpu", "cuda"):
+        raise ConfigError("yolo_device must be auto, cpu, or cuda")
+    cfg["yolo_iou_thres"] = _require_number(
+        cfg, "yolo_iou_thres", default=0.25, minimum=0.05, maximum=0.95
+    )
+    cfg["yolo_max_det"] = int(
+        _require_number(cfg, "yolo_max_det", default=3.0, minimum=1, maximum=100)
+    )
+    cfg["yolo_use_fp16"] = bool(cfg.get("yolo_use_fp16", False))
+    cfg["yolo_aim_fraction"] = _require_number(
+        cfg, "yolo_aim_fraction", default=0.38, minimum=0.1, maximum=0.9
+    )
+    cfg["yolo_target_pick"] = str(cfg.get("yolo_target_pick", "nearest")).strip().lower()
+    excl = cfg.get("yolo_exclude_labels", ["teammate"])
+    if isinstance(excl, str):
+        cfg["yolo_exclude_labels"] = [
+            x.strip().lower() for x in excl.split(",") if x.strip()
+        ]
+    else:
+        cfg["yolo_exclude_labels"] = [str(x).strip().lower() for x in excl]
+
+    cfg["pull_mode"] = str(cfg.get("pull_mode", "aba")).strip().lower()
+    if cfg["pull_mode"] not in ("aba", "apexaimbot_pid"):
+        raise ConfigError("pull_mode must be aba or apexaimbot_pid")
+    cfg["yolo_grab_width"] = int(
+        _require_number(cfg, "yolo_grab_width", default=416.0, minimum=64, maximum=1920)
+    )
+    cfg["yolo_grab_height"] = int(
+        _require_number(cfg, "yolo_grab_height", default=416.0, minimum=64, maximum=1920)
+    )
+    if not cfg.get("yolo_yolov5_root"):
+        from pathlib import Path
+
+        vend = Path(__file__).resolve().parent / "third_party" / "apexaimbot"
+        if vend.is_dir():
+            cfg["yolo_yolov5_root"] = str(vend)
+
+    if mode == "yolo":
+        wp = str(cfg.get("yolo_weights_path", "") or "").strip()
+        if not wp:
+            raise ConfigError("detection_mode=yolo requires yolo_weights_path")
+        from pathlib import Path
+
+        app_root = Path(__file__).resolve().parent
+        p = Path(wp)
+        if not p.is_file() and not (app_root / wp).is_file():
+            raise ConfigError(f"yolo_weights_path not found: {wp}")
 
     return cfg

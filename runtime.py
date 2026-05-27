@@ -97,6 +97,19 @@ class AssistRuntime:
             motion_assist=bool(config.get("detection_motion_assist", True)),
             motion_threshold=int(config.get("detection_motion_threshold", 10)),
         )
+        from yolo_detector import get_yolo_engine, reset_yolo_engine_cache
+        from yolo_assist import try_create_yolo_assist
+
+        from apexaimbot_bridge import reset_apexaimbot_cache
+
+        reset_yolo_engine_cache()
+        reset_apexaimbot_cache()
+        self._yolo_engine = get_yolo_engine(config)
+        self._last_apex_box: tuple[float, float] | None = None
+        det_mode = str(config.get("detection_mode", "apex")).strip().lower()
+        self._yolo_assist = (
+            try_create_yolo_assist(config) if det_mode != "yolo" else None
+        )
 
         if mouse_backend is not None:
             self._mouse = mouse_backend
@@ -980,6 +993,19 @@ class AssistRuntime:
             sticky, currently_locked, _lost_max = detection_sticky_context(
                 self._target_lock, cfg
             )
+        cfg_mode = str(cfg.get("detection_mode", "apex")).strip().lower()
+        external_boxes = None
+        if cfg_mode != "yolo" and self._yolo_assist is not None:
+            try:
+                external_boxes = self._yolo_assist.detect(frame_bgr)
+            except Exception as exc:
+                logger.warning("YoloAssist detect failed: %s", exc)
+        yolo_engine = self._yolo_engine if cfg_mode == "yolo" else None
+        if cfg_mode == "yolo" and yolo_engine is None:
+            from yolo_detector import get_yolo_engine
+
+            yolo_engine = get_yolo_engine(cfg)
+            self._yolo_engine = yolo_engine
         result = find_best_target(
             frame_bgr,
             hsv_ranges,
@@ -1010,7 +1036,18 @@ class AssistRuntime:
             display_fov_radius=float(
                 effective_overlay_fov_radius(cfg)
             ),
+            target_selection_mode=str(cfg.get("target_selection_mode", "apex")),
+            external_boxes=external_boxes if cfg_mode != "yolo" else None,
+            yolo_fusion_boost=float(cfg.get("yolo_fusion_boost", 0.30)),
+            yolo_fusion_min_iou=float(cfg.get("yolo_fusion_min_iou", 0.28)),
+            yolo_engine=yolo_engine,
+            ads_active=bool(cfg.get("_ads_active", False)),
         )
+        if cfg_mode == "yolo" and result.target is not None:
+            self._last_apex_box = (
+                float(result.target.bbox_w),
+                float(result.target.bbox_h),
+            )
         with self._lock:
 
             def _on_lock_expired() -> None:
@@ -1580,75 +1617,124 @@ class AssistRuntime:
                         and target is not None
                         and may_assist_pull
                     )
+                    det_mode = str(cfg.get("detection_mode", "apex")).strip().lower()
+                    pull_mode = str(cfg.get("pull_mode", "aba")).strip().lower()
+                    apex_pid = pull_mode == "apexaimbot_pid" and det_mode == "yolo"
+                    # ApexAimBot pulls while firing (LMB); ABA default still ADS-gated.
+                    pull_gate = ads_for_assist or (apex_pid and firing_now)
                     if (
                         not paused
                         and self._should_run()
-                        and ads_for_assist
+                        and pull_gate
                         and may_pull
-                        and self._pull is not None
                     ):
-                        pr = self._pull.compute_delta(
-                            pull_target,
-                            frame_cx,
-                            frame_cy,
-                            time_sec=t0,
-                            stale_detection=stale_det,
-                            is_firing=firing_now,
-                        )
-                        pull_px = pr.magnitude
-                        pull_strength = pr.effective_strength
-                        with self._lock:
-                            self._last_pull_dx = pr.dx
-                            self._last_pull_dy = pr.dy
-                        gate_result = MouseGateResult(True, "")
-                        moved = (0, 0)
-                        if (pr.dx != 0 or pr.dy != 0) and self._should_run():
-                            gate_result = self._safe_mouse_move(pr.dx, pr.dy)
-                            if gate_result.allowed:
-                                moved = (pr.dx, pr.dy)
-                        overlay_mon = monitor_overlay
+                        pr = None
                         if (
-                            overlay_mon is None
+                            apex_pid
+                            and self._yolo_engine is not None
                             and pull_target is not None
-                            and cap_region is not None
                         ):
-                            overlay_mon = to_monitor_coords(
-                                pull_target.centroid_x,
-                                pull_target.centroid_y,
-                                cap_region,
+                            from apexaimbot_bridge import in_lock_box, pid_mouse_delta
+
+                            err_x = float(pull_target.centroid_x - frame_cx)
+                            err_y = float(pull_target.centroid_y - frame_cy)
+                            bw, bh = self._last_apex_box or (
+                                float(pull_target.bbox_w),
+                                float(pull_target.bbox_h),
                             )
-                        loop_ms = (time.perf_counter() - t0) * 1000.0
-                        ach_fps = 1000.0 / loop_ms if loop_ms > 0.1 else 0.0
-                        if self._trace_pull:
-                            trace_pull_xy = (
-                                (pull_target.centroid_x, pull_target.centroid_y)
-                                if pull_target is not None
-                                else None
+                            # Hip = LMB without ADS (maps to Apex left_down_not_right).
+                            hip_fire = bool(firing_now and not ads_live)
+                            if in_lock_box(
+                                self._yolo_engine,
+                                error_x=err_x,
+                                error_y=err_y,
+                                box_width=bw,
+                                box_height=bh,
+                                hip_fire=hip_fire,
+                            ):
+                                pdx, pdy = pid_mouse_delta(
+                                    self._yolo_engine,
+                                    error_x=err_x,
+                                    error_y=err_y,
+                                    hip_fire=hip_fire,
+                                )
+                                from pull import PullResult
+
+                                pr = PullResult(
+                                    pdx,
+                                    pdy,
+                                    float(math.hypot(pdx, pdy)),
+                                    1.0,
+                                    float(math.hypot(err_x, err_y)),
+                                )
+                            else:
+                                from pull import PullResult
+
+                                pr = PullResult(0, 0, 0.0, 0.0, 0.0)
+                        elif self._pull is not None:
+                            pr = self._pull.compute_delta(
+                                pull_target,
+                                frame_cx,
+                                frame_cy,
+                                time_sec=t0,
+                                stale_detection=stale_det,
+                                is_firing=firing_now,
                             )
-                            self._emit_pull_trace(
-                                cfg,
-                                frame_cx=frame_cx,
-                                frame_cy=frame_cy,
-                                target=target,
-                                motion=motion,
-                                pr_dx=pr.dx,
-                                pr_dy=pr.dy,
-                                pr_mag=pr.magnitude,
-                                pr_vel=(pr.vel_x, pr.vel_y),
-                                pr_desired=(pr.desired_x, pr.desired_y),
-                                gate_allowed=gate_result.allowed,
-                                gate_reason=gate_result.reason,
-                                mouse_move=moved,
-                                detection_fresh=detection_fresh,
-                                stale_det=stale_det,
-                                ads_active=ads_for_assist,
-                                overlay_dot=overlay_mon,
-                                pull_frame_xy=trace_pull_xy,
-                                capture_ms=capture_ms,
-                                detect_ms=detect_ms,
-                                total_loop_ms=loop_ms,
-                                achieved_fps=ach_fps,
-                            )
+                        if pr is not None:
+                            pull_px = pr.magnitude
+                            pull_strength = pr.effective_strength
+                            with self._lock:
+                                self._last_pull_dx = pr.dx
+                                self._last_pull_dy = pr.dy
+                            gate_result = MouseGateResult(True, "")
+                            moved = (0, 0)
+                            if (pr.dx != 0 or pr.dy != 0) and self._should_run():
+                                gate_result = self._safe_mouse_move(pr.dx, pr.dy)
+                                if gate_result.allowed:
+                                    moved = (pr.dx, pr.dy)
+                            overlay_mon = monitor_overlay
+                            if (
+                                overlay_mon is None
+                                and pull_target is not None
+                                and cap_region is not None
+                            ):
+                                overlay_mon = to_monitor_coords(
+                                    pull_target.centroid_x,
+                                    pull_target.centroid_y,
+                                    cap_region,
+                                )
+                            loop_ms = (time.perf_counter() - t0) * 1000.0
+                            ach_fps = 1000.0 / loop_ms if loop_ms > 0.1 else 0.0
+                            if self._trace_pull:
+                                trace_pull_xy = (
+                                    (pull_target.centroid_x, pull_target.centroid_y)
+                                    if pull_target is not None
+                                    else None
+                                )
+                                self._emit_pull_trace(
+                                    cfg,
+                                    frame_cx=frame_cx,
+                                    frame_cy=frame_cy,
+                                    target=target,
+                                    motion=motion,
+                                    pr_dx=pr.dx,
+                                    pr_dy=pr.dy,
+                                    pr_mag=pr.magnitude,
+                                    pr_vel=(pr.vel_x, pr.vel_y),
+                                    pr_desired=(pr.desired_x, pr.desired_y),
+                                    gate_allowed=gate_result.allowed,
+                                    gate_reason=gate_result.reason,
+                                    mouse_move=moved,
+                                    detection_fresh=detection_fresh,
+                                    stale_det=stale_det,
+                                    ads_active=ads_for_assist,
+                                    overlay_dot=overlay_mon,
+                                    pull_frame_xy=trace_pull_xy,
+                                    capture_ms=capture_ms,
+                                    detect_ms=detect_ms,
+                                    total_loop_ms=loop_ms,
+                                    achieved_fps=ach_fps,
+                                )
 
                     elif (
                         not paused

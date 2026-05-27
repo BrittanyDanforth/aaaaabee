@@ -99,6 +99,36 @@ class RuntimeController:
                 live._detect_ctx.motion_threshold = int(
                     merged.get("detection_motion_threshold", 10)
                 )
+            yolo_touched = any(
+                k in patch
+                for k in (
+                    "detection_mode",
+                    "yolo_weights_path",
+                    "yolo_yolov5_root",
+                    "yolo_inference_size",
+                    "yolo_confidence_min",
+                    "yolo_device",
+                    "pull_mode",
+                    "apexaimbot_pid_x_p",
+                    "apexaimbot_pid_x_i",
+                    "apexaimbot_pid_x_d",
+                    "apexaimbot_pid_y_p",
+                    "apexaimbot_min_step",
+                    "apexaimbot_max_step",
+                )
+            )
+            if yolo_touched:
+                from apexaimbot_bridge import reset_apexaimbot_cache
+                from yolo_detector import get_yolo_engine, reset_yolo_engine_cache
+                from yolo_assist import try_create_yolo_assist
+
+                reset_yolo_engine_cache()
+                reset_apexaimbot_cache()
+                det_mode = str(merged.get("detection_mode", "apex")).strip().lower()
+                live._yolo_engine = get_yolo_engine(merged)
+                live._yolo_assist = (
+                    try_create_yolo_assist(merged) if det_mode != "yolo" else None
+                )
             if hasattr(live, "_pull") and live._pull is not None:
                 live._pull.update_tuning(
                     pull_strength=float(merged.get("pull_strength", 0.82)),

@@ -143,6 +143,7 @@ class TargetingRuntime:
         self._smoothed_bbox: tuple[float, float, float, float] | None = None
         self._observe_target_calls: int = 0
         self._detect_ctx = detector.DetectionContext()
+        self._yolo_engine = None
 
     def reset(self) -> None:
         self.tracker.reset()
@@ -258,6 +259,13 @@ class TargetingRuntime:
         self._apply_motion_config(config, cx, cy)
 
         sticky, currently_locked, _ = detection_sticky_context(self._lock_state, config)
+        det_mode = str(config.get("detection_mode", "apex")).strip().lower()
+        yolo_engine = None
+        if det_mode == "yolo":
+            from yolo_detector import get_yolo_engine
+
+            yolo_engine = get_yolo_engine(config)
+            self._yolo_engine = yolo_engine
         raw = detector.find_best_target(
             frame_bgr,
             config.get("hsv_ranges"),
@@ -277,10 +285,12 @@ class TargetingRuntime:
             min_solidity=float(config.get("humanoid_min_solidity", 0.25)),
             torso_aim_fraction=float(config.get("torso_aim_fraction", 0.38)),
             body_shape_min_score=float(config.get("body_shape_min_score", 0.40)),
-            detection_mode=str(config.get("detection_mode", "apex")),
-            context=self._detect_ctx,
+            detection_mode=det_mode,
+            context=self._detect_ctx if det_mode != "yolo" else None,
             debug=debug,
             display_fov_radius=float(effective_overlay_fov_radius(config)),
+            yolo_engine=yolo_engine,
+            ads_active=ads_active,
         )
         result, is_stale = apply_target_lock(
             self._lock_state,

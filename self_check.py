@@ -82,6 +82,59 @@ def build_legacy_blob_frame(
     return frame
 
 
+def run_yolo_detection_check(
+    config: dict[str, Any],
+    *,
+    log_line: Callable[[str], None] | None = None,
+) -> tuple[bool, list[str], str | None]:
+    """Validate vendored ApexAimBot weights path and engine load when torch is present."""
+    from pathlib import Path
+
+    from apexaimbot_bridge import VENDOR_DEFAULT, get_apexaimbot_runtime
+
+    def _log(msg: str) -> None:
+        if log_line is not None:
+            log_line(msg)
+
+    cfg = dict(config)
+    if not cfg.get("yolo_yolov5_root") and VENDOR_DEFAULT.is_dir():
+        cfg["yolo_yolov5_root"] = str(VENDOR_DEFAULT)
+
+    vendor = Path(str(cfg.get("yolo_yolov5_root", VENDOR_DEFAULT)))
+    if not (vendor / "models" / "common.py").is_file():
+        return False, [], f"Vendored yolov5 missing at {vendor}"
+
+    try:
+        import sys
+
+        if str(vendor.resolve()) not in sys.path:
+            sys.path.insert(0, str(vendor.resolve()))
+        from engine import ApexAimBotDetectConfig
+
+        acfg = ApexAimBotDetectConfig.from_app_config(cfg)
+        _log(f"yolo weights resolved: {acfg.weights_path}")
+    except Exception as exc:
+        _log(f"yolo config fail: {exc}")
+        return False, [], f"YOLO/ApexAimBot config invalid: {exc}"
+
+    try:
+        import torch  # noqa: F401
+    except ImportError:
+        lines = [
+            "  OK  vendored tree + weights path (install torch: pip install -r requirements-yolo.txt)"
+        ]
+        return True, lines, None
+
+    eng = get_apexaimbot_runtime(cfg)
+    if eng is None:
+        return False, [], "ApexAimBot engine failed to load (see logs)"
+    lines = [
+        f"  OK  ApexAimBot engine loaded weights={eng.config.weights_path.name} "
+        f"imgsz={eng.config.model_imgsz}"
+    ]
+    return True, lines, None
+
+
 def run_body_detection_check(
     find_best_target: Callable[..., Any],
     config: dict[str, Any],
@@ -358,26 +411,33 @@ def run_self_check_detailed(config: dict[str, Any]) -> SelfCheckResult:
             errors.append(f"Capture failed: {exc}")
             lines.append(f"  FAIL {exc}")
 
-    lines.append("\nDetection (synthetic body dummy):")
+    det_mode = str(config.get("detection_mode", "apex")).strip().lower()
+    if det_mode == "yolo":
+        lines.append("\nDetection (YOLO primary):")
+    else:
+        lines.append("\nDetection (synthetic body dummy):")
     try:
         from detector import find_best_target
 
-        ok, ok_lines, err = run_body_detection_check(
-            find_best_target,
-            config,
-            log_line=_log_line,
-            fov_radius=int(config.get("fov_radius_pixels", 180)),
-            # R3 (audit): config key is "min_target_area_pixels" — the old
-            # bare "min_target_area" never matched, so self-check always
-            # defaulted to 40 regardless of profile.
-            min_area=float(config.get("min_target_area_pixels", 40)),
-        )
-        lines.extend(ok_lines)
-        for sanity_line in run_blob_mask_sanity(find_best_target, config, log_line=_log_line):
-            lines.append(sanity_line)
+        if det_mode == "yolo":
+            ok, ok_lines, err = run_yolo_detection_check(config, log_line=_log_line)
+            lines.extend(ok_lines)
+        else:
+            ok, ok_lines, err = run_body_detection_check(
+                find_best_target,
+                config,
+                log_line=_log_line,
+                fov_radius=int(config.get("fov_radius_pixels", 180)),
+                min_area=float(config.get("min_target_area_pixels", 40)),
+            )
+            lines.extend(ok_lines)
+            for sanity_line in run_blob_mask_sanity(
+                find_best_target, config, log_line=_log_line
+            ):
+                lines.append(sanity_line)
         if not ok:
-            errors.append(err or "Synthetic body dummy not detected")
-            lines.append("  FAIL no target on body-shaped test pattern")
+            errors.append(err or "Detection self-check failed")
+            lines.append("  FAIL detection self-check")
     except Exception as exc:
         errors.append(f"Detection failed: {exc}")
         lines.append(f"  FAIL {exc}")
