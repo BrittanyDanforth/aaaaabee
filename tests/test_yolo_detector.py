@@ -101,7 +101,16 @@ def test_config_validation_accepts_yolo_mode() -> None:
 
 
 def test_reset_yolo_engine_cache() -> None:
-    reset_yolo_engine_cache()
-    from yolo_detector import _yolo_engine_cache
+    from apexaimbot_bridge import _engine_cache, get_apexaimbot_runtime
 
-    assert _yolo_engine_cache is None
+    cfg = {
+        "detection_mode": "yolo",
+        "yolo_yolov5_root": "third_party/apexaimbot",
+        "yolo_weights_path": "third_party/apexaimbot/weights/APEX22W.pt",
+    }
+    get_apexaimbot_runtime(cfg)
+    import apexaimbot_bridge as bridge
+
+    assert bridge._engine_cache is not None
+    reset_yolo_engine_cache()
+    assert bridge._engine_cache is None

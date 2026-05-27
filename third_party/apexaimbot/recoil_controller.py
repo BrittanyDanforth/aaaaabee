@@ -25,13 +25,22 @@ class ApexRecoilController:
     """Step through weapon pattern while LMB held (mirrors down_gun_fun_c)."""
 
     def __init__(self, cfg: dict[str, Any]) -> None:
+        self._index = 0
+        self._next_at = 0.0
+        self._apply_cfg(cfg)
+
+    def _apply_cfg(self, cfg: dict[str, Any]) -> None:
         self._weapon = str(
             cfg.get("apexaimbot_recoil_weapon", DEFAULT_RECOIL_WEAPON)
         ).strip().upper()
         self._modifier = compute_recoil_modifier(cfg)
-        self._pattern = RECOIL_PATTERNS.get(self._weapon, RECOIL_PATTERNS[DEFAULT_RECOIL_WEAPON])
-        self._index = 0
-        self._next_at = 0.0
+        self._pattern = RECOIL_PATTERNS.get(
+            self._weapon, RECOIL_PATTERNS[DEFAULT_RECOIL_WEAPON]
+        )
+
+    def reconfigure(self, cfg: dict[str, Any]) -> None:
+        """Hot-reload sens/weapon without resetting pattern index."""
+        self._apply_cfg(cfg)
 
     def reset(self) -> None:
         self._index = 0

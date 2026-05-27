@@ -113,6 +113,13 @@ def _cache_key(cfg: dict[str, Any]) -> tuple[Any, ...]:
         int(cfg.get("yolo_inference_size", 416)),
         float(cfg.get("yolo_confidence_min", 0.5)),
         float(cfg.get("yolo_iou_thres", 0.25)),
+        int(cfg.get("yolo_max_det", 3)),
+        int(cfg.get("yolo_grab_width", 416)),
+        int(cfg.get("yolo_grab_height", 416)),
+        bool(cfg.get("yolo_use_fp16", False)),
+        float(cfg.get("yolo_aim_fraction", 0.2)),
+        float(cfg.get("apexaimbot_lock_range_x", 0.7)),
+        float(cfg.get("apexaimbot_lock_range_y", 0.5)),
         float(cfg.get("apexaimbot_pid_x_p", 0.36)),
         float(cfg.get("apexaimbot_pid_x_i", 0.032)),
         float(cfg.get("apexaimbot_pid_x_d", 0.01)),
@@ -122,6 +129,7 @@ def _cache_key(cfg: dict[str, Any]) -> tuple[Any, ...]:
         float(cfg.get("apexaimbot_min_step", 10)),
         float(cfg.get("apexaimbot_max_step", 6)),
         float(cfg.get("apexaimbot_mouse_modifier", 0.8)),
+        float(cfg.get("apexaimbot_recoil_modifier", 0.8)),
         bool(cfg.get("apexaimbot_scale_pid_by_modifier", False)),
         str(cfg.get("yolo_device", "")),
     )
@@ -151,6 +159,7 @@ def get_apexaimbot_runtime(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:
                 fb["yolo_weights_path"] = "third_party/apexaimbot/weights/APEX22W.pt"
                 try:
                     rt = _load_runtime(fb)
+                    key = _cache_key(fb)
                     logger.info("ApexAimBot using PyTorch fallback APEX22W.pt")
                 except Exception as exc2:
                     logger.error("ApexAimBot PT fallback failed: %s", exc2)

@@ -29,6 +29,8 @@ class MouseGateContext:
     pull_budget_scale: float = _DEFAULT_PULL_BUDGET_SCALE
     # ApexAimBot preset: LMB hip-fire assist without ADS
     assist_without_ads: bool = False
+    # Vendored recoil pattern — not gated on target lock / stale detect
+    recoil_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,10 @@ def evaluate_mouse_gate(config: dict[str, Any], ctx: MouseGateContext) -> MouseG
         return MouseGateResult(False, "allow_live_mouse=false")
     if not ctx.ads_active and not ctx.assist_without_ads:
         return MouseGateResult(False, "ADS not active")
+    if ctx.recoil_only:
+        if not ctx.target_process_ok:
+            return MouseGateResult(False, "target process not present")
+        return MouseGateResult(True, "")
     if not _target_lock_ok(ctx):
         if ctx.has_target and not ctx.detection_fresh:
             return MouseGateResult(

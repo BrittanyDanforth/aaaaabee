@@ -86,6 +86,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
     # speed than Responsive, without arming Strong's recoil / jitter.
     # ApexAimBot-style: YOLO primary detect + nearest pick (needs weights — see docs).
     "ApexAimBot": {
+        "profile": "apexaimbot",
         "pull_strength": 0.92,
         "smoothing_tau_still": 0.028,
         "smoothing_tau_moving": 0.012,
@@ -123,7 +124,6 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "apexaimbot_auto_sens_modifier": True,
         "apexaimbot_sens": 5,
         "apexaimbot_ads_sens": 1,
-        "pull_mode": "apexaimbot_pid",
         "apexaimbot_pid_x_p": 0.36,
         "apexaimbot_pid_x_i": 0.032,
         "apexaimbot_pid_x_d": 0.01,
@@ -133,6 +133,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "prediction_vertical_cap_pixels": 4.0,
         "recoil_compensation_enabled": False,
         "jitter_enabled": False,
+        "pull_subtick_hz": 0,
     },
     "Tracking": {
         "body_shape_min_score": 0.42,
@@ -310,6 +311,7 @@ class AbaApplication:
         self._bool_vars: dict[str, tk.BooleanVar] = {}
         self._active_tab = "basic"
         self._advanced_mode = False
+        self._combo_vars: dict[str, tk.StringVar] = {}
 
         self._root = tk.Tk()
         self._root.title("ABA")
@@ -659,6 +661,14 @@ class AbaApplication:
                 ctrl.set(float(self.config[key]))
         for key, var in self._bool_vars.items():
             var.set(bool(self.config.get(key, False)))
+        for key, var in self._combo_vars.items():
+            val = str(self.config.get(key, var.get())).strip().lower()
+            var.set(val)
+        if hasattr(self, "_detection_mode_var"):
+            self._detection_mode_var.set(
+                str(self.config.get("detection_mode", "apex")).strip().lower()
+            )
+        self._profile = normalize_profile_name(str(self.config.get("profile", self._profile)))
         self._update_fov_summary_label()
 
     def _show_tab(self, tab_id: str) -> None:
@@ -979,10 +989,20 @@ class AbaApplication:
         mode = self._detection_mode_var.get().strip().lower()
         if mode not in {"apex", "shape", "hsv", "hybrid", "yolo"}:
             mode = "apex"
-        try:
-            self.config = self._controller.apply_config_patch(
-                {"detection_mode": mode}, persist=False
+        patch: dict[str, Any] = {"detection_mode": mode}
+        if mode == "yolo":
+            patch.update(
+                {
+                    "profile": "apexaimbot",
+                    "pull_mode": "apexaimbot_pid",
+                    "mouse_backend": "apexaimbot",
+                    "yolo_weights_path": "third_party/apexaimbot/weights/APEX416SFP32.engine",
+                    "yolo_yolov5_root": "third_party/apexaimbot",
+                }
             )
+        try:
+            self.config = self._controller.apply_config_patch(patch, persist=False)
+            self._sync_controls_from_config()
         except Exception as exc:
             self._error_var.set(f"Detection mode update: {exc}")
 
@@ -1004,6 +1024,7 @@ class AbaApplication:
         if current not in values:
             current = values[0]
         var = tk.StringVar(value=current)
+        self._combo_vars[config_key] = var
         combo = ttk.Combobox(row, textvariable=var, values=values, state="readonly", width=16)
         combo.pack(side=tk.LEFT)
 
@@ -1015,6 +1036,7 @@ class AbaApplication:
                 self.config = self._controller.apply_config_patch(
                     {config_key: val}, persist=False
                 )
+                self._sync_controls_from_config()
             except Exception as exc:
                 self._error_var.set(f"{config_key} update: {exc}")
 
@@ -1032,7 +1054,7 @@ class AbaApplication:
             parent,
             "Mouse backend",
             "mouse_backend",
-            ("auto", "apexaimbot", "win32_sendinput", "logitech_ghub", "pynput"),
+            ("auto", "apex", "apexaimbot", "win32_sendinput", "logitech_ghub", "pynput"),
         )
         self._toggle(parent, "Apex per-weapon recoil", "apexaimbot_recoil_enabled")
         self._slider(

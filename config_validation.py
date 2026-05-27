@@ -359,11 +359,13 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     cfg["yolo_assist_enabled"] = bool(cfg.get("yolo_assist_enabled", False))
     cfg["yolo_weights_path"] = str(cfg.get("yolo_weights_path", "") or "").strip()
     cfg["yolo_yolov5_root"] = str(cfg.get("yolo_yolov5_root", "") or "").strip()
+    _yolo_imgsz = 416.0 if mode == "yolo" else 320.0
+    _yolo_conf = 0.5 if mode == "yolo" else 0.35
     cfg["yolo_inference_size"] = int(
-        _require_number(cfg, "yolo_inference_size", default=320.0, minimum=160, maximum=1280)
+        _require_number(cfg, "yolo_inference_size", default=_yolo_imgsz, minimum=160, maximum=1280)
     )
     cfg["yolo_confidence_min"] = _require_number(
-        cfg, "yolo_confidence_min", default=0.35, minimum=0.05, maximum=0.99
+        cfg, "yolo_confidence_min", default=_yolo_conf, minimum=0.05, maximum=0.99
     )
     cfg["yolo_fusion_boost"] = _require_number(
         cfg, "yolo_fusion_boost", default=0.30, minimum=0.0, maximum=1.5
@@ -436,7 +438,11 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         cfg, "yolo_switch_reset_pixels", default=80.0, minimum=20.0, maximum=400.0
     )
     cfg["yolo_aim_fraction"] = _require_number(
-        cfg, "yolo_aim_fraction", default=0.38, minimum=0.1, maximum=0.9
+        cfg,
+        "yolo_aim_fraction",
+        default=0.2 if mode == "yolo" else 0.38,
+        minimum=0.1,
+        maximum=0.9,
     )
     cfg["yolo_target_pick"] = str(cfg.get("yolo_target_pick", "nearest")).strip().lower()
     excl = cfg.get("yolo_exclude_labels", ["teammate"])

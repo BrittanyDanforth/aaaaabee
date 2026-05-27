@@ -29,36 +29,19 @@ YoloEngineConfig = None
 
 
 def reset_yolo_engine_cache() -> None:
+    """Clear vendored engine cache (single source: apexaimbot_bridge)."""
     reset_apexaimbot_cache()
-
-
-def _yolo_cache_key(cfg: dict[str, Any]) -> tuple[Any, ...]:
-    return (
-        str(cfg.get("detection_mode", "apex")).lower(),
-        str(cfg.get("yolo_weights_path", "")),
-        str(cfg.get("yolo_yolov5_root", "")),
-        int(cfg.get("yolo_inference_size", 416)),
-        float(cfg.get("yolo_confidence_min", 0.5)),
-        str(cfg.get("yolo_device", "auto")),
-    )
-
-
-_yolo_engine_cache: tuple[tuple[Any, ...], ApexAimBotRuntime | None] | None = None
 
 
 def get_yolo_engine(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:
     if str(cfg.get("detection_mode", "apex")).strip().lower() != "yolo":
         return None
-    global _yolo_engine_cache
     from apexaimbot_bridge import prepare_apex_cfg
 
     merged = prepare_apex_cfg(cfg)
     if str(VENDOR_ROOT) not in sys.path:
         sys.path.insert(0, str(VENDOR_ROOT))
-    key = _yolo_cache_key(merged)
-    if _yolo_engine_cache is None or _yolo_engine_cache[0] != key:
-        _yolo_engine_cache = (key, get_apexaimbot_runtime(merged))
-    return _yolo_engine_cache[1]
+    return get_apexaimbot_runtime(merged)
 
 
 def try_create_yolo_engine(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:

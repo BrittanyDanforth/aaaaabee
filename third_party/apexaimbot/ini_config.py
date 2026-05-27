@@ -55,6 +55,9 @@ def merge_app_config(cfg: dict[str, Any]) -> dict[str, Any]:
         "apexaimbot_min_step": "min_step",
         "apexaimbot_max_step": "max_step",
         "apexaimbot_mouse_modifier": "modifier_value",
+        "apexaimbot_sens": "sens",
+        "apexaimbot_ads_sens": "ads",
+        "yolo_use_fp16": "use_fp_16",
     }
     for aba_key, ini_key in mapping.items():
         if aba_key not in out or out[aba_key] in ("", None):
@@ -65,4 +68,6 @@ def merge_app_config(cfg: dict[str, Any]) -> dict[str, Any]:
         out["yolo_weights_path"] = f"third_party/apexaimbot/weights/{w}"
     if out.get("yolo_max_det") in (None, "", 12):
         out["yolo_max_det"] = 3
+    if "yolo_aim_fraction" not in out or out.get("yolo_aim_fraction") in ("", None):
+        out["yolo_aim_fraction"] = 0.2
     return out

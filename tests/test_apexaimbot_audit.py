@@ -79,6 +79,31 @@ def test_profile_apexaimbot_includes_weights_path() -> None:
     assert "APEX416" in p["yolo_weights_path"] or "APEX22W" in p["yolo_weights_path"]
 
 
+def test_mouse_gate_recoil_only_skips_target_lock() -> None:
+    from mouse_gate import MouseGateContext, evaluate_mouse_gate
+
+    cfg = {"allow_live_mouse": True, "offline_dev_mode": True}
+    ctx = MouseGateContext(
+        running=True,
+        stopping=False,
+        paused=False,
+        mouse_enabled=True,
+        ads_active=False,
+        assist_without_ads=True,
+        has_target=False,
+        detection_fresh=False,
+        target_lost_frames=99,
+        stale_grace_frames=0,
+        target_process_ok=True,
+        dx=0,
+        dy=2,
+        max_pull_per_frame=22.0,
+        recoil_only=True,
+    )
+    r = evaluate_mouse_gate(cfg, ctx)
+    assert r.allowed, r.reason
+
+
 def test_reset_apexaimbot_pid_clears_integral() -> None:
     rt = MagicMock()
     rt.pid_x.PIDOutput = 99.0

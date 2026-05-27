@@ -96,6 +96,10 @@ class RuntimeController:
                 live._detect_ctx.motion_threshold = int(
                     merged.get("detection_motion_threshold", 10)
                 )
+            if "mouse_backend" in patch and not live._dry:
+                from mouse_io import create_mouse_backend
+
+                live._mouse = create_mouse_backend(str(merged.get("mouse_backend", "auto")))
             yolo_touched = any(
                 k in patch
                 for k in (
@@ -104,15 +108,24 @@ class RuntimeController:
                     "yolo_yolov5_root",
                     "yolo_inference_size",
                     "yolo_confidence_min",
+                    "yolo_iou_thres",
+                    "yolo_max_det",
+                    "yolo_grab_width",
+                    "yolo_grab_height",
+                    "yolo_use_fp16",
+                    "yolo_aim_fraction",
                     "yolo_device",
                     "pull_mode",
-                    "mouse_backend",
                     "apexaimbot_pid_x_p",
                     "apexaimbot_pid_x_i",
                     "apexaimbot_pid_x_d",
                     "apexaimbot_pid_y_p",
+                    "apexaimbot_pid_y_i",
+                    "apexaimbot_pid_y_d",
                     "apexaimbot_min_step",
                     "apexaimbot_max_step",
+                    "apexaimbot_lock_range_x",
+                    "apexaimbot_lock_range_y",
                     "apex_pid_subtick_hz",
                     "apexaimbot_recoil_enabled",
                     "apexaimbot_recoil_weapon",
@@ -137,12 +150,20 @@ class RuntimeController:
                 live._yolo_assist = (
                     try_create_yolo_assist(merged) if det_mode != "yolo" else None
                 )
-                if "mouse_backend" in patch and not live._dry:
-                    from mouse_io import create_mouse_backend
-
-                    live._mouse = create_mouse_backend(str(merged.get("mouse_backend", "auto")))
                 if hasattr(live, "_ensure_apex_recoil"):
                     live._ensure_apex_recoil(merged)
+            elif any(
+                k in patch
+                for k in (
+                    "apexaimbot_recoil_enabled",
+                    "apexaimbot_recoil_weapon",
+                    "apexaimbot_sens",
+                    "apexaimbot_ads_sens",
+                    "apexaimbot_auto_sens_modifier",
+                    "apexaimbot_recoil_modifier",
+                )
+            ) and hasattr(live, "_ensure_apex_recoil"):
+                live._ensure_apex_recoil(merged)
             if hasattr(live, "_pull") and live._pull is not None:
                 live._pull.update_tuning(
                     pull_strength=float(merged.get("pull_strength", 0.82)),
