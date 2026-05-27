@@ -814,7 +814,9 @@ class AbaApplication:
     def _apply_preset(self, name: str) -> None:
         if name not in TUNING_PRESETS:
             return
-        preset = TUNING_PRESETS[name]
+        preset = dict(TUNING_PRESETS[name])
+        if str(preset.get("detection_mode", "apex")).strip().lower() != "yolo":
+            preset.update(CV_LEAVE_YOLO_PATCH)
         try:
             self.config = self._controller.apply_config_patch(preset, persist=False)
             self._sync_controls_from_config()
@@ -1013,7 +1015,6 @@ class AbaApplication:
             text="Live telemetry shows real values from the running pipeline below.",
             bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9),
         ).pack(anchor="w", pady=(0, 6))
-        self._toggle(parent, "Enable overlay (click-through)", "enable_overlay")
         self._toggle(parent, "Verbose logging", "verbose_logging")
         self._toggle(parent, "Pull trace log", "trace_pull")
         tk.Button(
@@ -1333,7 +1334,8 @@ class AbaApplication:
 
     def _on_save_settings(self) -> None:
         try:
-            self._controller.save_config(self.config)
+            self.config = self._controller.save_config(self.config)
+            self._sync_controls_from_config()
             self._detail_var.set(f"Saved {self.config_path.name}")
         except Exception as exc:
             self._error_var.set(f"Save failed: {exc}")
@@ -1378,8 +1380,8 @@ class AbaApplication:
         try:
             self.config["show_debug_window"] = False
             self.config["enable_overlay"] = bool(self.config.get("enable_overlay", False))
-            self._controller.save_config(self.config)
-            self.config = self._controller.reload_config()
+            self.config = self._controller.save_config(self.config)
+            self._sync_controls_from_config()
             self._configured_fps = effective_capture_fps(self.config)
             self._process_name = str(self.config.get("target_process_name", APEX_PROCESS_NAME))
             self._process_required = bool(self.config.get("target_process_required", False))

@@ -28,6 +28,8 @@ FOCUSED_TESTS = [
     "tests/test_yolo_cv_bypass.py",
     "tests/test_yolo_detector.py",
     "tests/test_overlay_runtime_gates.py",
+    "tests/test_yolo_cv_lock_frame_size.py",
+    "tests/test_gui_preset_cv_unwind.py",
 ]
 
 RISK_DOC_NEEDLES = (

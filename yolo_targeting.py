@@ -102,15 +102,6 @@ def find_best_yolo_target(
             debug_lines=result.debug_lines + ["below_min_confidence"],
             active=False,
         )
-    if sticky_target is not None and stickiness_pixels > 0 and currently_locked:
-        import math
-
-        dist = math.hypot(
-            t.centroid_x - sticky_target.centroid_x,
-            t.centroid_y - sticky_target.centroid_y,
-        )
-        if dist > stickiness_pixels * 2.5:
-            pass  # nearest pick wins — no CV-style pool
     return result
 
 
@@ -232,13 +223,12 @@ def yolo_detect_and_lock(
         currently_locked=currently_locked,
         debug=debug,
     )
-    fh, fw = frame_size
     result = lock_yolo_detection(
         cfg,
         raw,
         lock_state,
         center_y=center_y,
-        frame_size=(fw, fh),
+        frame_size=frame_size,
         on_lock_expired=on_lock_expired,
         on_new_target=on_new_target,
     )

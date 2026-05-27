@@ -151,10 +151,10 @@ class RuntimeController:
             encoding="utf-8",
         )
 
-    def save_config(self, cfg: dict[str, Any] | None = None) -> None:
+    def save_config(self, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         """Persist + hot-apply (same subsystem refresh as slider patches)."""
         data = dict(cfg if cfg is not None else self._config)
-        self.apply_config_patch(data, persist=True, full_replace=True)
+        return self.apply_config_patch(data, persist=True, full_replace=True)
 
     def apply_config_patch(
         self,

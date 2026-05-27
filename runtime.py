@@ -1474,6 +1474,7 @@ class AssistRuntime:
 
             center_x = mon["width"] / 2.0 + float(cfg["crosshair_offset_x"])
             center_y = mon["height"] / 2.0 + float(cfg["crosshair_offset_y"])
+            active_monitor_index = monitor_index
             cap_region = None
             frame_cx = center_x
             frame_cy = center_y
@@ -1511,6 +1512,18 @@ class AssistRuntime:
                         break
 
                     cfg = self.config
+                    req_mi = int(cfg.get("monitor_index", active_monitor_index))
+                    if req_mi < 1 or req_mi >= len(sct.monitors):
+                        req_mi = 1
+                    if req_mi != active_monitor_index:
+                        active_monitor_index = req_mi
+                        mon = sct.monitors[active_monitor_index]
+                        cap_region = None
+                        self._last_capture_center_x = None
+                        self._last_capture_center_y = None
+                        logger.info(
+                            "Hot-reloaded capture to monitor %d", active_monitor_index
+                        )
                     hsv_ranges = cfg.get("hsv_ranges", [])
                     show_debug = bool(cfg.get("show_debug_window", False))
                     center_x = mon["width"] / 2.0 + float(
@@ -1955,7 +1968,6 @@ class AssistRuntime:
                         ApexAimSettings,
                         aba_recoil_active,
                         compute_apex_pid_pull,
-                        resolve_apex_aim_point,
                         run_apex_subtick_window,
                     )
 
@@ -1985,11 +1997,6 @@ class AssistRuntime:
 
                                 pr = PullResult(0, 0, 0.0, 0.0, 0.0)
                             else:
-                                aim_x, aim_y = resolve_apex_aim_point(
-                                    target,
-                                    pull_target,
-                                    detection_fresh=detection_fresh,
-                                )
                                 bw, bh = self._last_apex_box or (
                                     float(pull_target.bbox_w),
                                     float(pull_target.bbox_h),
