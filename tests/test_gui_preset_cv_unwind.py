@@ -4,15 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from config_pipeline import normalize_app_config
+from config_pipeline import merge_leave_yolo_stack, normalize_app_config
 from runtime_controller import RuntimeController
-
-# Mirror aba_gui.CV_LEAVE_YOLO_PATCH (avoid tkinter import on headless CI).
-_CV_LEAVE_YOLO_PATCH = {
-    "pull_mode": "aba",
-    "mouse_backend": "auto",
-    "profile": "apex_style_live_trace",
-}
 
 
 def test_stable_preset_unwinds_yolo_pull_stack() -> None:
@@ -25,8 +18,7 @@ def test_stable_preset_unwinds_yolo_pull_stack() -> None:
         }
     )
     ctrl = RuntimeController(base, MagicMock())
-    preset = {"detection_mode": "apex", "pull_strength": 0.55}
-    preset.update(_CV_LEAVE_YOLO_PATCH)
+    preset = merge_leave_yolo_stack({"detection_mode": "apex", "pull_strength": 0.55})
     merged = ctrl.apply_config_patch(preset, persist=False)
     assert merged["detection_mode"] == "apex"
     assert merged["pull_mode"] == "aba"

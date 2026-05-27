@@ -21,7 +21,7 @@ Production path (single pipeline):
 
 ## Switch back to CV / ABA pull (red-mask body detect)
 
-In the GUI **Advanced → Detection mode** combobox, choose **`apex`**. That applies `CV_LEAVE_YOLO_PATCH`: `pull_mode: aba`, `mouse_backend: auto`, profile `apex_style_live_trace`.
+In the GUI **Advanced → Detection mode** combobox, choose **`apex`**. That applies `config_pipeline.LEAVE_YOLO_STACK_PATCH`: `pull_mode: aba`, `mouse_backend: auto`, profile `apex_style_live_trace`. The same keys are merged by `normalize_app_config` when `detection_mode` is not `yolo`.
 
 Or edit `config.json` manually:
 

@@ -206,11 +206,16 @@ def _run_gif(
                 fov_cy=cy,
             )
         )
-        if state.target is not None and state.active and state.overlay_x is not None:
+        if (
+            state.target is not None
+            and state.active
+            and state.pull_x is not None
+            and state.pull_y is not None
+        ):
             pull_target = replace(
                 state.target,
-                centroid_x=state.overlay_x,
-                centroid_y=state.overlay_y,
+                centroid_x=float(state.pull_x),
+                centroid_y=float(state.pull_y),
             )
         elif state.target is not None and may_assist:
             pull_target = replace(

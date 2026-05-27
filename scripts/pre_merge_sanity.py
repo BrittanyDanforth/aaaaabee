@@ -30,6 +30,10 @@ FOCUSED_TESTS = [
     "tests/test_overlay_runtime_gates.py",
     "tests/test_yolo_cv_lock_frame_size.py",
     "tests/test_gui_preset_cv_unwind.py",
+    "tests/test_config_stack_reconcile.py",
+    "tests/test_targeting_shared_parity.py",
+    "tests/test_mode_transition_churn.py",
+    "tests/test_config_save_slider_parity.py",
 ]
 
 RISK_DOC_NEEDLES = (

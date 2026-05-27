@@ -1,15 +1,22 @@
 """
-Canonical detection + aim wiring for tests and artifact scripts.
+TEST / SCRIPT HARNESS — not production.
 
-Production live play uses ``AssistRuntime`` in ``runtime.py`` (same lock module).
+``AssistRuntime`` in ``runtime.py`` owns capture, overlay Tk, mouse gate, pull/PID,
+and ``sync_config_subsystems``. This module replays detect→lock→motion on a single
+frame for unit tests and audit scripts.
 
-This module runs ``find_best_target`` + ``apply_target_lock`` + motion with
-the same stale-freeze rules as ``AssistRuntime._smooth_aim``.
+Guarantees (when using shared ``targeting_shared`` helpers):
+  - Same CV ``find_best_target`` kwargs as production
+  - Same 96% ring clamp: min(detect_fov, display_fov)
+  - Same ``apply_target_lock`` / ``yolo_detect_and_lock`` entry points
+
+Does NOT guarantee: mss capture crop, Tk overlay hold-last, mouse gate, Apex PID
+subticks, idle lock ticks without a frame, or full ``sync_config_subsystems`` cleanup.
+See ``docs/TARGETING_RUNTIME_HARNESS.md``.
 """
 
 from __future__ import annotations
 
-import math
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,14 +34,16 @@ from target_lock import (
     TargetLockState,
     apply_target_lock,
     detection_sticky_context,
+    locked_target_may_refresh_motion_memory,
     may_assist_pull_target,
     viewmodel_exclude_bottom,
 )
+from targeting_shared import cv_find_best_target_from_config, ring_clamp_frame_point
 
 
 @dataclass
 class AimState:
-    """Frame result after production-equivalent detect + lock + motion."""
+    """Frame result after detect + lock + motion (harness DTO)."""
 
     aim_x: float
     aim_y: float
@@ -54,24 +63,8 @@ class AimState:
     bbox_used: tuple[int, int, int, int] | None = None
     wired_observe_target: bool = True
     observe_called: bool = False
-
-
-def _ring_clamp_frame(
-    ox: float,
-    oy: float,
-    cx: float,
-    cy: float,
-    fov_radius: float,
-) -> tuple[float, float]:
-    """Same 96% FOV ring clamp as ``AssistRuntime._frame_overlay_point`` (frame space)."""
-    dx = ox - cx
-    dy = oy - cy
-    dist = math.hypot(dx, dy)
-    lim = max(1.0, float(fov_radius)) * 0.96
-    if dist > lim and dist > 0.0:
-        s = lim / dist
-        return cx + dx * s, cy + dy * s
-    return ox, oy
+    may_assist_pull: bool = False
+    show_for_overlay: bool = False
 
 
 def resolve_runtime_fov(
@@ -92,7 +85,6 @@ def resolve_runtime_fov(
 
 
 def _motion_body_bbox(tracker: TargetTracker) -> tuple[int, int, int, int] | None:
-    """Chest-band clamp bbox (stable hold), same as pull_trace ``motion_body_bbox``."""
     bb = tracker._body_bbox
     if bb is not None and len(bb) == 4 and bb[2] > 0 and bb[3] > 0:
         return int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3])
@@ -115,89 +107,24 @@ def _inside_body(
 
 
 class TargetingRuntime:
-    """
-    End-to-end targeting session for tests/artifacts.
-
-    Uses the same frame lock + stale motion freeze as ``AssistRuntime``.
-    """
-
-    # Visible-bbox smoothing alphas.  alpha_pos governs how quickly the
-    # displayed bbox follows the detector's centroid (higher = snappier);
-    # alpha_size governs width/height blending (lower = less visible
-    # stretch frame-to-frame).  These only smooth the *displayed* bbox
-    # (and the bbox passed to TargetTracker.observe_target); the
-    # underlying detector candidates and lock-state targets remain
-    # untouched so scoring / refine gates see the raw detection.
-    _BBOX_ALPHA_POS = 0.65
-    _BBOX_ALPHA_SIZE = 0.50
-    # IoU below this between consecutive detections is treated as an
-    # identity break and the smoother resets (snap to new bbox).  This
-    # mirrors how the user perceives a "fresh lock" — a totally new
-    # bbox in a different place should not gradually drift in from the
-    # previous lock location.
-    _BBOX_SMOOTH_RESET_IOU = 0.10
+    """Offline detect→lock→motion session for tests and artifact scripts."""
 
     def __init__(self) -> None:
         self.tracker = TargetTracker()
         self._lock_state = TargetLockState()
         self._last_observe_bbox: tuple[int, int, int, int] | None = None
-        self._smoothed_bbox: tuple[float, float, float, float] | None = None
         self._observe_target_calls: int = 0
-        self._detect_ctx = detector.DetectionContext()
+        self._detect_ctx: detector.DetectionContext | None = detector.DetectionContext()
         self._yolo_engine = None
 
     def reset(self) -> None:
         self.tracker.reset()
         self._lock_state.reset()
         self._last_observe_bbox = None
-        self._smoothed_bbox = None
         self._observe_target_calls = 0
-        self._detect_ctx.reset()
-
-    @staticmethod
-    def _bbox_iou(
-        a: tuple[float, float, float, float],
-        b: tuple[float, float, float, float],
-    ) -> float:
-        ax, ay, aw, ah = a
-        bx, by, bw, bh = b
-        x0 = max(ax, bx)
-        y0 = max(ay, by)
-        x1 = min(ax + aw, bx + bw)
-        y1 = min(ay + ah, by + bh)
-        if x1 <= x0 or y1 <= y0:
-            return 0.0
-        inter = (x1 - x0) * (y1 - y0)
-        union = aw * ah + bw * bh - inter
-        return inter / max(union, 1.0)
-
-    def _smooth_visible_bbox(
-        self, new_bb: tuple[int, int, int, int]
-    ) -> tuple[int, int, int, int]:
-        nx, ny, nw, nh = new_bb
-        if self._smoothed_bbox is None or self._BBOX_ALPHA_POS >= 1.0:
-            self._smoothed_bbox = (float(nx), float(ny), float(nw), float(nh))
-            return new_bb
-        prev = self._smoothed_bbox
-        if self._bbox_iou(prev, (nx, ny, nw, nh)) < self._BBOX_SMOOTH_RESET_IOU:
-            # Identity break — snap so we don't visually slide in from
-            # the previous (unrelated) lock's location.
-            self._smoothed_bbox = (float(nx), float(ny), float(nw), float(nh))
-            return new_bb
-        ap = self._BBOX_ALPHA_POS
-        asz = self._BBOX_ALPHA_SIZE
-        sx = ap * nx + (1.0 - ap) * prev[0]
-        sy = ap * ny + (1.0 - ap) * prev[1]
-        sw = asz * nw + (1.0 - asz) * prev[2]
-        sh = asz * nh + (1.0 - asz) * prev[3]
-        self._smoothed_bbox = (sx, sy, sw, sh)
-        # Clamp minimum size 6 so a fully-collapsed box doesn't render.
-        return (
-            int(round(sx)),
-            int(round(sy)),
-            max(6, int(round(sw))),
-            max(6, int(round(sh))),
-        )
+        if self._detect_ctx is not None:
+            self._detect_ctx.reset()
+        self._yolo_engine = None
 
     @property
     def last_observe_bbox(self) -> tuple[int, int, int, int] | None:
@@ -211,14 +138,32 @@ class TargetingRuntime:
     def lock_state(self) -> TargetLockState:
         return self._lock_state
 
+    def _ensure_detect_ctx(self, config: dict[str, Any]) -> None:
+        det_mode = str(config.get("detection_mode", "apex")).strip().lower()
+        if det_mode == "yolo":
+            if self._detect_ctx is not None:
+                self._detect_ctx.reset()
+            self._detect_ctx = None
+            return
+        if self._detect_ctx is None:
+            self._detect_ctx = detector.DetectionContext(
+                motion_assist=bool(config.get("detection_motion_assist", True)),
+                motion_threshold=int(config.get("detection_motion_threshold", 10)),
+            )
+        else:
+            self._detect_ctx.motion_assist = bool(
+                config.get("detection_motion_assist", True)
+            )
+            self._detect_ctx.motion_threshold = int(
+                config.get("detection_motion_threshold", 10)
+            )
+
     def _apply_motion_config(self, config: dict[str, Any], cx: float, cy: float) -> None:
-        fov_r = float(
+        display_fov = float(
             config.get("_runtime_overlay_fov")
-            or config.get("_runtime_detect_fov")
-            or config.get("_runtime_fov")
-            or 200
+            or effective_overlay_fov_radius(config)
         )
-        self.tracker.configure_fov_clamp(cx, cy, fov_r)
+        self.tracker.configure_fov_clamp(cx, cy, display_fov)
         self.tracker.configure_prediction(
             bool(config.get("prediction_enabled", True)),
             float(config.get("prediction_lead_seconds", 0.03)),
@@ -249,7 +194,10 @@ class TargetingRuntime:
         cx = float(config.get("fov_center_x", w / 2.0))
         cy = float(config.get("fov_center_y", h / 2.0))
         ads_active = bool(config.get("_ads_active", True))
-        _user_fov, fov = resolve_runtime_fov(config, ads_active=ads_active)
+        user_fov, detect_fov = resolve_runtime_fov(config, ads_active=ads_active)
+        display_fov = float(
+            config.get("_runtime_overlay_fov") or effective_overlay_fov_radius(config)
+        )
         min_area = float(
             config.get("min_target_area_pixels")
             or config.get("min_target_area")
@@ -257,11 +205,16 @@ class TargetingRuntime:
         )
         config.setdefault("target_lost_frames_before_unlock", 18)
         config.setdefault("viewmodel_exclude_bottom_frac", 0.28)
+        config["_ads_active"] = ads_active
+        self._ensure_detect_ctx(config)
         self._apply_motion_config(config, cx, cy)
 
         sticky, currently_locked, _ = detection_sticky_context(self._lock_state, config)
         det_mode = str(config.get("detection_mode", "apex")).strip().lower()
-        config["_ads_active"] = ads_active
+
+        def _on_lock_expired() -> None:
+            self.tracker.soft_reset()
+
         if det_mode == "yolo":
             from yolo_targeting import resolve_yolo_engine, yolo_detect_and_lock
 
@@ -271,11 +224,11 @@ class TargetingRuntime:
                 frame_bgr,
                 self._yolo_engine,
                 self._lock_state,
-                fov_radius=fov,
+                fov_radius=detect_fov,
                 center_x=cx,
                 center_y=cy,
                 frame_size=(w, h),
-                on_lock_expired=self.tracker.soft_reset,
+                on_lock_expired=_on_lock_expired,
                 debug=debug,
             )
             is_stale = (
@@ -283,44 +236,48 @@ class TargetingRuntime:
                 and result.target is not None
                 and self._lock_state.target_lost_frames > 0
             )
-            raw = result
         else:
-            raw = detector.find_best_target(
+            raw = cv_find_best_target_from_config(
                 frame_bgr,
-                config.get("hsv_ranges"),
-                fov,
-                min_area,
-                cx,
-                cy,
+                config,
+                fov_radius=detect_fov,
+                min_area=min_area,
+                center_x=cx,
+                center_y=cy,
                 sticky_target=sticky,
-                stickiness_pixels=float(config.get("target_stickiness_pixels", 90.0)),
-                distance_weight=float(config.get("distance_score_weight", 1.0)),
-                area_weight=float(config.get("area_score_weight", 0.5)),
                 currently_locked=currently_locked,
-                exclude_bottom_frac=viewmodel_exclude_bottom(config),
-                min_height_px=float(config.get("humanoid_min_height_pixels", 16)),
-                min_aspect=float(config.get("humanoid_min_aspect", 1.2)),
-                max_aspect=float(config.get("humanoid_max_aspect", 4.5)),
-                min_solidity=float(config.get("humanoid_min_solidity", 0.25)),
-                torso_aim_fraction=float(config.get("torso_aim_fraction", 0.38)),
-                body_shape_min_score=float(config.get("body_shape_min_score", 0.40)),
-                detection_mode=det_mode,
                 context=self._detect_ctx,
+                external_boxes=None,
                 debug=debug,
-                display_fov_radius=float(effective_overlay_fov_radius(config)),
-                yolo_engine=None,
-                ads_active=ads_active,
             )
             result, is_stale = apply_target_lock(
                 self._lock_state,
                 raw,
                 center_y=cy,
                 cfg=config,
-                on_lock_expired=self.tracker.soft_reset,
+                on_lock_expired=_on_lock_expired,
                 fov_cx=cx,
                 fov_cy=cy,
                 frame_size=(w, h),
             )
+            locked = self._lock_state.locked_target
+            if (
+                self._detect_ctx is not None
+                and locked is not None
+                and result.target is not None
+                and self._lock_state.target_lost_frames == 0
+                and locked_target_may_refresh_motion_memory(
+                    locked,
+                    self._lock_state,
+                    center_y=cy,
+                )
+            ):
+                self._detect_ctx.note_motion_validated(
+                    locked.bbox_x,
+                    locked.bbox_y,
+                    locked.bbox_w,
+                    locked.bbox_h,
+                )
 
         tsec = time.perf_counter() if time_sec is None else time_sec
         detection_fresh = (
@@ -328,6 +285,8 @@ class TargetingRuntime:
             and result.target is not None
             and not is_stale
         )
+        stale_grace = int(config.get("mouse_gate_stale_grace_frames", 12))
+        lost_frames = self._lock_state.target_lost_frames
 
         if result.target is None:
             self.tracker.reset()
@@ -405,9 +364,27 @@ class TargetingRuntime:
                     )
 
         ox, oy = motion.overlay_xy()
-        px, py = _ring_clamp_frame(ox, oy, cx, cy, float(fov))
+        px, py = ring_clamp_frame_point(
+            ox,
+            oy,
+            cx,
+            cy,
+            detect_fov=float(detect_fov),
+            display_fov=display_fov,
+        )
         inside_o = _inside_body(t, ox, oy, tracker=self.tracker)
         inside_p = _inside_body(t, px, py, tracker=self.tracker)
+        may_pull = may_assist_pull_target(
+            t,
+            detection_fresh=detection_fresh,
+            center_y=cy,
+            target_lost_frames=lost_frames,
+            stale_grace_frames=stale_grace,
+            frame_w=w,
+            frame_h=h,
+            fov_cx=cx,
+            fov_cy=cy,
+        )
 
         return AimState(
             aim_x=motion.x,
@@ -428,6 +405,10 @@ class TargetingRuntime:
             bbox_used=self._last_observe_bbox,
             wired_observe_target=True,
             observe_called=observe_called,
+            may_assist_pull=may_pull,
+            show_for_overlay=detection_fresh or (
+                lost_frames > 0 and lost_frames <= stale_grace
+            ),
         )
 
 

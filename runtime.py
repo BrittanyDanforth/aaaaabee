@@ -33,7 +33,6 @@ from detector import (
     DetectionResult,
     Target,
     draw_debug,
-    find_best_target,
 )
 from target_lock import (
     TargetLockState,
@@ -1262,44 +1261,21 @@ class AssistRuntime:
                 self._last_apex_box = box
             return result
 
-        yolo_engine = None
         if cfg_mode != "yolo":
-            result = find_best_target(
+            from targeting_shared import cv_find_best_target_from_config
+
+            result = cv_find_best_target_from_config(
                 frame_bgr,
-                hsv_ranges,
-                fov_radius,
-                min_area,
-                center_x,
-                center_y,
+                cfg,
+                fov_radius=int(fov_radius),
+                min_area=float(min_area),
+                center_x=float(center_x),
+                center_y=float(center_y),
                 sticky_target=sticky,
-                stickiness_pixels=float(cfg["target_stickiness_pixels"]),
-                distance_weight=float(cfg["distance_score_weight"]),
-                area_weight=float(cfg["area_score_weight"]),
-                min_height_px=float(cfg["humanoid_min_height_pixels"]),
-                min_aspect=float(cfg["humanoid_min_aspect"]),
-                max_aspect=float(cfg["humanoid_max_aspect"]),
-                min_solidity=float(cfg.get("humanoid_min_solidity", 0.25)),
-                torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
-                body_shape_min_score=float(cfg.get("body_shape_min_score", 0.40)),
-                head_score_weight=float(cfg.get("head_score_weight", 0.26)),
-                torso_score_weight=float(cfg.get("torso_score_weight", 0.26)),
-                limb_stack_score_weight=float(cfg.get("limb_stack_score_weight", 0.22)),
-                aim_y_min_fraction=float(cfg.get("aim_body_y_min_fraction", 0.28)),
-                aim_y_max_fraction=float(cfg.get("aim_body_y_max_fraction", 0.52)),
-                debug=bool(cfg.get("verbose_logging", False)),
-                detection_mode=str(cfg.get("detection_mode", "apex")),
-                context=self._detect_ctx,
                 currently_locked=currently_locked,
-                exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
-                display_fov_radius=float(
-                    effective_overlay_fov_radius(cfg)
-                ),
-                target_selection_mode=str(cfg.get("target_selection_mode", "apex")),
+                context=self._detect_ctx,
                 external_boxes=external_boxes,
-                yolo_fusion_boost=float(cfg.get("yolo_fusion_boost", 0.30)),
-                yolo_fusion_min_iou=float(cfg.get("yolo_fusion_min_iou", 0.28)),
-                yolo_engine=None,
-                ads_active=bool(cfg.get("_ads_active", False)),
+                debug=bool(cfg.get("verbose_logging", False)),
             )
         with self._lock:
             result, _is_stale = apply_target_lock(

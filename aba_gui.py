@@ -23,6 +23,8 @@ from debug_hud import launch_debug_hud
 from path_utils import APP_ROOT, LOGS_DIR, SELFCHECK_LOG, SETUP_LOG, open_logs_folder
 from perf_benchmark import run_perf_benchmark
 from process_presence import ProcessPresenceDebouncer
+from config_pipeline import LEAVE_YOLO_STACK_PATCH as CV_LEAVE_YOLO_PATCH
+from config_pipeline import merge_leave_yolo_stack
 from profiles import APEX_PROCESS_NAME, effective_capture_fps, normalize_profile_name
 from runtime_controller import RuntimeController
 from self_check import run_self_check_detailed
@@ -60,12 +62,6 @@ CV_ONLY_SLIDER_KEYS = frozenset({
     "torso_score_weight",
     "limb_stack_score_weight",
 })
-
-CV_LEAVE_YOLO_PATCH: dict[str, Any] = {
-    "pull_mode": "aba",
-    "mouse_backend": "auto",
-    "profile": "apex_style_live_trace",
-}
 
 STATUS_COLORS = {
     AbaStatus.GAME_CLOSED: ("#2e2e2e", "#b0b0b0"),
@@ -814,9 +810,7 @@ class AbaApplication:
     def _apply_preset(self, name: str) -> None:
         if name not in TUNING_PRESETS:
             return
-        preset = dict(TUNING_PRESETS[name])
-        if str(preset.get("detection_mode", "apex")).strip().lower() != "yolo":
-            preset.update(CV_LEAVE_YOLO_PATCH)
+        preset = merge_leave_yolo_stack(dict(TUNING_PRESETS[name]))
         try:
             self.config = self._controller.apply_config_patch(preset, persist=False)
             self._sync_controls_from_config()
@@ -1123,7 +1117,7 @@ class AbaApplication:
                 }
             )
         elif str(self.config.get("pull_mode", "")).strip().lower() == "apexaimbot_pid":
-            patch.update(dict(CV_LEAVE_YOLO_PATCH))
+            patch = merge_leave_yolo_stack(patch)
         try:
             self.config = self._controller.apply_config_patch(patch, persist=False)
             self._sync_controls_from_config()
