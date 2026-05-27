@@ -430,19 +430,10 @@ def resolve_profile_name(raw: dict[str, Any]) -> str:
 
 
 def load_config(path: Path | str | None = None) -> dict[str, Any]:
-    """Load config.json and merge profile defaults (trace profile when unset)."""
-    import json as _json
+    """Load config.json through the canonical pipeline (profile → INI → validate)."""
+    from config_pipeline import load_app_config
 
-    p = Path(path) if path is not None else Path(__file__).resolve().parent / "config.json"
-    raw: dict[str, Any] = {}
-    if p.is_file():
-        raw = _json.loads(p.read_text(encoding="utf-8"))
-    merged = apply_profile(raw)
-    try:
-        from config_validation import validate_config
-        return validate_config(merged)
-    except ImportError:
-        return merged
+    return load_app_config(path)
 
 
 def apply_profile(raw: dict[str, Any]) -> dict[str, Any]:

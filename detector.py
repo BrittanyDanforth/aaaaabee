@@ -4669,29 +4669,24 @@ def find_best_target(
 
     resolved_mode = (detection_mode or DETECTION_MODE_DEFAULT).strip().lower()
     if resolved_mode == DETECTION_MODE_YOLO:
-        from yolo_detector import find_best_yolo_target
+        from yolo_targeting import detect_yolo_target
 
-        if yolo_engine is None:
-            return DetectionResult(
-                None,
-                0,
-                0.0,
-                debug_lines=["yolo_mode but engine not loaded — set yolo_weights_path"],
-                active=False,
-            )
-        return find_best_yolo_target(
+        cfg_stub = {
+            "min_target_area_pixels": min_area,
+            "target_stickiness_pixels": stickiness_pixels,
+            "humanoid_min_height_pixels": min_height_px,
+            "yolo_confidence_min": min_confidence,
+            "_ads_active": ads_active,
+        }
+        return detect_yolo_target(
+            cfg_stub,
             frame_bgr,
-            int(fov_radius),
-            float(min_area),
-            cx,
-            cy,
-            engine=yolo_engine,
+            yolo_engine,
+            fov_radius=int(fov_radius),
+            center_x=cx,
+            center_y=cy,
             sticky_target=sticky_target,
-            stickiness_pixels=stickiness_pixels,
-            min_height_px=min_height_px,
-            min_confidence=min_confidence,
             currently_locked=currently_locked,
-            ads_active=ads_active,
             debug=debug,
         )
 

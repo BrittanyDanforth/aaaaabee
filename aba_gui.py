@@ -42,6 +42,31 @@ UI_ACTIVE_TAB = "#2e2e2e"
 UI_PRESET_BG = "#1a3a2a"
 UI_PRESET_FG = "#7dffb0"
 
+# Sliders that only affect CV / ABA pull — inert when YOLO + apexaimbot_pid.
+CV_ONLY_SLIDER_KEYS = frozenset({
+    "torso_aim_fraction",
+    "body_shape_min_score",
+    "aim_body_y_min_fraction",
+    "aim_body_y_max_fraction",
+    "detection_motion_threshold",
+    "velocity_smoothing",
+    "max_pull_speed_pixels_per_frame",
+    "deadzone_pixels",
+    "magnetism_radius_pixels",
+    "pull_strength",
+    "smoothing_tau_moving",
+    "smoothing_tau_still",
+    "head_score_weight",
+    "torso_score_weight",
+    "limb_stack_score_weight",
+})
+
+CV_LEAVE_YOLO_PATCH: dict[str, Any] = {
+    "pull_mode": "aba",
+    "mouse_backend": "auto",
+    "profile": "apex_style_live_trace",
+}
+
 STATUS_COLORS = {
     AbaStatus.GAME_CLOSED: ("#2e2e2e", "#b0b0b0"),
     AbaStatus.TARGET_DETECTED: ("#1a4d32", "#7dffb0"),
@@ -312,6 +337,7 @@ class AbaApplication:
         self._active_tab = "basic"
         self._advanced_mode = False
         self._combo_vars: dict[str, tk.StringVar] = {}
+        self._combo_widgets: dict[str, tk.Widget] = {}
 
         self._root = tk.Tk()
         self._root.title("ABA")
@@ -670,6 +696,38 @@ class AbaApplication:
             )
         self._profile = normalize_profile_name(str(self.config.get("profile", self._profile)))
         self._update_fov_summary_label()
+        self._refresh_mode_sensitive_widgets()
+
+    @staticmethod
+    def _is_yolo_pure_config(cfg: dict[str, Any]) -> bool:
+        from profiles import is_yolo_detection, uses_apex_pid_pull
+
+        return is_yolo_detection(cfg) and uses_apex_pid_pull(cfg)
+
+    def _refresh_mode_sensitive_widgets(self) -> None:
+        yolo_pure = self._is_yolo_pure_config(self.config)
+        for key, ctrl in self._sliders.items():
+            if key in CV_ONLY_SLIDER_KEYS:
+                try:
+                    ctrl._scale.config(
+                        state=tk.DISABLED if yolo_pure else tk.NORMAL
+                    )
+                except tk.TclError:
+                    pass
+        for _key, combo in self._combo_widgets.items():
+            try:
+                combo.config(state="readonly")
+            except tk.TclError:
+                pass
+        if hasattr(self, "_yolo_mode_hint"):
+            self._yolo_mode_hint.config(
+                text=(
+                    "YOLO + Apex PID active — Body/Motion CV sliders are disabled. "
+                    "Use YOLO aim fraction (0.2) and Apex PID panel."
+                    if yolo_pure
+                    else ""
+                )
+            )
 
     def _show_tab(self, tab_id: str) -> None:
         self._active_tab = tab_id
@@ -718,6 +776,16 @@ class AbaApplication:
     # === BASIC TAB ===
     def _build_basic_panel(self, parent: tk.Frame) -> None:
         self._section(parent, "Quick controls")
+        self._yolo_mode_hint = tk.Label(
+            parent,
+            text="",
+            bg=UI_PANEL,
+            fg=UI_MUTED,
+            font=("Segoe UI", 9),
+            wraplength=520,
+            justify=tk.LEFT,
+        )
+        self._yolo_mode_hint.pack(anchor="w", pady=(0, 6))
 
         preset_row = tk.Frame(parent, bg=UI_PANEL)
         preset_row.pack(fill=tk.X, pady=(0, 8))
@@ -1000,6 +1068,8 @@ class AbaApplication:
                     "yolo_yolov5_root": "third_party/apexaimbot",
                 }
             )
+        elif str(self.config.get("pull_mode", "")).strip().lower() == "apexaimbot_pid":
+            patch.update(dict(CV_LEAVE_YOLO_PATCH))
         try:
             self.config = self._controller.apply_config_patch(patch, persist=False)
             self._sync_controls_from_config()
@@ -1027,6 +1097,7 @@ class AbaApplication:
         self._combo_vars[config_key] = var
         combo = ttk.Combobox(row, textvariable=var, values=values, state="readonly", width=16)
         combo.pack(side=tk.LEFT)
+        self._combo_widgets[config_key] = combo
 
         def _apply(_e: object | None = None) -> None:
             val = var.get().strip().lower()

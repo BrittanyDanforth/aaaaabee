@@ -43,19 +43,23 @@ class RuntimeController:
         return cfg
 
     def save_config(self, cfg: dict[str, Any] | None = None) -> None:
-        data = cfg if cfg is not None else self._config
-        with self._lock:
-            self._config = dict(data)
-        payload = {k: v for k, v in data.items() if not str(k).startswith("_")}
-        self.config_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        live = self._runtime
-        if live is not None and getattr(live, "running", False):
-            live.config = dict(data)
+        """Persist + hot-apply (same subsystem refresh as slider patches)."""
+        data = dict(cfg if cfg is not None else self._config)
+        self.apply_config_patch(data, persist=True, full_replace=True)
 
-    def apply_config_patch(self, patch: dict[str, Any], *, persist: bool = True) -> dict[str, Any]:
+    def apply_config_patch(
+        self,
+        patch: dict[str, Any],
+        *,
+        persist: bool = True,
+        full_replace: bool = False,
+    ) -> dict[str, Any]:
         with self._lock:
-            merged = dict(self._config)
-            merged.update(patch)
+            if full_replace:
+                merged = dict(patch)
+            else:
+                merged = dict(self._config)
+                merged.update(patch)
         from config_pipeline import normalize_app_config
 
         merged = normalize_app_config(merged)

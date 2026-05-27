@@ -26,7 +26,6 @@ from profiles import (
 from target_lock import (
     TargetLockState,
     apply_target_lock,
-    apply_yolo_target_lock,
     detection_sticky_context,
     may_assist_pull_target,
     viewmodel_exclude_bottom,
@@ -262,41 +261,29 @@ class TargetingRuntime:
 
         sticky, currently_locked, _ = detection_sticky_context(self._lock_state, config)
         det_mode = str(config.get("detection_mode", "apex")).strip().lower()
-        yolo_engine = None
+        config["_ads_active"] = ads_active
         if det_mode == "yolo":
-            from yolo_detector import get_yolo_engine
+            from yolo_targeting import resolve_yolo_engine, yolo_detect_and_lock
 
-            yolo_engine = get_yolo_engine(config)
-            self._yolo_engine = yolo_engine
-        if det_mode == "yolo":
-            from yolo_detector import find_best_yolo_target
-
-            if yolo_engine is None:
-                raw = DetectionResult(
-                    None,
-                    0,
-                    0.0,
-                    debug_lines=["yolo_mode but engine not loaded"],
-                    active=False,
-                )
-            else:
-                raw = find_best_yolo_target(
-                    frame_bgr,
-                    fov,
-                    min_area,
-                    cx,
-                    cy,
-                    engine=yolo_engine,
-                    sticky_target=sticky,
-                    stickiness_pixels=float(
-                        config.get("target_stickiness_pixels", 90.0)
-                    ),
-                    min_height_px=float(config.get("humanoid_min_height_pixels", 16)),
-                    min_confidence=float(config.get("yolo_confidence_min", 0.5)),
-                    currently_locked=currently_locked,
-                    ads_active=ads_active,
-                    debug=debug,
-                )
+            self._yolo_engine = resolve_yolo_engine(config, self._yolo_engine)
+            result, _box = yolo_detect_and_lock(
+                config,
+                frame_bgr,
+                self._yolo_engine,
+                self._lock_state,
+                fov_radius=fov,
+                center_x=cx,
+                center_y=cy,
+                frame_size=(w, h),
+                on_lock_expired=self.tracker.soft_reset,
+                debug=debug,
+            )
+            is_stale = (
+                bool(result.active)
+                and result.target is not None
+                and self._lock_state.target_lost_frames > 0
+            )
+            raw = result
         else:
             raw = detector.find_best_target(
                 frame_bgr,
@@ -324,14 +311,6 @@ class TargetingRuntime:
                 yolo_engine=None,
                 ads_active=ads_active,
             )
-        if det_mode == "yolo" and bool(config.get("yolo_apex_nearest_lock", True)):
-            result, is_stale = apply_yolo_target_lock(
-                self._lock_state,
-                raw,
-                cfg=config,
-                on_lock_expired=self.tracker.soft_reset,
-            )
-        else:
             result, is_stale = apply_target_lock(
                 self._lock_state,
                 raw,

@@ -129,6 +129,7 @@ def run_apex_subtick_window(
     recoil_tick: RecoilTickFn,
     on_pid_moved: Callable[[], None],
     sleep: Callable[[float], None],
+    overlay_at_aim: Callable[[float, float], None] | None = None,
 ) -> None:
     """PID + recoil between detect frames; stops when LMB released or deadline hit."""
     if subtick_hz <= 0:
@@ -169,6 +170,8 @@ def run_apex_subtick_window(
                     if getattr(gate, "allowed", True):
                         on_pid_moved()
                         moved_x = bool(pdx)
+                        if overlay_at_aim is not None:
+                            overlay_at_aim(float(target.centroid_x), float(target.centroid_y))
             else:
                 reset_apexaimbot_pid(engine)
         if recoil_enabled and is_firing():

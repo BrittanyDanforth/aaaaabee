@@ -38,7 +38,6 @@ from detector import (
 from target_lock import (
     TargetLockState,
     apply_target_lock,
-    apply_yolo_target_lock,
     may_assist_pull_target_yolo,
     detection_sticky_context,
     lock_target_is_plausible,
@@ -301,6 +300,20 @@ class AssistRuntime:
             gate = self._safe_mouse_move(rdx, rdy, recoil_only=True)
             return gate.allowed
         return False
+
+    def _subtick_overlay_aim(
+        self,
+        aim_x: float,
+        aim_y: float,
+        *,
+        cap_region: Any,
+        ads_for_assist: bool,
+    ) -> None:
+        """Refresh overlay dot during Apex PID subticks (not only on detect frames)."""
+        if self._overlay is None or not ads_for_assist:
+            return
+        mon = to_monitor_coords(aim_x, aim_y, cap_region)
+        self._overlay.set_state(ads_for_assist, mon)
 
     def _motion_from_yolo_target(
         self,
@@ -1176,40 +1189,41 @@ class AssistRuntime:
                 external_boxes = self._yolo_assist.detect(frame_bgr)
             except Exception as exc:
                 logger.warning("YoloAssist detect failed: %s", exc)
-        yolo_engine = self._yolo_engine if cfg_mode == "yolo" else None
-        if cfg_mode == "yolo" and yolo_engine is None:
-            from yolo_detector import get_yolo_engine
+        fh, fw = frame_bgr.shape[0], frame_bgr.shape[1]
 
-            yolo_engine = get_yolo_engine(cfg)
-            self._yolo_engine = yolo_engine
+        def _reset_apex_pid_state() -> None:
+            self._reset_apex_aim_state()
+
+        def _on_lock_expired() -> None:
+            if self._pull is not None:
+                self._pull.reset()
+            self._aim_tracker.soft_reset()
+            if cfg_mode == "yolo":
+                _reset_apex_pid_state()
+
         if cfg_mode == "yolo":
-            from yolo_detector import find_best_yolo_target
+            from yolo_targeting import resolve_yolo_engine, yolo_detect_and_lock
 
-            if yolo_engine is None:
-                result = DetectionResult(
-                    None,
-                    0,
-                    0.0,
-                    debug_lines=["yolo_mode but engine not loaded — set yolo_weights_path"],
-                    active=False,
-                )
-            else:
-                result = find_best_yolo_target(
-                    frame_bgr,
-                    int(fov_radius),
-                    float(min_area),
-                    center_x,
-                    center_y,
-                    engine=yolo_engine,
-                    sticky_target=sticky,
-                    stickiness_pixels=float(cfg["target_stickiness_pixels"]),
-                    min_height_px=float(cfg["humanoid_min_height_pixels"]),
-                    min_confidence=float(cfg.get("yolo_confidence_min", 0.5)),
-                    currently_locked=currently_locked,
-                    ads_active=bool(cfg.get("_ads_active", False)),
-                    debug=bool(cfg.get("verbose_logging", False)),
-                )
-        else:
+            self._yolo_engine = resolve_yolo_engine(cfg, self._yolo_engine)
+            result, box = yolo_detect_and_lock(
+                cfg,
+                frame_bgr,
+                self._yolo_engine,
+                self._target_lock,
+                fov_radius=int(fov_radius),
+                center_x=center_x,
+                center_y=center_y,
+                frame_size=(fw, fh),
+                on_lock_expired=_on_lock_expired,
+                on_new_target=_reset_apex_pid_state,
+                debug=bool(cfg.get("verbose_logging", False)),
+            )
+            if box is not None:
+                self._last_apex_box = box
+            return result
+
+        yolo_engine = None
+        if cfg_mode != "yolo":
             result = find_best_target(
                 frame_bgr,
                 hsv_ranges,
@@ -1248,48 +1262,19 @@ class AssistRuntime:
                 ads_active=bool(cfg.get("_ads_active", False)),
             )
         with self._lock:
-
-            def _reset_apex_pid_state() -> None:
-                self._reset_apex_aim_state()
-
-            def _on_lock_expired() -> None:
-                if self._pull is not None:
-                    self._pull.reset()
-                self._aim_tracker.soft_reset()
-                if cfg_mode == "yolo":
-                    _reset_apex_pid_state()
-
-            fh, fw = frame_bgr.shape[0], frame_bgr.shape[1]
-            if cfg_mode == "yolo" and bool(cfg.get("yolo_apex_nearest_lock", True)):
-                result, _is_stale = apply_yolo_target_lock(
-                    self._target_lock,
-                    result,
-                    cfg=cfg,
-                    on_lock_expired=_on_lock_expired,
-                    on_new_target=_reset_apex_pid_state,
-                )
-            else:
-                result, _is_stale = apply_target_lock(
-                    self._target_lock,
-                    result,
-                    center_y=center_y,
-                    cfg=cfg,
-                    on_lock_expired=_on_lock_expired,
-                    fov_cx=center_x,
-                    fov_cy=center_y,
-                    frame_size=(fw, fh),
-                )
+            result, _is_stale = apply_target_lock(
+                self._target_lock,
+                result,
+                center_y=center_y,
+                cfg=cfg,
+                on_lock_expired=_on_lock_expired,
+                fov_cx=center_x,
+                fov_cy=center_y,
+                frame_size=(fw, fh),
+            )
             locked = self._target_lock.locked_target
-            if cfg_mode == "yolo":
-                box_src = locked if locked is not None else result.target
-                if box_src is not None:
-                    self._last_apex_box = (
-                        float(box_src.bbox_w),
-                        float(box_src.bbox_h),
-                    )
             if (
-                cfg_mode != "yolo"
-                and self._detect_ctx is not None
+                self._detect_ctx is not None
                 and locked is not None
                 and result.target is not None
                 and self._target_lock.target_lost_frames == 0
@@ -1681,6 +1666,38 @@ class AssistRuntime:
                         # need to reset once.
                         self._prev_ads_tracker_reset = False
                     else:
+                        idle_mode = str(cfg.get("detection_mode", "apex")).strip().lower()
+
+                        def _idle_lock_expired() -> None:
+                            if self._pull is not None:
+                                self._pull.reset()
+                            self._aim_tracker.soft_reset()
+                            if idle_mode == "yolo":
+                                self._reset_apex_aim_state()
+
+                        if self._target_lock.locked_target is not None:
+                            if idle_mode == "yolo":
+                                from yolo_targeting import tick_yolo_lock_idle
+
+                                tick_yolo_lock_idle(
+                                    cfg,
+                                    self._target_lock,
+                                    on_lock_expired=_idle_lock_expired,
+                                )
+                            else:
+                                apply_target_lock(
+                                    self._target_lock,
+                                    DetectionResult(None, 0, 0.0),
+                                    center_y=frame_cy,
+                                    cfg=cfg,
+                                    on_lock_expired=_idle_lock_expired,
+                                    fov_cx=frame_cx,
+                                    fov_cy=frame_cy,
+                                    frame_size=(
+                                        frame_bgr.shape[1],
+                                        frame_bgr.shape[0],
+                                    ),
+                                )
                         det = DetectionResult(None, 0, 0.0)
                         # FIX (Bug A): only hard-reset the tracker on the FIRST
                         # non-ADS frame (the transition frame). On subsequent
@@ -2292,6 +2309,18 @@ class AssistRuntime:
                                 self, "_apex_pid_moved_this_frame", True
                             ),
                             sleep=self._sleep_interruptible,
+                            overlay_at_aim=(
+                                (
+                                    lambda ax, ay: self._subtick_overlay_aim(
+                                        ax,
+                                        ay,
+                                        cap_region=cap_region,
+                                        ads_for_assist=ads_for_assist,
+                                    )
+                                )
+                                if pid_enabled and cap_region is not None
+                                else None
+                            ),
                         )
                     elif (
                         pull_subtick_hz > 0
