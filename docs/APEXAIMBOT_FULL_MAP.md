@@ -68,7 +68,9 @@ We do **not** commit the full 120 MB folder — only Apex weights + SHA-256 mani
 | `send_nearest_pos_to_mouse_ctrl` | `third_party/apexaimbot/nearest.py` |
 | `PID_PLUS_PLUS` | `third_party/apexaimbot/PID.py` |
 | `pull_mode: apexaimbot_pid` + `apex_pid_subtick_hz` | PID at detect rate + optional 120 Hz subticks (no double move) |
-| `prepare_apex_cfg` / `merge_app_config` | INI defaults merged before engine cache |
+| `config_pipeline.normalize_app_config` | profile → `prepare_apex_cfg` → `validate_config` (startup + GUI) |
+| `apex_aim_loop.py` | Single PID/subtick/recoil implementation (runtime delegates here) |
+| `yolo_detector.reload_yolo_engine` | One cache in `apexaimbot_bridge` only |
 | `reset_apexaimbot_pid` | Lock expiry, target switch, out-of-lock-box |
 | Recoil subprocess | In-process subset (3 guns); gun ID / armor / shake not ported |
 | `aba.py --self-check` YOLO | Requires torch; synthetic 416×416 forward pass |

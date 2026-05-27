@@ -56,10 +56,9 @@ class RuntimeController:
         with self._lock:
             merged = dict(self._config)
             merged.update(patch)
-        from config_validation import ConfigError, validate_config
-        from profiles import apply_profile
+        from config_pipeline import normalize_app_config
 
-        merged = validate_config(apply_profile(merged))
+        merged = normalize_app_config(merged)
         with self._lock:
             self._config = merged
         if persist:
@@ -139,14 +138,13 @@ class RuntimeController:
                 )
             )
             if yolo_touched:
-                from apexaimbot_bridge import reset_apexaimbot_cache
-                from yolo_detector import get_yolo_engine, reset_yolo_engine_cache
+                from yolo_detector import reload_yolo_engine
                 from yolo_assist import try_create_yolo_assist
 
-                reset_yolo_engine_cache()
-                reset_apexaimbot_cache()
                 det_mode = str(merged.get("detection_mode", "apex")).strip().lower()
-                live._yolo_engine = get_yolo_engine(merged)
+                live._yolo_engine = reload_yolo_engine(merged)
+                if hasattr(live, "_reset_apex_aim_state"):
+                    live._reset_apex_aim_state()
                 live._yolo_assist = (
                     try_create_yolo_assist(merged) if det_mode != "yolo" else None
                 )

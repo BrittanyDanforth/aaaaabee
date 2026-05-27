@@ -136,7 +136,8 @@ def _cache_key(cfg: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def _load_runtime(cfg: dict[str, Any]) -> ApexAimBotRuntime:
-    return ApexAimBotRuntime.from_app_config(prepare_apex_cfg(cfg))
+    """Load from cfg that was already passed through prepare_apex_cfg."""
+    return ApexAimBotRuntime.from_app_config(cfg)
 
 
 def get_apexaimbot_runtime(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:

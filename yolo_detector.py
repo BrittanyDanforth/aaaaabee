@@ -34,14 +34,18 @@ def reset_yolo_engine_cache() -> None:
 
 
 def get_yolo_engine(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:
+    """Return cached ApexAimBot runtime; cfg should come from normalize_app_config."""
     if str(cfg.get("detection_mode", "apex")).strip().lower() != "yolo":
         return None
-    from apexaimbot_bridge import prepare_apex_cfg
-
-    merged = prepare_apex_cfg(cfg)
     if str(VENDOR_ROOT) not in sys.path:
         sys.path.insert(0, str(VENDOR_ROOT))
-    return get_apexaimbot_runtime(merged)
+    return get_apexaimbot_runtime(cfg)
+
+
+def reload_yolo_engine(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:
+    """Invalidate cache and load engine (hot-reload from GUI/runtime_controller)."""
+    reset_yolo_engine_cache()
+    return get_yolo_engine(cfg)
 
 
 def try_create_yolo_engine(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:

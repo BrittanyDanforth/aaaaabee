@@ -101,14 +101,10 @@ class AssistRuntime:
             motion_assist=bool(config.get("detection_motion_assist", True)),
             motion_threshold=int(config.get("detection_motion_threshold", 10)),
         )
-        from yolo_detector import get_yolo_engine, reset_yolo_engine_cache
         from yolo_assist import try_create_yolo_assist
+        from yolo_detector import reload_yolo_engine
 
-        from apexaimbot_bridge import reset_apexaimbot_cache
-
-        reset_yolo_engine_cache()
-        reset_apexaimbot_cache()
-        self._yolo_engine = get_yolo_engine(config)
+        self._yolo_engine = reload_yolo_engine(config)
         self._last_apex_box: tuple[float, float] | None = None
         self._apex_recoil: Any = None
         self._apex_pid_moved_this_frame = False
@@ -325,65 +321,6 @@ class AssistRuntime:
         self._last_motion = m
         return m
 
-    def _run_apex_pid_subticks(
-        self,
-        *,
-        engine: Any,
-        aim_x: float,
-        aim_y: float,
-        frame_cx: float,
-        frame_cy: float,
-        box_wh: tuple[float, float],
-        hip_fire: bool,
-        deadline: float,
-        subtick_hz: int,
-        cfg: dict[str, Any] | None = None,
-        pid_enabled: bool = True,
-    ) -> None:
-        """Extra PID + recoil moves between detect frames (ApexAimBot cadence)."""
-        from apexaimbot_bridge import in_lock_box, pid_mouse_delta, reset_apexaimbot_pid
-
-        if subtick_hz <= 0:
-            return
-        sub_dt = 1.0 / float(subtick_hz)
-        bw, bh = box_wh
-        recoil_on = bool(cfg and cfg.get("apexaimbot_recoil_enabled", False))
-        next_tick = time.perf_counter()
-        while next_tick < deadline:
-            with self._lock:
-                if not self._is_firing:
-                    break
-            wait = next_tick - time.perf_counter()
-            if wait > 0.0005:
-                self._sleep_interruptible(min(wait, deadline - time.perf_counter()))
-            if time.perf_counter() >= deadline:
-                break
-            moved_x = False
-            if pid_enabled:
-                err_x = float(aim_x - frame_cx)
-                err_y = float(aim_y - frame_cy)
-                if in_lock_box(
-                    engine,
-                    error_x=err_x,
-                    error_y=err_y,
-                    box_width=bw,
-                    box_height=bh,
-                    hip_fire=hip_fire,
-                ):
-                    pdx, pdy = pid_mouse_delta(
-                        engine, error_x=err_x, error_y=err_y, hip_fire=hip_fire
-                    )
-                    if pdx or pdy:
-                        gate = self._safe_mouse_move(pdx, pdy)
-                        if gate.allowed:
-                            self._apex_pid_moved_this_frame = True
-                            moved_x = bool(pdx)
-                else:
-                    reset_apexaimbot_pid(engine)
-            if recoil_on:
-                self._apex_recoil_tick(cfg, skip_x=moved_x)
-            next_tick += sub_dt
-
     @staticmethod
     def _frame_overlay_point(
         motion: TargetMotion,
@@ -433,6 +370,10 @@ class AssistRuntime:
     def _should_run(self) -> bool:
         with self._lock:
             return self.running
+
+    def _is_firing_now(self) -> bool:
+        with self._lock:
+            return bool(self._is_firing)
 
     def set_benchmark_summary(self, text: str) -> None:
         with self._lock:
@@ -1833,16 +1774,23 @@ class AssistRuntime:
                     pull_px = 0.0
                     pull_strength = 0.0
                     self._apex_pid_moved_this_frame = False
-                    apex_subtick_hz = int(cfg.get("apex_pid_subtick_hz", 0) or 0)
+                    from apex_aim_loop import (
+                        ApexAimSettings,
+                        aba_recoil_active,
+                        compute_apex_pid_pull,
+                        resolve_apex_aim_point,
+                        run_apex_subtick_window,
+                    )
+
+                    apex_set = ApexAimSettings.from_cfg(
+                        cfg, firing=firing_now, ads_live=ads_live
+                    )
                     may_pull = (
                         pull_target is not None
                         and target is not None
                         and may_assist_pull
                     )
-                    det_mode = str(cfg.get("detection_mode", "apex")).strip().lower()
-                    pull_mode = str(cfg.get("pull_mode", "aba")).strip().lower()
-                    apex_pid = pull_mode == "apexaimbot_pid" and det_mode == "yolo"
-                    # ApexAimBot pulls while firing (LMB); ABA default still ADS-gated.
+                    apex_pid = apex_set.active
                     pull_gate = ads_for_assist or (apex_pid and firing_now)
                     if (
                         not paused
@@ -1851,64 +1799,34 @@ class AssistRuntime:
                         and may_pull
                     ):
                         pr = None
-                        if (
-                            apex_pid
-                            and self._yolo_engine is not None
-                            and pull_target is not None
-                        ):
-                            from apexaimbot_bridge import in_lock_box, pid_mouse_delta
-
-                            # PID on raw YOLO aim (not motion-smoothed overlay pull point).
-                            aim_pt = target if detection_fresh and target is not None else pull_target
-                            err_x = float(aim_pt.centroid_x - frame_cx)
-                            err_y = float(aim_pt.centroid_y - frame_cy)
-                            bw, bh = self._last_apex_box or (
-                                float(pull_target.bbox_w),
-                                float(pull_target.bbox_h),
-                            )
-                            # Hip = LMB without ADS (maps to Apex left_down_not_right).
-                            hip_fire = bool(firing_now and not ads_live)
-                            use_subticks_here = apex_subtick_hz > 0
-                            if in_lock_box(
-                                self._yolo_engine,
-                                error_x=err_x,
-                                error_y=err_y,
-                                box_width=bw,
-                                box_height=bh,
-                                hip_fire=hip_fire,
-                            ):
-                                if not use_subticks_here:
-                                    pdx, pdy = pid_mouse_delta(
-                                        self._yolo_engine,
-                                        error_x=err_x,
-                                        error_y=err_y,
-                                        hip_fire=hip_fire,
-                                    )
-                                else:
-                                    pdx, pdy = 0, 0
-                                from pull import PullResult
-
-                                pr = PullResult(
-                                    pdx,
-                                    pdy,
-                                    float(math.hypot(pdx, pdy)),
-                                    1.0,
-                                    float(math.hypot(err_x, err_y)),
-                                )
-                            else:
-                                from apexaimbot_bridge import reset_apexaimbot_pid
-                                from pull import PullResult
-
-                                reset_apexaimbot_pid(self._yolo_engine)
-                                pr = PullResult(0, 0, 0.0, 0.0, 0.0)
-                        elif apex_pid:
-                            from pull import PullResult
-
+                        if apex_pid and pull_target is not None:
                             if self._yolo_engine is None:
                                 logger.error(
                                     "pull_mode=apexaimbot_pid but YOLO engine failed to load"
                                 )
-                            pr = PullResult(0, 0, 0.0, 0.0, 0.0)
+                                from pull import PullResult
+
+                                pr = PullResult(0, 0, 0.0, 0.0, 0.0)
+                            else:
+                                aim_x, aim_y = resolve_apex_aim_point(
+                                    target,
+                                    pull_target,
+                                    detection_fresh=detection_fresh,
+                                )
+                                bw, bh = self._last_apex_box or (
+                                    float(pull_target.bbox_w),
+                                    float(pull_target.bbox_h),
+                                )
+                                pr = compute_apex_pid_pull(
+                                    self._yolo_engine,
+                                    aim_x=aim_x,
+                                    aim_y=aim_y,
+                                    frame_cx=frame_cx,
+                                    frame_cy=frame_cy,
+                                    box_wh=(bw, bh),
+                                    hip_fire=apex_set.hip_fire,
+                                    use_subticks=apex_set.subtick_hz > 0,
+                                )
                         elif self._pull is not None:
                             pr = self._pull.compute_delta(
                                 pull_target,
@@ -1926,7 +1844,7 @@ class AssistRuntime:
                                 self._last_pull_dy = pr.dy
                             gate_result = MouseGateResult(True, "")
                             moved = (0, 0)
-                            use_subticks = apex_pid and apex_subtick_hz > 0
+                            use_subticks = apex_pid and apex_set.subtick_hz > 0
                             if (
                                 (pr.dx != 0 or pr.dy != 0)
                                 and self._should_run()
@@ -1987,10 +1905,7 @@ class AssistRuntime:
                         and firing_now
                         and self._pull is not None
                         and self._pull.recoil_pull_down_active()
-                        and not (
-                            apex_pid
-                            and bool(cfg.get("apexaimbot_recoil_enabled", False))
-                        )
+                        and not (apex_pid and apex_set.recoil_enabled)
                     ):
                         # Recoil cancel is NOT gated on detection — always pull down
                         # while ADS+LMB even if lock glitches or target is centered.
@@ -2036,18 +1951,14 @@ class AssistRuntime:
                             achieved_fps=ach_fps,
                         )
 
-                    # Apex vendored recoil on LMB (mouse gate: recoil_only).
                     if (
                         apex_pid
+                        and apex_set.recoil_enabled
                         and firing_now
-                        and bool(cfg.get("apexaimbot_recoil_enabled", False))
                         and not paused
                         and self._should_run()
-                        and apex_subtick_hz <= 0
-                        and not (
-                            self._pull is not None
-                            and self._pull.recoil_pull_down_active()
-                        )
+                        and apex_set.subtick_hz <= 0
+                        and not aba_recoil_active(self._pull)
                     ):
                         self._apex_recoil_tick(
                             cfg, skip_x=self._apex_pid_moved_this_frame
@@ -2212,49 +2123,54 @@ class AssistRuntime:
                     # mouse-tick on top of 60 Hz detect.
                     pull_subtick_hz = int(cfg.get("pull_subtick_hz", 0) or 0)
                     deadline = t0 + frame_interval
-                    apex_recoil_sub = bool(cfg.get("apexaimbot_recoil_enabled", False))
                     if (
                         apex_pid
-                        and apex_subtick_hz > 0
+                        and apex_set.subtick_hz > 0
                         and self._yolo_engine is not None
                         and pull_gate
                         and not paused
                         and self._should_run()
                         and (
                             (pull_target is not None and may_pull)
-                            or (firing_now and apex_recoil_sub)
+                            or (firing_now and apex_set.recoil_enabled)
                         )
                     ):
-                        if pull_target is not None:
+                        if pull_target is not None and may_pull:
                             bw, bh = self._last_apex_box or (
                                 float(pull_target.bbox_w),
                                 float(pull_target.bbox_h),
                             )
-                            aim_pt = (
-                                target
-                                if detection_fresh and target is not None
-                                else pull_target
+                            aim_x, aim_y = resolve_apex_aim_point(
+                                target,
+                                pull_target,
+                                detection_fresh=detection_fresh,
                             )
-                            aim_x = float(aim_pt.centroid_x)
-                            aim_y = float(aim_pt.centroid_y)
                             pid_enabled = True
                         else:
                             bw, bh = self._last_apex_box or (100.0, 100.0)
                             aim_x = float(frame_cx)
                             aim_y = float(frame_cy)
                             pid_enabled = False
-                        self._run_apex_pid_subticks(
-                            engine=self._yolo_engine,
+                        run_apex_subtick_window(
+                            self._yolo_engine,
+                            cfg,
                             aim_x=aim_x,
                             aim_y=aim_y,
                             frame_cx=frame_cx,
                             frame_cy=frame_cy,
                             box_wh=(bw, bh),
-                            hip_fire=bool(firing_now and not ads_live),
+                            hip_fire=apex_set.hip_fire,
                             deadline=deadline,
-                            subtick_hz=apex_subtick_hz,
-                            cfg=cfg,
-                            pid_enabled=pid_enabled and may_pull,
+                            subtick_hz=apex_set.subtick_hz,
+                            pid_enabled=pid_enabled,
+                            recoil_enabled=apex_set.recoil_enabled,
+                            is_firing=self._is_firing_now,
+                            mouse_move=self._safe_mouse_move,
+                            recoil_tick=self._apex_recoil_tick,
+                            on_pid_moved=lambda: setattr(
+                                self, "_apex_pid_moved_this_frame", True
+                            ),
+                            sleep=self._sleep_interruptible,
                         )
                     elif (
                         pull_subtick_hz > 0
