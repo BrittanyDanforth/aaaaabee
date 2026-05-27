@@ -61,6 +61,10 @@ When YOLO agrees with a CV candidate (IoU ≥ `yolo_fusion_min_iou`), that candi
 - **Default mouse sens** — valoai targets 6/11 Windows + 1.1 in-game; ABA uses pull strength / deadzone instead.
 - **Do not use valoai Arduino path** with ABA unless you wire a custom `mouse_io` backend — ABA uses Win32/pynput by default.
 
+## See also
+
+[ApexAimBot tuning reference](APEXAIMBOT_TUNING_REFERENCE.md) — another Apex YOLO + PID project with nearest-target pick and `1bit.ai.config` PID gains. GUI preset **ApexAimBot** in ABA approximates that feel on CV detection.
+
 ## Safety
 
 Both projects are external screen assist only. Live EAC/BattlEye/Vanguard risk remains. ABA defaults to dry-run; valoai has no equivalent gate — treat valoai as **reference only** for detection ideas, not as a drop-in runtime.

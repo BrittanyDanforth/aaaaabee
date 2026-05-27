@@ -84,6 +84,27 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
     # PHASE-5 AUDIT: "Tracking" preset sits between Responsive and Strong.
     # Looser body-shape gate + tighter smoothing + slightly higher pull
     # speed than Responsive, without arming Strong's recoil / jitter.
+    # Inspired by github.com/1bit-monster7/ApexAimBot (PID-ish snap, nearest target,
+    # upper-body aim bias). Still ABA apex CV detect — not their TensorRT engine.
+    "ApexAimBot": {
+        "pull_strength": 0.92,
+        "smoothing_tau_still": 0.028,
+        "smoothing_tau_moving": 0.012,
+        "velocity_smoothing": 0.36,
+        "max_pull_speed_pixels_per_frame": 28.0,
+        "torso_aim_fraction": 0.36,
+        "target_stickiness_pixels": 55,
+        "body_shape_min_score": 0.40,
+        "deadzone_pixels": 2,
+        "magnetism_radius_pixels": 72,
+        "target_selection_mode": "nearest",
+        "detection_mode": "apex",
+        "detection_motion_assist": True,
+        "detection_motion_threshold": 10,
+        "prediction_vertical_cap_pixels": 4.0,
+        "recoil_compensation_enabled": False,
+        "jitter_enabled": False,
+    },
     "Tracking": {
         "body_shape_min_score": 0.42,
         "target_stickiness_pixels": 70,
