@@ -360,9 +360,12 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     cfg["yolo_fusion_min_iou"] = _require_number(
         cfg, "yolo_fusion_min_iou", default=0.28, minimum=0.05, maximum=0.95
     )
-    cfg["yolo_device"] = str(cfg.get("yolo_device", "auto")).strip().lower()
-    if cfg["yolo_device"] not in ("auto", "cpu", "cuda"):
-        raise ConfigError("yolo_device must be auto, cpu, or cuda")
+    raw_dev = str(cfg.get("yolo_device", "") or "").strip().lower()
+    if raw_dev in ("auto", "cuda"):
+        raw_dev = ""
+    cfg["yolo_device"] = raw_dev
+    if raw_dev and raw_dev not in ("cpu", "mps") and not raw_dev.isdigit():
+        raise ConfigError("yolo_device must be empty, auto, cpu, cuda, mps, or a GPU index like 0")
     cfg["yolo_iou_thres"] = _require_number(
         cfg, "yolo_iou_thres", default=0.25, minimum=0.05, maximum=0.95
     )

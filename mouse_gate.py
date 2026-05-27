@@ -27,6 +27,8 @@ class MouseGateContext:
     target_lost_frames: int = 0
     stale_grace_frames: int = 12
     pull_budget_scale: float = _DEFAULT_PULL_BUDGET_SCALE
+    # ApexAimBot preset: LMB hip-fire assist without ADS
+    assist_without_ads: bool = False
 
 
 @dataclass(frozen=True)
@@ -68,7 +70,7 @@ def evaluate_mouse_gate(config: dict[str, Any], ctx: MouseGateContext) -> MouseG
         return MouseGateResult(False, "dry_run / allow_live_mouse=false")
     if not live_assist_enabled(config):
         return MouseGateResult(False, "allow_live_mouse=false")
-    if not ctx.ads_active:
+    if not ctx.ads_active and not ctx.assist_without_ads:
         return MouseGateResult(False, "ADS not active")
     if not _target_lock_ok(ctx):
         if ctx.has_target and not ctx.detection_fresh:
