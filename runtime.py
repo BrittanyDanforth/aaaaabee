@@ -888,6 +888,7 @@ class AssistRuntime:
                 max_pull_per_frame=float(cfg["max_pull_speed_pixels_per_frame"]),
                 pull_budget_scale=budget_scale,
                 recoil_only=recoil_only,
+                apex_pid_move=apex_pid_gate and not recoil_only,
             )
             result = evaluate_mouse_gate(cfg, ctx)
             self._last_gate_block = result.reason

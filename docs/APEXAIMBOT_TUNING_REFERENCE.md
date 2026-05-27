@@ -12,7 +12,7 @@ ABA keeps **shape + red + motion** detection by default. Use this doc to compare
 | Capture | Center rect 416×416 or 600×300 @ 1080p | FOV crop + `unified_fov` ring |
 | Target pick | **Nearest** to grab center | `score_target` + lock (`target_selection_mode: nearest` optional) |
 | Aim point | Bbox center − **20% box height** (upper body) | Chest band `torso_aim_fraction` (~0.38–0.40) |
-| Mouse move | **PID** X/Y + step cap 10 (hip) / 6 (ADS) | EMA pull + `pull_strength`, `velocity_smoothing` |
+| Mouse move | **PID** X/Y + step cap on X (hip `min_step` / ADS `max_step`); Y uncapped | `pull_mode: apexaimbot_pid` — same vendored `PID_PLUS_PLUS` via `apexaimbot_bridge.pid_mouse_delta` |
 | Activate | LMB/RMB per `aim_mod` + side mouse lock | ADS + runtime start + mouse gate |
 | Recoil | Per-weapon pixel tables + image gun ID | Optional `recoil_pull_down_pixels_per_second` (Strong preset) |
 | Extra | Auto armor (E), shake macro, Web UI | Overlay dot, target_lock, dry-run safety |
@@ -46,6 +46,44 @@ That pulls **up** from detection center by 20% of bbox height (upper torso/head 
 
 ABA uses `torso_aim_fraction` and `aim_body_y_min/max_fraction` on the **red mask column** — usually more stable on Apex outlines. For a similar *feel*, try `torso_aim_fraction: 0.35`–`0.38`, not raw bbox center.
 
+## Pull smoothness: upstream `run_ai` vs ABA
+
+Upstream ([`main.py` `run_ai`](https://github.com/1bit-monster7/ApexAimBot/blob/main/main.py)) runs one tight loop: grab → infer → nearest → PID → `_mouse(dx, dy)` **every iteration**. Loop rate is inference-bound (often well above 60 Hz on GPU), not a separate capture budget.
+
+ABA with **`pull_mode: apexaimbot_pid`**:
+
+| Behavior | Upstream | ABA |
+|----------|----------|-----|
+| PID cadence | Every grab+infer loop | Once per **capture frame** (~60 Hz) unless `apex_pid_subtick_hz` > 0 |
+| Between frames | N/A (loop is continuous) | **`apex_pid_subtick_hz`** (default **120** on ApexAimBot profile) runs PID+recoil until next frame deadline |
+| Step caps | X: `min_step` hip / `max_step` ADS; Y: no cap | Same (`apexaimbot_min_step` / `apexaimbot_max_step`) |
+| Lock gate | `have_luck` inside box (`_range` 1.0 hip / 0.7 ADS, `_range_y` 0.5) | `in_lock_box()` in `apexaimbot_bridge` |
+| Aim point | `pos_min[1] - int(box_height * 0.2)` | `yolo_aim_fraction` 0.2 on bbox in `detect_frame` |
+| Mouse safety | None (direct Logitech) | `evaluate_mouse_gate` — stale grace, process pause, dry-run; **PID moves skip pull budget** (`apex_pid_move`) so large uncapped Y steps are not clipped like ABA smooth-pull |
+| Overlay | Debug window only | Tk dot at raw YOLO aim (`yolo_direct_overlay`) — cosmetic, not used for PID |
+| Recoil | Subprocess + queue `skip_x` when aim PID runs | In-process `apexaimbot_recoil_enabled`; `skip_x` when PID moved X this tick |
+
+**Why upstream can feel smoother**
+
+1. **Higher effective PID rate** when GPU keeps up — no 60 Hz capture cap on the integrator.
+2. **No pull-budget gate** — ABA’s `max_pull_speed_pixels_per_frame × mouse_gate_pull_budget_scale` was meant for EMA `PullController`, not vendored PID (fixed: `apex_pid_move` bypasses budget).
+3. **No stale-overlay / plausibility gates** on YOLO pull — only `may_assist_pull_target_yolo` + short stale grace.
+
+**Why ABA can feel “buggy”**
+
+1. **Subticks off** — only 60 PID updates/sec; enable `apex_pid_subtick_hz: 120` (profile default).
+2. **Gate blocks** — ADS required unless LMB + `apexaimbot_pid`; stale detect beyond `yolo_pull_stale_grace_frames`; pull budget (now exempt for PID).
+3. **Engine load fail** — falls back to PT; slower infer → fewer effective PID ticks even with subticks.
+4. **CV vs YOLO** — `detection_mode: apex` uses `PullController`, not Apex PID; preset **ApexAimBot** is YOLO + `apexaimbot_pid`.
+
+**Tuning for upstream-like feel**
+
+- `profile: apexaimbot`, `pull_mode: apexaimbot_pid`, `detection_mode: yolo`
+- `apex_pid_subtick_hz: 120`–`240` if infer is fast enough
+- Match ini PID: `apexaimbot_pid_x_p/i/d`, `apexaimbot_pid_y_p`, `apexaimbot_min_step` / `max_step`
+- `assist_without_ads` is automatic when apex PID + LMB (hip fire)
+- Do not raise `max_pull_speed_pixels_per_frame` for PID — it no longer caps PID after budget bypass
+
 ## Lock zone (when mouse actually moves)
 
 Only assists when error is inside the target box:
@@ -69,7 +107,7 @@ To experiment with YOLO on Apex:
 
 ## GUI preset in ABA
 
-**Presets → ApexAimBot** sets `detection_mode: yolo`, nearest pick, and Apex-like YOLO thresholds. You must supply `models/apex_yolo.pt` (or your `.engine` + `yolo_yolov5_root`). Pull uses ABA safety — not their Logitech driver.
+**Presets → ApexAimBot** sets `detection_mode: yolo`, `pull_mode: apexaimbot_pid`, vendored weights under `third_party/apexaimbot/weights/`, and `apex_pid_subtick_hz: 120`. Pull uses vendored PID + optional `aba_mouse.dll` — not Logitech `ghub_mouse.dll`.
 
 ## What we did *not* port (on purpose)
 

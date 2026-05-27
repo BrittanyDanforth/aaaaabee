@@ -31,6 +31,8 @@ class MouseGateContext:
     assist_without_ads: bool = False
     # Vendored recoil pattern — not gated on target lock / stale detect
     recoil_only: bool = False
+    # Vendored Apex PID: Y axis has no per-step cap upstream; skip ABA pull budget
+    apex_pid_move: bool = False
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,9 @@ def evaluate_mouse_gate(config: dict[str, Any], ctx: MouseGateContext) -> MouseG
         return MouseGateResult(False, "gate[pull]: no target lock")
     if not ctx.target_process_ok:
         return MouseGateResult(False, "gate[pull]: target process not present")
+
+    if ctx.apex_pid_move:
+        return MouseGateResult(True, "")
 
     mag = (ctx.dx * ctx.dx + ctx.dy * ctx.dy) ** 0.5
     budget = pull_budget_px(ctx, config)

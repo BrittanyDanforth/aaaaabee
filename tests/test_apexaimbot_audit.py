@@ -79,6 +79,29 @@ def test_profile_apexaimbot_includes_weights_path() -> None:
     assert "APEX416" in p["yolo_weights_path"] or "APEX22W" in p["yolo_weights_path"]
 
 
+def test_mouse_gate_apex_pid_skips_pull_budget() -> None:
+    from mouse_gate import MouseGateContext, evaluate_mouse_gate
+
+    cfg = {"allow_live_mouse": True, "offline_dev_mode": True}
+    ctx = MouseGateContext(
+        running=True,
+        stopping=False,
+        paused=False,
+        mouse_enabled=True,
+        ads_active=True,
+        has_target=True,
+        detection_fresh=True,
+        target_process_ok=True,
+        dx=40,
+        dy=50,
+        max_pull_per_frame=22.0,
+        pull_budget_scale=3.5,
+        apex_pid_move=True,
+    )
+    r = evaluate_mouse_gate(cfg, ctx)
+    assert r.allowed, r.reason
+
+
 def test_mouse_gate_recoil_only_skips_target_lock() -> None:
     from mouse_gate import MouseGateContext, evaluate_mouse_gate
 
