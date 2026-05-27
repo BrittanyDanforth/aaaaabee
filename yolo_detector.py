@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -49,13 +50,17 @@ def get_yolo_engine(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:
     if str(cfg.get("detection_mode", "apex")).strip().lower() != "yolo":
         return None
     global _yolo_engine_cache
-    key = _yolo_cache_key(cfg)
+    merged = dict(cfg)
+    if not merged.get("yolo_yolov5_root") and VENDOR_ROOT.is_dir():
+        merged["yolo_yolov5_root"] = str(VENDOR_ROOT)
+    if str(VENDOR_ROOT) not in sys.path:
+        sys.path.insert(0, str(VENDOR_ROOT))
+    from ini_config import merge_app_config
+
+    merged = merge_app_config(merged)
+    key = _yolo_cache_key(merged)
     if _yolo_engine_cache is None or _yolo_engine_cache[0] != key:
-        if not cfg.get("yolo_yolov5_root"):
-            cfg = dict(cfg)
-            if VENDOR_ROOT.is_dir():
-                cfg["yolo_yolov5_root"] = str(VENDOR_ROOT)
-        _yolo_engine_cache = (key, get_apexaimbot_runtime(cfg))
+        _yolo_engine_cache = (key, get_apexaimbot_runtime(merged))
     return _yolo_engine_cache[1]
 
 

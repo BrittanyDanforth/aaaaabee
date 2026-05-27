@@ -102,7 +102,7 @@ _APEX_TUNING: dict[str, Any] = {
     "yolo_inference_size": 416,
     "yolo_confidence_min": 0.5,
     "yolo_iou_thres": 0.25,
-    "yolo_max_det": 12,
+    "yolo_max_det": 3,
     "yolo_target_pick": "nearest",
     "yolo_aim_fraction": 0.2,
     "yolo_exclude_labels": ["teammate"],

@@ -189,10 +189,10 @@ if errorlevel 1 (
 )
 
 echo.
-echo Verifying bundled ApexAimBot weights...
-"%PY%" scripts\ensure_apexaimbot_weights.py
+echo Verifying ApexAimBot bundle (weights + vendor tree)...
+"%PY%" scripts\ensure_apexaimbot_bundle.py
 if errorlevel 1 (
-  set "FAILMSG=ApexAimBot weights missing or corrupt. Run: python scripts\ensure_apexaimbot_weights.py"
+  set "FAILMSG=ApexAimBot bundle incomplete. Run: python scripts\ensure_apexaimbot_bundle.py
   goto :SetupFail
 )
 

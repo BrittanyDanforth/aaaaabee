@@ -367,7 +367,7 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         cfg, "yolo_iou_thres", default=0.25, minimum=0.05, maximum=0.95
     )
     cfg["yolo_max_det"] = int(
-        _require_number(cfg, "yolo_max_det", default=12.0, minimum=1, maximum=100)
+        _require_number(cfg, "yolo_max_det", default=3.0, minimum=1, maximum=100)
     )
     cfg["yolo_use_fp16"] = bool(cfg.get("yolo_use_fp16", False))
     cfg["yolo_aim_fraction"] = _require_number(
