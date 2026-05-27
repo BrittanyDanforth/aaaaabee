@@ -280,6 +280,9 @@ class Target:
     max_circularity: float = 0.0
     has_classified_torso: bool = False
     reject_reason: str = RejectReason.OK.value
+    # YOLO / ApexAimBot: raw nearest offset from crosshair (before aim-height offset).
+    apex_raw_offset_x: float = 0.0
+    apex_raw_offset_y: float = 0.0
 
 
 @dataclass

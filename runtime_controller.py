@@ -137,6 +137,13 @@ class RuntimeController:
                     "yolo_switch_reset_pixels",
                 )
             )
+            if (
+                "detection_mode" in patch
+                or "pull_mode" in patch
+                or "detection_motion_assist" in patch
+                or "detection_motion_threshold" in patch
+            ) and hasattr(live, "sync_config_subsystems"):
+                live.sync_config_subsystems(merged)
             if yolo_touched:
                 from yolo_detector import reload_yolo_engine
                 from yolo_assist import try_create_yolo_assist

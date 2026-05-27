@@ -118,7 +118,7 @@ def _cache_key(cfg: dict[str, Any]) -> tuple[Any, ...]:
         int(cfg.get("yolo_grab_height", 416)),
         bool(cfg.get("yolo_use_fp16", False)),
         float(cfg.get("yolo_aim_fraction", 0.2)),
-        float(cfg.get("apexaimbot_lock_range_x", 0.7)),
+        float(cfg.get("apexaimbot_lock_range_x", 1.0)),
         float(cfg.get("apexaimbot_lock_range_y", 0.5)),
         float(cfg.get("apexaimbot_pid_x_p", 0.36)),
         float(cfg.get("apexaimbot_pid_x_i", 0.032)),
@@ -146,28 +146,30 @@ def get_apexaimbot_runtime(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:
         return None
     merged = prepare_apex_cfg(cfg)
     key = _cache_key(merged)
-    if _engine_cache is None or _engine_cache[0] != key:
-        rt: ApexAimBotRuntime | None = None
-        try:
-            rt = _load_runtime(merged)
-        except Exception as exc:
-            wpath = str(merged.get("yolo_weights_path", "") or "")
-            if wpath.lower().endswith(".engine"):
-                logger.warning(
-                    "TensorRT engine load failed (%s); trying APEX22W.pt", exc
-                )
-                fb = dict(merged)
-                fb["yolo_weights_path"] = "third_party/apexaimbot/weights/APEX22W.pt"
-                try:
-                    rt = _load_runtime(fb)
-                    key = _cache_key(fb)
-                    logger.info("ApexAimBot using PyTorch fallback APEX22W.pt")
-                except Exception as exc2:
-                    logger.error("ApexAimBot PT fallback failed: %s", exc2)
-            else:
-                logger.error("ApexAimBot runtime load failed: %s", exc)
+    if _engine_cache is not None and _engine_cache[0] == key:
+        return _engine_cache[1]
+    rt: ApexAimBotRuntime | None = None
+    try:
+        rt = _load_runtime(merged)
+    except Exception as exc:
+        wpath = str(merged.get("yolo_weights_path", "") or "")
+        if wpath.lower().endswith(".engine"):
+            logger.warning(
+                "TensorRT engine load failed (%s); trying APEX22W.pt", exc
+            )
+            fb = dict(merged)
+            fb["yolo_weights_path"] = "third_party/apexaimbot/weights/APEX22W.pt"
+            try:
+                rt = _load_runtime(fb)
+                key = _cache_key(fb)
+                logger.info("ApexAimBot using PyTorch fallback APEX22W.pt")
+            except Exception as exc2:
+                logger.error("ApexAimBot PT fallback failed: %s", exc2)
+        else:
+            logger.error("ApexAimBot runtime load failed: %s", exc)
+    if rt is not None:
         _engine_cache = (key, rt)
-    return _engine_cache[1]
+    return rt
 
 
 def detect_frame(
@@ -215,28 +217,38 @@ def detect_frame(
         return DetectionResult(None, 0, 0.0, debug_lines=dbg, active=False)
 
     dbg.append(f"raw_boxes={len(box_list)}")
-    result = send_nearest_pos_to_mouse_ctrl(box_list, grab_width=gw, grab_height=gh)
+    pick_ox = cx - offset_x
+    pick_oy = cy - offset_y
+    result = send_nearest_pos_to_mouse_ctrl(
+        box_list,
+        grab_width=gw,
+        grab_height=gh,
+        origin_x=pick_ox,
+        origin_y=pick_oy,
+    )
     if result is None:
         dbg.append("no_nearest")
         return DetectionResult(None, len(box_list), 0.0, debug_lines=dbg, active=False)
 
-    (pos_min, box_width, box_height) = result
-    # Apex aim: offset = int(box_height * 0.2) applied on Y error before PID
-    aim_x = cx + pos_min[0] + offset_x
-    aim_y = cy + pos_min[1] - box_height * cfg.aim_offset_fraction + offset_y
+    (pos_min, box_width, box_height, conf) = result
+    pos_x = float(pos_min[0])
+    pos_y = float(pos_min[1])
+    aim_frac = float(cfg.aim_offset_fraction)
+    # Aim point for overlay; PID uses raw pos_min + upstream Y offset in apex_aim_loop.
+    aim_x = cx + pos_x
+    aim_y = cy + pos_y - box_height * aim_frac
     dist = math.hypot(aim_x - cx, aim_y - cy)
-    conf = 0.85
-    if box_list:
-        conf = max(b[5] for b in box_list) / 100.0
 
     half_w = box_width / 2
     half_h = box_height / 2
-    center_x_crop = gw / 2 + pos_min[0]
-    center_y_crop = gh / 2 + pos_min[1]
+    center_x_crop = pick_ox + pos_x
+    center_y_crop = pick_oy + pos_y
 
     t = Target(
         centroid_x=aim_x,
         centroid_y=aim_y,
+        apex_raw_offset_x=pos_x,
+        apex_raw_offset_y=pos_y,
         area=box_width * box_height,
         distance_to_center=dist,
         confidence=conf,
@@ -300,11 +312,33 @@ def in_lock_box(
     box_width: float,
     box_height: float,
     hip_fire: bool,
+    raw_offset_y: float | None = None,
 ) -> bool:
-    """have_luck from Apex main: _range 1.0 hip / 0.7 ADS, _range_y 0.5."""
-    rng_x = 1.0 if hip_fire else 0.7
-    rng_y = rt.config.lock_range_y
-    return abs(error_x) <= (box_width * rng_x) and abs(error_y) <= (box_height * rng_y)
+    """have_luck from Apex main.py — gate on raw box-center offset, not aim-adjusted Y."""
+    rng_x = float(rt.config.lock_range_x) if hip_fire else 0.7
+    rng_y = float(rt.config.lock_range_y)
+    gate_y = float(error_y if raw_offset_y is None else raw_offset_y)
+    return abs(error_x) <= (box_width * rng_x) and abs(gate_y) <= (box_height * rng_y)
+
+
+def apex_pid_errors(
+    target: Target,
+    *,
+    frame_cx: float,
+    frame_cy: float,
+    aim_offset_fraction: float,
+) -> tuple[float, float, float, float]:
+    """Upstream run_ai errors: pos_min X; Y = pos_min[1] - box_height * aim_fraction."""
+    if target.apex_raw_offset_x or target.apex_raw_offset_y:
+        pos_x = float(target.apex_raw_offset_x)
+        pos_y = float(target.apex_raw_offset_y)
+    else:
+        pos_x = float(target.centroid_x - frame_cx)
+        pos_y = float(target.centroid_y - frame_cy) + target.bbox_h * aim_offset_fraction
+    bh = float(max(1, target.bbox_h))
+    err_x = pos_x
+    err_y = pos_y - bh * aim_offset_fraction
+    return err_x, err_y, pos_x, pos_y
 
 
 def validate_yolo_config(cfg: dict[str, Any]) -> Path:

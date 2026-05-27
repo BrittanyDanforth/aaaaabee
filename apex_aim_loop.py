@@ -9,6 +9,7 @@ from typing import Any, Callable, Protocol
 
 from apexaimbot_bridge import (
     ApexAimBotRuntime,
+    apex_pid_errors,
     in_lock_box,
     pid_mouse_delta,
     reset_apexaimbot_pid,
@@ -60,8 +61,7 @@ def aba_recoil_active(pull: Any | None) -> bool:
 def compute_apex_pid_pull(
     engine: ApexAimBotRuntime,
     *,
-    aim_x: float,
-    aim_y: float,
+    target: Target,
     frame_cx: float,
     frame_cy: float,
     box_wh: tuple[float, float],
@@ -73,8 +73,12 @@ def compute_apex_pid_pull(
 
     When subticks own movement, do not advance PID here (avoids double integrator).
     """
-    err_x = aim_x - frame_cx
-    err_y = aim_y - frame_cy
+    err_x, err_y, _pos_x, pos_y = apex_pid_errors(
+        target,
+        frame_cx=frame_cx,
+        frame_cy=frame_cy,
+        aim_offset_fraction=float(engine.config.aim_offset_fraction),
+    )
     bw, bh = box_wh
     if not in_lock_box(
         engine,
@@ -83,6 +87,7 @@ def compute_apex_pid_pull(
         box_width=bw,
         box_height=bh,
         hip_fire=hip_fire,
+        raw_offset_y=pos_y,
     ):
         reset_apexaimbot_pid(engine)
         return PullResult(0, 0, 0.0, 0.0, 0.0)
@@ -110,8 +115,7 @@ def run_apex_subtick_window(
     engine: ApexAimBotRuntime,
     cfg: dict[str, Any],
     *,
-    aim_x: float,
-    aim_y: float,
+    target: Target,
     frame_cx: float,
     frame_cy: float,
     box_wh: tuple[float, float],
@@ -142,8 +146,12 @@ def run_apex_subtick_window(
             break
         moved_x = False
         if pid_enabled:
-            err_x = aim_x - frame_cx
-            err_y = aim_y - frame_cy
+            err_x, err_y, _pos_x, pos_y = apex_pid_errors(
+                target,
+                frame_cx=frame_cx,
+                frame_cy=frame_cy,
+                aim_offset_fraction=float(engine.config.aim_offset_fraction),
+            )
             if in_lock_box(
                 engine,
                 error_x=err_x,
@@ -151,6 +159,7 @@ def run_apex_subtick_window(
                 box_width=bw,
                 box_height=bh,
                 hip_fire=hip_fire,
+                raw_offset_y=pos_y,
             ):
                 pdx, pdy = pid_mouse_delta(
                     engine, error_x=err_x, error_y=err_y, hip_fire=hip_fire

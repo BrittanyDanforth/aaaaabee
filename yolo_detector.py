@@ -82,7 +82,7 @@ def find_best_yolo_target(
     t = result.target
     if t is None:
         return result
-    if t.area < min_area:
+    if min_area > 0 and t.area < min_area:
         return DetectionResult(
             None, result.candidates, 0.0, debug_lines=result.debug_lines + ["below_min_area"],
             active=False,

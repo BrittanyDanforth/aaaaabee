@@ -271,6 +271,8 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "yolo_direct_overlay": True,
         "yolo_pull_stale_grace_frames": 8,
         "detection_motion_assist": False,
+        "humanoid_min_height_pixels": 0,
+        "min_target_area_pixels": 1,
         "apex_pid_subtick_hz": 120,
         "apexaimbot_mouse_modifier": 0.8,
         "apexaimbot_pid_x_p": 0.36,

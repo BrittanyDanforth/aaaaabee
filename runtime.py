@@ -329,6 +329,70 @@ class AssistRuntime:
         self._last_motion = m
         return m
 
+    def sync_config_subsystems(self, cfg: dict[str, Any]) -> None:
+        """Recreate CV-only subsystems when detection_mode / pull_mode changes at runtime."""
+        from profiles import is_yolo_detection, uses_apex_pid_pull
+        from pull import PullController, PullTuning
+
+        if is_yolo_detection(cfg):
+            if self._detect_ctx is not None:
+                self._detect_ctx.reset()
+            self._detect_ctx = None
+        elif self._detect_ctx is None:
+            self._detect_ctx = DetectionContext(
+                motion_assist=bool(cfg.get("detection_motion_assist", True)),
+                motion_threshold=int(cfg.get("detection_motion_threshold", 10)),
+            )
+        else:
+            self._detect_ctx.motion_assist = bool(
+                cfg.get("detection_motion_assist", True)
+            )
+            self._detect_ctx.motion_threshold = int(
+                cfg.get("detection_motion_threshold", 10)
+            )
+
+        if uses_apex_pid_pull(cfg):
+            if self._pull is not None:
+                self._pull.reset()
+            self._pull = None
+        elif self._pull is None:
+            self._pull = PullController(
+                PullTuning(
+                    max_speed=float(cfg["max_pull_speed_pixels_per_frame"]),
+                    pull_strength=float(cfg["pull_strength"]),
+                    deadzone=float(cfg["deadzone_pixels"]),
+                    velocity_smoothing=float(cfg["velocity_smoothing"]),
+                    smoothing_curve=str(cfg["smoothing_curve"]),
+                    magnetism_radius=float(cfg["magnetism_radius_pixels"]),
+                    magnetism_min_scale=float(cfg["magnetism_min_pull_scale"]),
+                    fov_radius=float(
+                        effective_detection_fov_radius(cfg, ads_active=False)
+                    ),
+                    fov_edge_min_scale=float(cfg["fov_edge_min_pull_scale"]),
+                    prediction_enabled=bool(cfg["prediction_enabled"]),
+                    prediction_lead_seconds=float(cfg["prediction_lead_seconds"]),
+                    prediction_max_pixels=float(cfg["prediction_max_pixels"]),
+                    humanize_enabled=bool(cfg["humanize_enabled"]),
+                    humanize_amplitude=float(cfg["humanize_amplitude_pixels"]),
+                    humanize_jerk_limit=float(cfg["humanize_jerk_limit"]),
+                    aim_pre_smoothed=True,
+                    recoil_compensation_enabled=bool(
+                        cfg.get("recoil_compensation_enabled", False)
+                    ),
+                    recoil_pull_down_pixels_per_second=float(
+                        cfg.get("recoil_pull_down_pixels_per_second", 0.0)
+                    ),
+                    jitter_enabled=bool(cfg.get("jitter_enabled", False)),
+                    jitter_amplitude_pixels=float(
+                        cfg.get("jitter_amplitude_pixels", 0.0)
+                    ),
+                    jitter_frequency_hz=float(cfg.get("jitter_frequency_hz", 6.0)),
+                    stale_grace_frames=int(
+                        cfg.get("mouse_gate_stale_grace_frames", 12)
+                    ),
+                )
+            )
+
     @staticmethod
     def _frame_overlay_point(
         motion: TargetMotion,
@@ -670,16 +734,20 @@ class AssistRuntime:
                 cv2.imwrite(str(out_dir / "03_overlay.png"), overlay)
             from dataclasses import asdict
 
-            meta = {
-                "target": asdict(det.target) if det.target is not None else None,
-                "candidates": [
+            cand_meta: list[dict[str, Any]] = []
+            if cfg_mode != "yolo":
+                cand_meta = [
                     {
                         "idx": c.idx,
                         "body": c.body_shape_score,
                         "reject": c.reject_reason,
                     }
                     for c in candidates[:12]
-                ],
+                ]
+            meta = {
+                "target": asdict(det.target) if det.target is not None else None,
+                "detection_mode": cfg_mode,
+                "candidates": cand_meta,
             }
             (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
             logger.info("Saved debug frame artifacts to %s", out_dir)
@@ -1179,11 +1247,6 @@ class AssistRuntime:
                 yolo_engine=None,
                 ads_active=bool(cfg.get("_ads_active", False)),
             )
-        if cfg_mode == "yolo" and result.target is not None:
-            self._last_apex_box = (
-                float(result.target.bbox_w),
-                float(result.target.bbox_h),
-            )
         with self._lock:
 
             def _reset_apex_pid_state() -> None:
@@ -1217,6 +1280,13 @@ class AssistRuntime:
                     frame_size=(fw, fh),
                 )
             locked = self._target_lock.locked_target
+            if cfg_mode == "yolo":
+                box_src = locked if locked is not None else result.target
+                if box_src is not None:
+                    self._last_apex_box = (
+                        float(box_src.bbox_w),
+                        float(box_src.bbox_h),
+                    )
             if (
                 cfg_mode != "yolo"
                 and self._detect_ctx is not None
@@ -1322,46 +1392,7 @@ class AssistRuntime:
             float(cfg.get("smoothing_tau_moving", 0.028)),
         )
 
-        from profiles import uses_apex_pid_pull
-
-        self._pull = None
-        if not uses_apex_pid_pull(cfg):
-            self._pull = PullController(
-                PullTuning(
-                    max_speed=float(cfg["max_pull_speed_pixels_per_frame"]),
-                    pull_strength=float(cfg["pull_strength"]),
-                    deadzone=float(cfg["deadzone_pixels"]),
-                    velocity_smoothing=float(cfg["velocity_smoothing"]),
-                    smoothing_curve=str(cfg["smoothing_curve"]),
-                    magnetism_radius=float(cfg["magnetism_radius_pixels"]),
-                    magnetism_min_scale=float(cfg["magnetism_min_pull_scale"]),
-                    fov_radius=float(
-                        effective_detection_fov_radius(cfg, ads_active=False)
-                    ),
-                    fov_edge_min_scale=float(cfg["fov_edge_min_pull_scale"]),
-                    prediction_enabled=bool(cfg["prediction_enabled"]),
-                    prediction_lead_seconds=float(cfg["prediction_lead_seconds"]),
-                    prediction_max_pixels=float(cfg["prediction_max_pixels"]),
-                    humanize_enabled=bool(cfg["humanize_enabled"]),
-                    humanize_amplitude=float(cfg["humanize_amplitude_pixels"]),
-                    humanize_jerk_limit=float(cfg["humanize_jerk_limit"]),
-                    aim_pre_smoothed=True,
-                    recoil_compensation_enabled=bool(
-                        cfg.get("recoil_compensation_enabled", False)
-                    ),
-                    recoil_pull_down_pixels_per_second=float(
-                        cfg.get("recoil_pull_down_pixels_per_second", 0.0)
-                    ),
-                    jitter_enabled=bool(cfg.get("jitter_enabled", False)),
-                    jitter_amplitude_pixels=float(
-                        cfg.get("jitter_amplitude_pixels", 0.0)
-                    ),
-                    jitter_frequency_hz=float(cfg.get("jitter_frequency_hz", 6.0)),
-                    stale_grace_frames=int(
-                        cfg.get("mouse_gate_stale_grace_frames", 12)
-                    ),
-                )
-            )
+        self.sync_config_subsystems(cfg)
 
         mouse_listener = None
         keyboard_listener = None
@@ -1625,6 +1656,7 @@ class AssistRuntime:
                         apex_pid_loop and firing_for_detect
                     )
                     if detect_assist and not paused:
+                        cfg["_ads_active"] = ads_for_assist
                         t_det0 = time.perf_counter()
                         det = self._select_target(
                             frame_bgr,
@@ -1707,8 +1739,9 @@ class AssistRuntime:
                         firing_now = self._is_firing
                     fh, fw = frame_bgr.shape[0], frame_bgr.shape[1]
                     if det_mode_loop == "yolo":
-                        show_for_overlay = bool(
-                            detection_fresh and target is not None
+                        show_for_overlay = target is not None and (
+                            detection_fresh
+                            or self._target_lost_frames <= overlay_stale_grace
                         )
                     else:
                         show_for_overlay = overlay_may_show_target(
@@ -1784,12 +1817,18 @@ class AssistRuntime:
                         and cap_region is not None
                         and build_frame_overlay
                     ):
-                        if det_mode_loop == "yolo" and bool(
-                            cfg.get("yolo_direct_overlay", True)
+                        if (
+                            det_mode_loop == "yolo"
+                            and bool(cfg.get("yolo_direct_overlay", True))
+                            and motion is not None
                         ):
-                            frame_overlay = (
-                                float(target.centroid_x),
-                                float(target.centroid_y),
+                            frame_overlay = self._frame_overlay_point(
+                                motion,
+                                cap_region,
+                                center_x=float(center_x),
+                                center_y=float(center_y),
+                                detect_fov=float(detect_fov),
+                                display_fov=float(overlay_fov),
                             )
                         elif motion is not None:
                             frame_overlay = self._frame_overlay_point(
@@ -1897,8 +1936,7 @@ class AssistRuntime:
                                 )
                                 pr = compute_apex_pid_pull(
                                     self._yolo_engine,
-                                    aim_x=aim_x,
-                                    aim_y=aim_y,
+                                    target=pull_target,
                                     frame_cx=frame_cx,
                                     frame_cy=frame_cy,
                                     box_wh=(bw, bh),
@@ -2121,7 +2159,10 @@ class AssistRuntime:
                                 and locked_hold
                                 and plausible_lock
                                 and self._target_lost_frames <= overlay_stale_grace
-                                and not stale_det
+                                and (
+                                    not stale_det
+                                    or det_mode_loop == "yolo"
+                                )
                             ):
                                 overlay_pt = held
                         self._overlay.set_state(ads_for_assist, overlay_pt)
@@ -2218,22 +2259,24 @@ class AssistRuntime:
                                 float(pull_target.bbox_w),
                                 float(pull_target.bbox_h),
                             )
-                            aim_x, aim_y = resolve_apex_aim_point(
-                                target,
-                                pull_target,
-                                detection_fresh=detection_fresh,
-                            )
+                            subtick_target = pull_target
                             pid_enabled = True
                         else:
                             bw, bh = self._last_apex_box or (100.0, 100.0)
-                            aim_x = float(frame_cx)
-                            aim_y = float(frame_cy)
+                            subtick_target = Target(
+                                frame_cx,
+                                frame_cy,
+                                1.0,
+                                0.0,
+                                0.0,
+                                bbox_w=int(bw),
+                                bbox_h=int(bh),
+                            )
                             pid_enabled = False
                         run_apex_subtick_window(
                             self._yolo_engine,
                             cfg,
-                            aim_x=aim_x,
-                            aim_y=aim_y,
+                            target=subtick_target,
                             frame_cx=frame_cx,
                             frame_cy=frame_cy,
                             box_wh=(bw, bh),

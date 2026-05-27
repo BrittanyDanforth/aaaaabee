@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from apex_aim_loop import ApexAimSettings, compute_apex_pid_pull
+from detector import Target
 from apexaimbot_bridge import _cache_key, prepare_apex_cfg, reset_apexaimbot_cache
 from assist import load_config
 from config_pipeline import merge_apex_ini, normalize_app_config
@@ -54,12 +55,23 @@ def test_compute_apex_pid_pull_skips_integrator_when_subticks() -> None:
     engine.config.min_step = 10
     engine.config.max_step = 6
     engine.config.lock_range_y = 0.5
+    engine.config.aim_offset_fraction = 0.2
+    tgt = Target(
+        110.0,
+        84.0,
+        4000.0,
+        10.0,
+        0.9,
+        bbox_w=50,
+        bbox_h=80,
+        apex_raw_offset_x=10.0,
+        apex_raw_offset_y=20.0,
+    )
     with patch("apex_aim_loop.in_lock_box", return_value=True):
         with patch("apex_aim_loop.pid_mouse_delta") as pm:
             pr = compute_apex_pid_pull(
                 engine,
-                aim_x=110.0,
-                aim_y=100.0,
+                target=tgt,
                 frame_cx=100.0,
                 frame_cy=100.0,
                 box_wh=(50.0, 80.0),
@@ -75,12 +87,23 @@ def test_compute_apex_pid_pull_calls_pid_when_no_subticks() -> None:
     engine.config.min_step = 10
     engine.config.max_step = 6
     engine.config.lock_range_y = 0.5
+    engine.config.aim_offset_fraction = 0.2
+    tgt = Target(
+        110.0,
+        84.0,
+        4000.0,
+        10.0,
+        0.9,
+        bbox_w=50,
+        bbox_h=80,
+        apex_raw_offset_x=10.0,
+        apex_raw_offset_y=20.0,
+    )
     with patch("apex_aim_loop.in_lock_box", return_value=True):
         with patch("apex_aim_loop.pid_mouse_delta", return_value=(3, -2)) as pm:
             pr = compute_apex_pid_pull(
                 engine,
-                aim_x=110.0,
-                aim_y=100.0,
+                target=tgt,
                 frame_cx=100.0,
                 frame_cy=100.0,
                 box_wh=(50.0, 80.0),

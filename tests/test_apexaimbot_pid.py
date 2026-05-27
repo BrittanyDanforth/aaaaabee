@@ -12,6 +12,7 @@ def _rt() -> MagicMock:
     rt.config.min_step = 10
     rt.config.max_step = 6
     rt.config.lock_range_y = 0.5
+    rt.config.lock_range_x = 1.0
     rt.pid_x.getMove.return_value = 3.0
     rt.pid_y.getMove.return_value = -2.0
     return rt

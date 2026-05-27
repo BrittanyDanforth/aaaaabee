@@ -88,4 +88,5 @@ def test_runtime_lazy_pull_controller_source() -> None:
         encoding="utf-8"
     )
     assert "uses_apex_pid_pull" in text
-    assert "if not uses_apex_pid_pull(cfg):" in text
+    assert "sync_config_subsystems" in text
+    assert "uses_apex_pid_pull(cfg)" in text
