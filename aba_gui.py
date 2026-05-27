@@ -109,6 +109,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "yolo_max_det": 3,
         "yolo_aim_fraction": 0.2,
         "yolo_exclude_labels": ["teammate"],
+        "yolo_device": "",
         "apexaimbot_pid_x_p": 0.36,
         "apexaimbot_pid_x_i": 0.032,
         "apexaimbot_pid_x_d": 0.01,

@@ -109,7 +109,7 @@ _APEX_TUNING: dict[str, Any] = {
     "yolo_use_fp16": False,
     "yolo_fusion_boost": 0.30,
     "yolo_fusion_min_iou": 0.28,
-    "yolo_device": "auto",
+    "yolo_device": "",
     "detection_motion_assist": True,
     "detection_motion_threshold": 10,
     "head_score_weight": 0.26,

@@ -799,12 +799,18 @@ class AssistRuntime:
             detection_fresh = self._frame_has_target
             stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
             budget_scale = float(cfg.get("mouse_gate_pull_budget_scale", 3.5))
+            det_mode = str(cfg.get("detection_mode", "apex")).strip().lower()
+            pull_mode = str(cfg.get("pull_mode", "aba")).strip().lower()
+            apex_pid_gate = pull_mode == "apexaimbot_pid" and det_mode == "yolo"
+            with self._lock:
+                firing_gate = self._is_firing
             ctx = MouseGateContext(
                 running=running,
                 stopping=stopping,
                 paused=paused,
                 mouse_enabled=mouse_enabled,
                 ads_active=self._ads.is_ads_active(),
+                assist_without_ads=apex_pid_gate and firing_gate,
                 has_target=has_target,
                 detection_fresh=detection_fresh,
                 target_lost_frames=self._target_lost_frames,
@@ -1435,7 +1441,17 @@ class AssistRuntime:
                     detect_ms = 0.0
 
                     detection_fresh = False
-                    if ads_for_assist and not paused:
+                    det_mode_loop = str(cfg.get("detection_mode", "apex")).strip().lower()
+                    pull_mode_loop = str(cfg.get("pull_mode", "aba")).strip().lower()
+                    apex_pid_loop = (
+                        pull_mode_loop == "apexaimbot_pid" and det_mode_loop == "yolo"
+                    )
+                    with self._lock:
+                        firing_for_detect = self._is_firing
+                    detect_assist = ads_for_assist or (
+                        apex_pid_loop and firing_for_detect
+                    )
+                    if detect_assist and not paused:
                         t_det0 = time.perf_counter()
                         det = self._select_target(
                             frame_bgr,
@@ -1636,8 +1652,10 @@ class AssistRuntime:
                         ):
                             from apexaimbot_bridge import in_lock_box, pid_mouse_delta
 
-                            err_x = float(pull_target.centroid_x - frame_cx)
-                            err_y = float(pull_target.centroid_y - frame_cy)
+                            # PID on raw YOLO aim (not motion-smoothed overlay pull point).
+                            aim_pt = target if detection_fresh and target is not None else pull_target
+                            err_x = float(aim_pt.centroid_x - frame_cx)
+                            err_y = float(aim_pt.centroid_y - frame_cy)
                             bw, bh = self._last_apex_box or (
                                 float(pull_target.bbox_w),
                                 float(pull_target.bbox_h),

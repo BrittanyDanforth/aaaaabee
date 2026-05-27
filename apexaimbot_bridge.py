@@ -36,7 +36,7 @@ class ApexAimBotRuntime:
         from PID import PID_PLUS_PLUS
 
         acfg = ApexAimBotDetectConfig.from_app_config(cfg)
-        model = load_detect_model(acfg, device=str(cfg.get("yolo_device", "")))
+        model = load_detect_model(acfg, device=resolve_yolo_device(cfg))
         px = float(cfg.get("pid_x_p", cfg.get("apexaimbot_pid_x_p", 0.36)))
         ix = float(cfg.get("pid_x_i", cfg.get("apexaimbot_pid_x_i", 0.032)))
         dx = float(cfg.get("pid_x_d", cfg.get("apexaimbot_pid_x_d", 0.01)))
@@ -49,6 +49,18 @@ class ApexAimBotRuntime:
             pid_x=PID_PLUS_PLUS(0, px, ix, dx),
             pid_y=PID_PLUS_PLUS(0, py, iy, dy),
         )
+
+
+def resolve_yolo_device(cfg: dict[str, Any]) -> str:
+    """Map ABA config to YOLOv5 select_device ('' → first CUDA GPU)."""
+    raw = str(cfg.get("yolo_device", "") or "").strip().lower()
+    if raw in ("", "auto", "cuda"):
+        return ""
+    if raw in ("cpu", "mps"):
+        return raw
+    if raw.isdigit():
+        return raw
+    return ""
 
 
 def _resolve_vendor_root(cfg: dict[str, Any]) -> Path:
