@@ -110,9 +110,12 @@ class AssistRuntime:
                 "synthetic YOLO scores — prefer True for ApexAimBot parity"
             )
         from yolo_assist import try_create_yolo_assist
-        from yolo_detector import reload_yolo_engine
+        from profiles import is_yolo_detection, uses_apex_pid_pull
+        from yolo_targeting import reload_yolo_engine
 
         self._yolo_engine = reload_yolo_engine(config)
+        self._subsys_yolo = is_yolo_detection(config)
+        self._subsys_apex_pid = uses_apex_pid_pull(config)
         self._last_apex_box: tuple[float, float] | None = None
         self._apex_recoil: Any = None
         self._apex_pid_moved_this_frame = False
@@ -344,10 +347,28 @@ class AssistRuntime:
 
     def sync_config_subsystems(self, cfg: dict[str, Any]) -> None:
         """Recreate CV-only subsystems when detection_mode / pull_mode changes at runtime."""
+        from apexaimbot_bridge import reset_apexaimbot_cache
         from profiles import is_yolo_detection, uses_apex_pid_pull
         from pull import PullController, PullTuning
+        from yolo_targeting import reload_yolo_engine
 
-        if is_yolo_detection(cfg):
+        now_yolo = is_yolo_detection(cfg)
+        now_apex_pid = uses_apex_pid_pull(cfg)
+        prev_yolo = bool(getattr(self, "_subsys_yolo", now_yolo))
+        prev_apex_pid = bool(getattr(self, "_subsys_apex_pid", now_apex_pid))
+        if now_yolo != prev_yolo or now_apex_pid != prev_apex_pid:
+            self._target_lock.reset()
+            if hasattr(self, "_reset_apex_aim_state"):
+                self._reset_apex_aim_state()
+        if not now_yolo:
+            self._yolo_engine = None
+            reset_apexaimbot_cache()
+        elif now_yolo and (not prev_yolo or self._yolo_engine is None):
+            self._yolo_engine = reload_yolo_engine(cfg)
+        self._subsys_yolo = now_yolo
+        self._subsys_apex_pid = now_apex_pid
+
+        if now_yolo:
             if self._detect_ctx is not None:
                 self._detect_ctx.reset()
             self._detect_ctx = None
@@ -1381,7 +1402,6 @@ class AssistRuntime:
 
         mouse_listener = None
         keyboard_listener = None
-        frame_interval = 1.0 / fps
         if self._live:
             from pynput import keyboard, mouse
 
@@ -1462,8 +1482,12 @@ class AssistRuntime:
                     if self._prev_loop_t is not None:
                         dt_frame = max(1.0 / 144.0, min(t0 - self._prev_loop_t, 0.05))
                     else:
-                        dt_frame = frame_interval
+                        dt_frame = 1.0 / max(1, self._configured_fps)
                     self._prev_loop_t = t0
+                    self._configured_fps = effective_capture_fps(cfg)
+                    frame_interval = 1.0 / max(1, self._configured_fps)
+                    if self._stats is not None:
+                        self._stats.configured_fps = max(1, int(self._configured_fps))
                     if not self._should_run():
                         break
 

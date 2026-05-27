@@ -39,7 +39,7 @@ def test_find_best_target_yolo_delegates_without_cv() -> None:
     mock_rt = MagicMock()
     mock_rt.config.aim_offset_fraction = 0.2
     with patch(
-        "yolo_detector.detect_frame",
+        "yolo_targeting.detect_frame",
         return_value=DetectionResult(fake_t, 1, 0.88, debug_lines=["mode=apexaimbot_vendored"], active=True),
     ):
         r = find_best_target(

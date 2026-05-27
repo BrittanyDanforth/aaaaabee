@@ -113,13 +113,13 @@ def main() -> int:
     ap.add_argument("--profile", "-p", help="built-in profile name")
     args = ap.parse_args()
     if args.config:
-        import json
-        from profiles import apply_profile
-        raw = json.loads(Path(args.config).read_text(encoding="utf-8"))
-        cfg = apply_profile(raw)
+        from config_pipeline import load_app_config
+
+        cfg = load_app_config(Path(args.config))
     elif args.profile:
-        from profiles import apply_profile
-        cfg = apply_profile({"profile": args.profile})
+        from config_pipeline import normalize_app_config
+
+        cfg = normalize_app_config({"profile": args.profile})
     else:
         cfg = {
             "max_pull_speed_pixels_per_frame": 18.0,

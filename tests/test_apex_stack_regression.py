@@ -125,6 +125,100 @@ def test_runtime_controller_save_uses_full_replace() -> None:
         assert kwargs.get("full_replace") is True
 
 
+def test_save_config_does_not_recurse() -> None:
+    from runtime_controller import RuntimeController
+
+    ctrl = RuntimeController(
+        {"detection_mode": "apex", "allow_live_mouse": False, "profile": "apex_style_dry_run"},
+        REPO / "config.json",
+    )
+    writes: list[str] = []
+
+    def fake_write(cfg: dict) -> None:
+        writes.append("disk")
+
+    with patch.object(ctrl, "_write_config_disk", side_effect=fake_write):
+        with patch.object(ctrl, "apply_config_patch", wraps=ctrl.apply_config_patch) as patch_apply:
+            ctrl.save_config({"detection_mode": "apex", "capture_fps": 45})
+            assert patch_apply.call_count == 1
+            assert writes == ["disk"]
+
+
+def test_sync_config_subsystems_mode_flip_resets_lock() -> None:
+    import sys
+
+    sys.modules.setdefault("mss", MagicMock())
+    from runtime import AssistRuntime
+
+    cfg_apex = normalize_app_config(
+        {"profile": "apex_style_dry_run", "detection_mode": "apex", "pull_mode": "aba"}
+    )
+    rt = AssistRuntime(cfg_apex, REPO / "config.json")
+    t = Target(10.0, 10.0, 100.0, 5.0, 0.9, bbox_w=20, bbox_h=40)
+    rt._target_lock.locked_target = t
+    cfg_yolo = normalize_app_config(
+        {
+            "profile": PROFILE_APEXAIMBOT,
+            "detection_mode": "yolo",
+            "pull_mode": "apexaimbot_pid",
+            "allow_live_mouse": False,
+        }
+    )
+    with patch("yolo_targeting.reload_yolo_engine", return_value=MagicMock()):
+        rt.sync_config_subsystems(cfg_yolo)
+    assert rt._target_lock.locked_target is None
+    cfg_back = normalize_app_config(
+        {"profile": "apex_style_dry_run", "detection_mode": "apex", "pull_mode": "aba"}
+    )
+    rt.sync_config_subsystems(cfg_back)
+    assert rt._yolo_engine is None
+
+
+def test_capture_fps_hot_reload_on_patch() -> None:
+    from runtime_controller import RuntimeController
+
+    live = MagicMock()
+    live.running = True
+    live._configured_fps = 30
+    live._stats = MagicMock()
+    live._stats.configured_fps = 30
+    ctrl = RuntimeController(
+        {"detection_mode": "apex", "allow_live_mouse": False, "profile": "apex_style_dry_run"},
+        REPO / "config.json",
+    )
+    ctrl._runtime = live
+    patch_cfg = normalize_app_config(
+        {
+            "profile": "apex_style_live_trace",
+            "detection_mode": "apex",
+            "allow_live_mouse": True,
+            "capture_fps": 90,
+        }
+    )
+    ctrl.apply_config_patch(patch_cfg, persist=False, full_replace=True)
+    assert live._configured_fps == 90
+    assert live._stats.configured_fps == 90
+
+
+def test_apply_config_patch_same_path_as_save_for_live() -> None:
+    from runtime_controller import RuntimeController
+
+    live = MagicMock()
+    live.running = True
+    live._detect_ctx = MagicMock()
+    live._pull = MagicMock()
+    ctrl = RuntimeController(
+        normalize_app_config(
+            {"profile": "apex_style_dry_run", "detection_mode": "apex", "pull_mode": "aba"}
+        ),
+        REPO / "config.json",
+    )
+    ctrl._runtime = live
+    merged = ctrl.apply_config_patch({"pull_strength": 0.77}, persist=False)
+    assert live.config == merged
+    live._pull.update_tuning.assert_called_once()
+
+
 def test_yolo_targeting_single_lock_path() -> None:
     frame = np.zeros((100, 100, 3), dtype=np.uint8)
     fake_t = Target(50.0, 50.0, 1000.0, 5.0, 0.9, bbox_w=20, bbox_h=40)

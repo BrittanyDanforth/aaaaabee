@@ -42,6 +42,12 @@ class RuntimeController:
             self._config = cfg
         return cfg
 
+    def _write_config_disk(self, cfg: dict[str, Any]) -> None:
+        self.config_path.write_text(
+            json.dumps(cfg, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
     def save_config(self, cfg: dict[str, Any] | None = None) -> None:
         """Persist + hot-apply (same subsystem refresh as slider patches)."""
         data = dict(cfg if cfg is not None else self._config)
@@ -66,7 +72,7 @@ class RuntimeController:
         with self._lock:
             self._config = merged
         if persist:
-            self.save_config(merged)
+            self._write_config_disk(merged)
         live = self._runtime
         if live is not None and getattr(live, "running", False):
             live.config = merged
@@ -148,9 +154,16 @@ class RuntimeController:
                 or "detection_motion_threshold" in patch
             ) and hasattr(live, "sync_config_subsystems"):
                 live.sync_config_subsystems(merged)
+            if "capture_fps" in patch or full_replace:
+                from profiles import effective_capture_fps
+
+                fps = effective_capture_fps(merged)
+                live._configured_fps = fps
+                if getattr(live, "_stats", None) is not None:
+                    live._stats.configured_fps = max(1, int(fps))
             if yolo_touched:
-                from yolo_detector import reload_yolo_engine
                 from yolo_assist import try_create_yolo_assist
+                from yolo_targeting import reload_yolo_engine
 
                 det_mode = str(merged.get("detection_mode", "apex")).strip().lower()
                 live._yolo_engine = reload_yolo_engine(merged)

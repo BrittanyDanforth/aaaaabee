@@ -91,8 +91,8 @@ class HostileAuditFixesVerifiedTests(unittest.TestCase):
         rc = (Path(__file__).resolve().parents[1] / "runtime_controller.py").read_text(
             encoding="utf-8"
         )
-        block = rc[rc.find("def save_config") : rc.find("def apply_config_patch")]
-        self.assertIn("live.config = dict(data)", block)
+        block = rc[rc.find("def apply_config_patch") : rc.find("def set_benchmark_summary")]
+        self.assertIn("live.config = merged", block)
 
     def test_start_saves_debug_off_before_reload(self) -> None:
         gui = (Path(__file__).resolve().parents[1] / "aba_gui.py").read_text(encoding="utf-8")

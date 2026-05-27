@@ -45,7 +45,7 @@ def test_find_best_yolo_target_respects_confidence() -> None:
     )
     mock_rt = MagicMock()
     with patch(
-        "yolo_detector.detect_frame",
+        "yolo_targeting.detect_frame",
         return_value=DetectionResult(low, 1, 0.4, active=True),
     ):
         r = find_best_yolo_target(

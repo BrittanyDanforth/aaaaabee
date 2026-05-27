@@ -267,16 +267,18 @@ class _ConfigControl:
         self.key = key
         self.frame = tk.Frame(parent, bg=UI_PANEL)
         self.frame.pack(fill=tk.X, pady=3)
+        self._tip = tooltip
         lbl_text = label
         if tooltip:
             lbl_text = f"{label}  ({tooltip})"
-        tk.Label(self.frame, text=lbl_text, bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9)).pack(
-            anchor="w"
+        self._title_label = tk.Label(
+            self.frame, text=lbl_text, bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9)
         )
+        self._title_label.pack(anchor="w")
         inner = tk.Frame(self.frame, bg=UI_PANEL)
         inner.pack(fill=tk.X)
         self._var = tk.DoubleVar(value=default)
-        scale = tk.Scale(
+        self._scale = tk.Scale(
             inner,
             from_=minimum,
             to=maximum,
@@ -290,9 +292,9 @@ class _ConfigControl:
             highlightthickness=0,
             sliderrelief=tk.FLAT,
             showvalue=False,
-            command=lambda _v: on_change(key, self.value()),
+            command=lambda _v: on_change(self.key, self.value()),
         )
-        scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self._val_label = tk.Label(
             inner,
             text=str(default),
@@ -640,7 +642,13 @@ class AbaApplication:
     def _on_slider_change(self, key: str, _value: float) -> None:
         if key in self._sliders:
             self._sliders[key]._val_label.config(text=str(self._sliders[key].value()))
-        patch = {key: self._sliders[key].value() for key in (key,)}
+        cfg_key = key
+        if key in ("torso_aim_fraction", "yolo_aim_fraction") and hasattr(
+            self, "_aim_height_ctrl"
+        ):
+            cfg_key = self._aim_height_config_key()
+            key = cfg_key
+        patch = {cfg_key: self._sliders[key].value()}
         try:
             self.config = self._controller.apply_config_patch(patch, persist=False)
         except Exception as exc:
@@ -704,9 +712,50 @@ class AbaApplication:
 
         return is_yolo_detection(cfg) and uses_apex_pid_pull(cfg)
 
+    def _aim_height_config_key(self, cfg: dict[str, Any] | None = None) -> str:
+        cfg = cfg if cfg is not None else self.config
+        if self._is_yolo_pure_config(cfg):
+            return "yolo_aim_fraction"
+        return "torso_aim_fraction"
+
+    def _rewire_aim_height_slider(self) -> None:
+        if not hasattr(self, "_aim_height_ctrl"):
+            return
+        ctrl = self._aim_height_ctrl
+        new_key = self._aim_height_config_key()
+        old_key = getattr(self, "_aim_height_slider_key", "torso_aim_fraction")
+        yolo_pure = new_key == "yolo_aim_fraction"
+        if new_key != old_key:
+            self._sliders.pop(old_key, None)
+            self._sliders[new_key] = ctrl
+            ctrl.key = new_key
+            self._aim_height_slider_key = new_key
+        if new_key in self.config:
+            ctrl.set(float(self.config[new_key]))
+        try:
+            ctrl._scale.config(state=tk.NORMAL)
+            if yolo_pure:
+                ctrl._scale.config(from_=0.10, to=0.60, resolution=0.01)
+            else:
+                ctrl._scale.config(from_=0.32, to=0.52, resolution=0.01)
+        except tk.TclError:
+            pass
+        title = "Aim Height (YOLO)" if yolo_pure else "Aim Height (CV torso)"
+        tip = (
+            "Vertical aim point on the detected box (0.2 ≈ upper chest in ApexAimBot)."
+            if yolo_pure
+            else "where on body: 0.35=upper chest, 0.50=belly"
+        )
+        ctrl._tip = tip
+        lbl_text = f"{title}  ({tip})" if tip else title
+        ctrl._title_label.config(text=lbl_text)
+
     def _refresh_mode_sensitive_widgets(self) -> None:
         yolo_pure = self._is_yolo_pure_config(self.config)
+        self._rewire_aim_height_slider()
         for key, ctrl in self._sliders.items():
+            if ctrl is getattr(self, "_aim_height_ctrl", None):
+                continue
             if key in CV_ONLY_SLIDER_KEYS:
                 try:
                     ctrl._scale.config(
@@ -723,7 +772,7 @@ class AbaApplication:
             self._yolo_mode_hint.config(
                 text=(
                     "YOLO + Apex PID active — Body/Motion CV sliders are disabled. "
-                    "Use YOLO aim fraction (0.2) and Apex PID panel."
+                    "Basic Aim Height drives yolo_aim_fraction (not CV torso aim)."
                     if yolo_pure
                     else ""
                 )
@@ -825,9 +874,13 @@ class AbaApplication:
             minimum=0.01, maximum=0.10, resolution=0.002,
             tooltip="how fast aim catches a strafing target",
         )
-        self._slider(
-            parent, "Aim Height", "torso_aim_fraction",
-            minimum=0.32, maximum=0.52,
+        self._aim_height_slider_key = self._aim_height_config_key()
+        self._aim_height_ctrl = self._slider(
+            parent,
+            "Aim Height (CV torso)",
+            self._aim_height_slider_key,
+            minimum=0.32,
+            maximum=0.52,
             tooltip="where on body: 0.35=upper chest, 0.50=belly",
         )
         self._slider(
