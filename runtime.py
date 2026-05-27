@@ -276,6 +276,15 @@ class AssistRuntime:
 
         self._apex_recoil = ApexRecoilController(cfg)
 
+    def _reset_apex_aim_state(self) -> None:
+        """Clear vendored PID integrators and recoil pattern index."""
+        if self._yolo_engine is not None:
+            from apexaimbot_bridge import reset_apexaimbot_pid
+
+            reset_apexaimbot_pid(self._yolo_engine)
+        if self._apex_recoil is not None:
+            self._apex_recoil.reset()
+
     def _apex_recoil_tick(self, cfg: dict[str, Any], *, skip_x: bool) -> None:
         if self._apex_recoil is None:
             return
@@ -320,17 +329,20 @@ class AssistRuntime:
         frame_cy: float,
         box_wh: tuple[float, float],
         hip_fire: bool,
+        firing: bool,
         deadline: float,
         subtick_hz: int,
         cfg: dict[str, Any] | None = None,
+        pid_enabled: bool = True,
     ) -> None:
-        """Extra PID moves between detect frames (ApexAimBot cadence)."""
+        """Extra PID + recoil moves between detect frames (ApexAimBot cadence)."""
         from apexaimbot_bridge import in_lock_box, pid_mouse_delta, reset_apexaimbot_pid
 
         if subtick_hz <= 0:
             return
         sub_dt = 1.0 / float(subtick_hz)
         bw, bh = box_wh
+        recoil_on = bool(cfg and cfg.get("apexaimbot_recoil_enabled", False))
         next_tick = time.perf_counter()
         while next_tick < deadline:
             wait = next_tick - time.perf_counter()
@@ -338,26 +350,28 @@ class AssistRuntime:
                 self._sleep_interruptible(min(wait, deadline - time.perf_counter()))
             if time.perf_counter() >= deadline:
                 break
-            err_x = float(aim_x - frame_cx)
-            err_y = float(aim_y - frame_cy)
-            if in_lock_box(
-                engine,
-                error_x=err_x,
-                error_y=err_y,
-                box_width=bw,
-                box_height=bh,
-                hip_fire=hip_fire,
-            ):
-                pdx, pdy = pid_mouse_delta(
-                    engine, error_x=err_x, error_y=err_y, hip_fire=hip_fire
-                )
-                if pdx or pdy:
-                    self._apex_pid_moved_this_frame = True
-                    self._safe_mouse_move(pdx, pdy)
-                if cfg and bool(cfg.get("apexaimbot_recoil_enabled", False)):
-                    self._apex_recoil_tick(cfg, skip_x=bool(pdx))
-            else:
-                reset_apexaimbot_pid(engine)
+            pdx = 0
+            if pid_enabled:
+                err_x = float(aim_x - frame_cx)
+                err_y = float(aim_y - frame_cy)
+                if in_lock_box(
+                    engine,
+                    error_x=err_x,
+                    error_y=err_y,
+                    box_width=bw,
+                    box_height=bh,
+                    hip_fire=hip_fire,
+                ):
+                    pdx, pdy = pid_mouse_delta(
+                        engine, error_x=err_x, error_y=err_y, hip_fire=hip_fire
+                    )
+                    if pdx or pdy:
+                        self._apex_pid_moved_this_frame = True
+                        self._safe_mouse_move(pdx, pdy)
+                else:
+                    reset_apexaimbot_pid(engine)
+            if firing and recoil_on:
+                self._apex_recoil_tick(cfg, skip_x=bool(pdx))
             next_tick += sub_dt
 
     @staticmethod
@@ -987,6 +1001,8 @@ class AssistRuntime:
         self._is_firing = False
         if self._pull is not None:
             self._pull.reset()
+        if str(self.config.get("detection_mode", "apex")).strip().lower() == "yolo":
+            self._reset_apex_aim_state()
 
     def _on_click(self, _x: int, _y: int, button, pressed: bool) -> None:
         name = getattr(button, "name", None)
@@ -1002,6 +1018,8 @@ class AssistRuntime:
             # race-prone; tracking edges here is the only thread-safe path.
             with self._lock:
                 self._is_firing = bool(pressed)
+            if not pressed and str(self.config.get("detection_mode", "apex")).strip().lower() == "yolo":
+                self._reset_apex_aim_state()
 
     @staticmethod
     def _key_label(key) -> str | None:
@@ -1157,12 +1175,7 @@ class AssistRuntime:
         with self._lock:
 
             def _reset_apex_pid_state() -> None:
-                if self._yolo_engine is not None:
-                    from apexaimbot_bridge import reset_apexaimbot_pid
-
-                    reset_apexaimbot_pid(self._yolo_engine)
-                if self._apex_recoil is not None:
-                    self._apex_recoil.reset()
+                self._reset_apex_aim_state()
 
             def _on_lock_expired() -> None:
                 if self._pull is not None:
@@ -1899,15 +1912,6 @@ class AssistRuntime:
                                 if gate_result.allowed:
                                     moved = (pr.dx, pr.dy)
                                     self._apex_pid_moved_this_frame = True
-                            if (
-                                apex_pid
-                                and firing_now
-                                and bool(cfg.get("apexaimbot_recoil_enabled", False))
-                                and not use_subticks
-                            ):
-                                self._apex_recoil_tick(
-                                    cfg, skip_x=bool(pr.dx if pr is not None else 0)
-                                )
                             overlay_mon = monitor_overlay
                             if (
                                 overlay_mon is None
@@ -2002,6 +2006,19 @@ class AssistRuntime:
                             detect_ms=detect_ms,
                             total_loop_ms=loop_ms,
                             achieved_fps=ach_fps,
+                        )
+
+                    # Apex vendored recoil (pressTheGun-style): runs on LMB, not gated on lock.
+                    if (
+                        apex_pid
+                        and firing_now
+                        and bool(cfg.get("apexaimbot_recoil_enabled", False))
+                        and not paused
+                        and self._should_run()
+                        and apex_subtick_hz <= 0
+                    ):
+                        self._apex_recoil_tick(
+                            cfg, skip_x=self._apex_pid_moved_this_frame
                         )
 
                     elif self._pull is not None:
@@ -2163,35 +2180,50 @@ class AssistRuntime:
                     # mouse-tick on top of 60 Hz detect.
                     pull_subtick_hz = int(cfg.get("pull_subtick_hz", 0) or 0)
                     deadline = t0 + frame_interval
+                    apex_recoil_sub = bool(cfg.get("apexaimbot_recoil_enabled", False))
                     if (
                         apex_pid
                         and apex_subtick_hz > 0
                         and self._yolo_engine is not None
-                        and pull_target is not None
                         and pull_gate
                         and not paused
                         and self._should_run()
+                        and (
+                            pull_target is not None
+                            or (firing_now and apex_recoil_sub)
+                        )
                     ):
-                        bw, bh = self._last_apex_box or (
-                            float(pull_target.bbox_w),
-                            float(pull_target.bbox_h),
-                        )
-                        aim_pt = (
-                            target
-                            if detection_fresh and target is not None
-                            else pull_target
-                        )
+                        if pull_target is not None:
+                            bw, bh = self._last_apex_box or (
+                                float(pull_target.bbox_w),
+                                float(pull_target.bbox_h),
+                            )
+                            aim_pt = (
+                                target
+                                if detection_fresh and target is not None
+                                else pull_target
+                            )
+                            aim_x = float(aim_pt.centroid_x)
+                            aim_y = float(aim_pt.centroid_y)
+                            pid_enabled = True
+                        else:
+                            bw, bh = self._last_apex_box or (100.0, 100.0)
+                            aim_x = float(frame_cx)
+                            aim_y = float(frame_cy)
+                            pid_enabled = False
                         self._run_apex_pid_subticks(
                             engine=self._yolo_engine,
-                            aim_x=float(aim_pt.centroid_x),
-                            aim_y=float(aim_pt.centroid_y),
+                            aim_x=aim_x,
+                            aim_y=aim_y,
                             frame_cx=frame_cx,
                             frame_cy=frame_cy,
                             box_wh=(bw, bh),
                             hip_fire=bool(firing_now and not ads_live),
+                            firing=bool(firing_now),
                             deadline=deadline,
                             subtick_hz=apex_subtick_hz,
                             cfg=cfg,
+                            pid_enabled=pid_enabled,
                         )
                     elif (
                         pull_subtick_hz > 0

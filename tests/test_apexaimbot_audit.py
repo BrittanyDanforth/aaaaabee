@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from apexaimbot_bridge import prepare_apex_cfg, reset_apexaimbot_pid
+from assist import load_config
+from profiles import PROFILE_APEXAIMBOT, PROFILE_DEFAULTS
 from target_lock import TargetLockState, apply_yolo_target_lock
 from third_party.apexaimbot.recoil_controller import compute_recoil_modifier
 from detector import DetectionResult, Target
+
+REPO = Path(__file__).resolve().parents[1]
 
 
 def test_prepare_apex_cfg_merges_ini_defaults() -> None:
@@ -56,6 +61,22 @@ def test_yolo_lock_switch_calls_on_new_target() -> None:
         state, DetectionResult(t2, 1, 0.9), cfg=cfg, on_new_target=_on_new
     )
     assert calls == ["new"]
+
+
+def test_shipped_config_defaults_to_apexaimbot_profile() -> None:
+    cfg_path = REPO / "config.json"
+    cfg = load_config(cfg_path)
+    assert cfg["profile"] == PROFILE_APEXAIMBOT
+    assert cfg["detection_mode"] == "yolo"
+    assert cfg["pull_mode"] == "apexaimbot_pid"
+    assert cfg["apex_pid_subtick_hz"] == 120
+    assert "yolo_weights_path" in cfg
+
+
+def test_profile_apexaimbot_includes_weights_path() -> None:
+    p = PROFILE_DEFAULTS[PROFILE_APEXAIMBOT]
+    assert p["detection_mode"] == "yolo"
+    assert "APEX416" in p["yolo_weights_path"] or "APEX22W" in p["yolo_weights_path"]
 
 
 def test_reset_apexaimbot_pid_clears_integral() -> None:

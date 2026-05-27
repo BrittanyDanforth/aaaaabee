@@ -395,8 +395,16 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
             cfg, "yolo_pull_stale_grace_frames", default=8.0, minimum=0, maximum=60
         )
     )
+    _apex_sub_default = (
+        120.0
+        if str(cfg.get("pull_mode", "aba")).strip().lower() == "apexaimbot_pid"
+        and mode == "yolo"
+        else 0.0
+    )
     cfg["apex_pid_subtick_hz"] = int(
-        _require_number(cfg, "apex_pid_subtick_hz", default=0.0, minimum=0, maximum=480)
+        _require_number(
+            cfg, "apex_pid_subtick_hz", default=_apex_sub_default, minimum=0, maximum=480
+        )
     )
     cfg["apexaimbot_mouse_modifier"] = _require_number(
         cfg, "apexaimbot_mouse_modifier", default=0.8, minimum=0.05, maximum=4.0
@@ -416,6 +424,13 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     )
     cfg["apexaimbot_ads_sens"] = _require_number(
         cfg, "apexaimbot_ads_sens", default=1.0, minimum=0.1, maximum=10.0
+    )
+    cfg["apexaimbot_recoil_modifier"] = _require_number(
+        cfg,
+        "apexaimbot_recoil_modifier",
+        default=float(cfg.get("apexaimbot_mouse_modifier", 0.8)),
+        minimum=0.05,
+        maximum=4.0,
     )
     cfg["yolo_switch_reset_pixels"] = _require_number(
         cfg, "yolo_switch_reset_pixels", default=80.0, minimum=20.0, maximum=400.0

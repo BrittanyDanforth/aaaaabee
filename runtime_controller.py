@@ -56,13 +56,10 @@ class RuntimeController:
         with self._lock:
             merged = dict(self._config)
             merged.update(patch)
-        try:
-            from config_validation import validate_config
-            from profiles import apply_profile
+        from config_validation import ConfigError, validate_config
+        from profiles import apply_profile
 
-            merged = validate_config(apply_profile(merged))
-        except Exception:
-            pass
+        merged = validate_config(apply_profile(merged))
         with self._lock:
             self._config = merged
         if persist:
