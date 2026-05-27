@@ -135,6 +135,39 @@ def test_repeated_flips_via_runtime_controller_call_sync() -> None:
         assert len(engines) >= 2
 
 
+def test_full_save_in_yolo_mode_reloads_engine_for_aim_fraction() -> None:
+    """Save Settings (full_replace) must apply yolo_aim_fraction — not skip reload."""
+    from runtime_controller import RuntimeController
+
+    base = _yolo_pid_cfg()
+    ctrl = RuntimeController(base, REPO / "config.json")
+    live = MagicMock()
+    live.running = True
+    live._dry = True
+    live.config = dict(base)
+    live._yolo_engine = MagicMock(name="old_engine")
+    live._aim_tracker = MagicMock()
+    live._detect_ctx = None
+    live._pull = None
+    live.sync_config_subsystems = MagicMock()
+    live._reset_apex_aim_state = MagicMock()
+    ctrl._runtime = live
+
+    reloaded: list[dict] = []
+
+    with patch(
+        "yolo_targeting.reload_yolo_engine",
+        side_effect=lambda c: reloaded.append(dict(c)) or MagicMock(name="new_engine"),
+    ):
+        saved = normalize_app_config({**base, "yolo_aim_fraction": 0.42})
+        with patch.object(ctrl, "_write_config_disk"):
+            ctrl.save_config(saved)
+
+    assert reloaded, "full_save in YOLO mode must reload engine when aim fraction changes"
+    assert abs(float(reloaded[-1]["yolo_aim_fraction"]) - 0.42) < 1e-6
+    assert live._yolo_engine is not None
+
+
 def test_reset_apex_pid_on_mode_change() -> None:
     rt = _make_assist_runtime(_yolo_pid_cfg())
     eng = MagicMock()

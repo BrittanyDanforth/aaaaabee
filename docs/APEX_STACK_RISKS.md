@@ -56,6 +56,17 @@ On `detection_mode` / `pull_mode` change, `sync_config_subsystems`:
 
 Repeated YOLO → apex → YOLO is covered by mocked integration tests (no weights file required).
 
+## YOLO vs CV red-mask detection (honest comparison)
+
+| | **YOLO + Apex PID** (`detection_mode: yolo`) | **CV apex** (`detection_mode: apex`) |
+|---|---------------------------------------------|--------------------------------------|
+| **What it sees** | Full person bbox from a trained model (416 crop) | Red outline + shape/motion heuristics |
+| **Strengths** | Stable on body silhouette; works without red glow; matches upstream ApexAimBot aim/lock/PID | No GPU/torch weights; tunable on firing-range red outlines; deep ABA pull/motion stack |
+| **Weaknesses** | Needs `requirements-yolo.txt`, TensorRT/engine on Windows, heavier CPU/GPU | Breaks on low contrast, UI red, balloons, pan clutter; more false-positive tuning |
+| **Pull feel** | Vendored incremental PID + subticks (ApexAimBot parity) | `PullController` + body anchor + prediction sliders |
+
+**Practical answer:** For live Apex with the shipped `APEX416SFP32.engine` preset, **YOLO is usually the better primary detector** than red-mask CV — that is why `config.json` defaults to `profile: apexaimbot`. CV apex is still valuable for **offline tuning**, dry-run, and environments where you cannot load the engine. They are alternate stacks, not “YOLO on top of CV body detect.”
+
 ## When to call PR #28 “done”
 
 - Focused Apex/YOLO stack tests green

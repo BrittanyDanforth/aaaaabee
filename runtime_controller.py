@@ -14,6 +14,34 @@ from process_presence import ProcessPresenceDebouncer
 
 logger = logging.getLogger("aba.controller")
 
+# Keys that require a fresh vendored engine (cache key in apexaimbot_bridge).
+_YOLO_ENGINE_TUNE_KEYS = frozenset({
+    "yolo_weights_path",
+    "yolo_yolov5_root",
+    "yolo_inference_size",
+    "yolo_confidence_min",
+    "yolo_iou_thres",
+    "yolo_max_det",
+    "yolo_grab_width",
+    "yolo_grab_height",
+    "yolo_use_fp16",
+    "yolo_aim_fraction",
+    "yolo_device",
+    "apexaimbot_pid_x_p",
+    "apexaimbot_pid_x_i",
+    "apexaimbot_pid_x_d",
+    "apexaimbot_pid_y_p",
+    "apexaimbot_pid_y_i",
+    "apexaimbot_pid_y_d",
+    "apexaimbot_min_step",
+    "apexaimbot_max_step",
+    "apexaimbot_lock_range_x",
+    "apexaimbot_lock_range_y",
+    "apexaimbot_mouse_modifier",
+    "apexaimbot_recoil_modifier",
+    "apexaimbot_scale_pid_by_modifier",
+})
+
 
 class RuntimeController:
     def __init__(self, config: dict[str, Any], config_path: Path) -> None:
@@ -162,17 +190,18 @@ class RuntimeController:
                 if getattr(live, "_stats", None) is not None:
                     live._stats.configured_fps = max(1, int(fps))
             if yolo_touched:
+                from profiles import is_yolo_detection
                 from yolo_targeting import reload_yolo_engine
 
                 mode_keys_changed = (
                     "detection_mode" in patch or "pull_mode" in patch
                 )
-                # sync_config_subsystems already reloads engine on mode flip.
-                if not mode_keys_changed:
+                tune_changed = any(k in patch for k in _YOLO_ENGINE_TUNE_KEYS)
+                if is_yolo_detection(merged) and (
+                    not mode_keys_changed or tune_changed or full_replace
+                ):
                     live._yolo_engine = reload_yolo_engine(merged)
-                    if hasattr(live, "_reset_apex_aim_state"):
-                        live._reset_apex_aim_state()
-                elif hasattr(live, "_reset_apex_aim_state"):
+                if hasattr(live, "_reset_apex_aim_state"):
                     live._reset_apex_aim_state()
             elif any(
                 k in patch

@@ -439,8 +439,12 @@ class AssistRuntime:
         from yolo_assist import try_create_yolo_assist
 
         self._yolo_assist = try_create_yolo_assist(cfg) if not now_yolo else None
-        if now_yolo:
+        if now_yolo and now_apex_pid:
             self._ensure_apex_recoil(cfg)
+        else:
+            if self._apex_recoil is not None:
+                self._apex_recoil.reset()
+            self._apex_recoil = None
 
     @staticmethod
     def _frame_overlay_point(
