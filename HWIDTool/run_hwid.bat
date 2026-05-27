@@ -18,7 +18,12 @@ shift
 goto :Main
 
 :MaybeElevate
-if /I not "%HWID_NO_ELEVATE%"=="1" call :TryElevate
+if /I "%HWID_NO_ELEVATE%"=="1" goto :Main
+call :TryElevate
+REM UAC child already ran this script elevated — do not run :Main again here.
+if "!HWID_ELEVATED_CHILD!"=="1" (
+  endlocal & exit /b !HWID_CHILD_EXIT!
+)
 goto :Main
 
 :TryElevate
@@ -36,9 +41,10 @@ echo.
 echo This window is NOT Administrator.
 echo Opening UAC prompt - click Yes...
 echo.
+set "HWID_ELEVATED_CHILD=1"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c \"\"\"%~f0\"\" ELEVATED\"' -Verb RunAs -WorkingDirectory '%ROOT%' -Wait"
-set "ELEV_ERR=!ERRORLEVEL!"
-exit /b !ELEV_ERR!
+set "HWID_CHILD_EXIT=!ERRORLEVEL!"
+exit /b !HWID_CHILD_EXIT!
 
 :Main
 if not exist "%LOGDIR%" mkdir "%LOGDIR%" 2>nul

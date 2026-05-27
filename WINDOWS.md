@@ -17,6 +17,8 @@ run_windows.bat
 
 Failures **pause once** with a clear message. Log: `logs\aba_setup.log`
 
+**Run as administrator:** the script merges your user `PATH` (so `py` / `python` work), skips redundant HWID UAC popups, and uses `cmd /k` so the window stays open if setup errors before `pause`.
+
 ### If setup fails
 
 ```bat

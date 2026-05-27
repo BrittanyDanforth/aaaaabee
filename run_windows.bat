@@ -1,4 +1,11 @@
 @echo off
+REM Explorer / "Run as administrator" use cmd /c — keep the window open on errors.
+if /I not "%~1"=="_aba_run" (
+  cd /d "%~dp0"
+  cmd /k call "%~f0" _aba_run %*
+  exit /b 0
+)
+shift
 setlocal EnableExtensions EnableDelayedExpansion
 
 REM Always run from this script's folder (Explorer double-click or cmd).
@@ -13,6 +20,16 @@ set "DEPS_OK=%VENV%\.deps_ok"
 set "EXITCODE=1"
 
 if not exist "%LOGDIR%" mkdir "%LOGDIR%" 2>nul
+
+REM Elevated sessions often lack the user's PATH (py/python only on user PATH).
+net session >nul 2>&1
+if not errorlevel 1 (
+  set "ABA_IS_ADMIN=1"
+  set "HWID_NO_ELEVATE=1"
+  for /f "skip=2 tokens=1,*" %%A in ('reg query "HKCU\Environment" /v Path 2^>nul') do (
+    if not "%%B"=="" set "PATH=%%B;!PATH!"
+  )
+)
 if not exist "%LOGDIR%" (
   echo ERROR: Cannot create folder: %LOGDIR%
   echo Install path may be read-only or blocked.
@@ -22,6 +39,7 @@ if not exist "%LOGDIR%" (
 
 call :Log "=== ABA setup started ==="
 call :Log "Root folder: %ROOT%"
+if defined ABA_IS_ADMIN call :Log "Running elevated — merged HKCU Path for Python discovery"
 
 REM --- HWID pre-step (separate tool; vendored at .\HWIDTool inside this repo,
 REM     legacy layout had it at ..\HWIDTool as a sibling folder — check both). ---
@@ -33,10 +51,13 @@ call :Log "Running HWID pre-step: %HWID_BAT%"
 echo.
 echo Running HWID pre-step - Administrator may be required...
 set "HWID_QUIET=1"
-call "%HWID_BAT%"
+set "HWID_ARG="
+if defined ABA_IS_ADMIN set "HWID_ARG=ELEVATED"
+call "%HWID_BAT%" !HWID_ARG!
+set "HWID_ERR=!ERRORLEVEL!"
 set "HWID_QUIET="
-if errorlevel 2 goto :HwidVerifyFail
-if errorlevel 1 goto :HwidFail
+if "!HWID_ERR!"=="2" goto :HwidVerifyFail
+if "!HWID_ERR!" GEQ "1" goto :HwidFail
 call :Log "HWID pre-step OK"
 goto :HwidDone
 
@@ -208,7 +229,7 @@ call :Log "aba.py exited with code !EXITCODE!"
 echo.
 echo ABA closed (exit !EXITCODE!). Log: %LOGFILE%
 pause
-endlocal & exit /b %EXITCODE%
+endlocal & exit /b !EXITCODE!
 
 :SetupFail
 if not defined FAILMSG set "FAILMSG=Unknown setup error"
