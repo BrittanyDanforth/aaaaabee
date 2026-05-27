@@ -97,9 +97,15 @@ class AssistRuntime:
             motion_assist=bool(config.get("detection_motion_assist", True)),
             motion_threshold=int(config.get("detection_motion_threshold", 10)),
         )
+        from yolo_detector import get_yolo_engine, reset_yolo_engine_cache
         from yolo_assist import try_create_yolo_assist
 
-        self._yolo = try_create_yolo_assist(config)
+        reset_yolo_engine_cache()
+        self._yolo_engine = get_yolo_engine(config)
+        det_mode = str(config.get("detection_mode", "apex")).strip().lower()
+        self._yolo_assist = (
+            try_create_yolo_assist(config) if det_mode != "yolo" else None
+        )
 
         if mouse_backend is not None:
             self._mouse = mouse_backend
@@ -983,13 +989,19 @@ class AssistRuntime:
             sticky, currently_locked, _lost_max = detection_sticky_context(
                 self._target_lock, cfg
             )
+        cfg_mode = str(cfg.get("detection_mode", "apex")).strip().lower()
         external_boxes = None
-        yolo = self._yolo
-        if yolo is not None:
+        if cfg_mode != "yolo" and self._yolo_assist is not None:
             try:
-                external_boxes = yolo.detect(frame_bgr)
+                external_boxes = self._yolo_assist.detect(frame_bgr)
             except Exception as exc:
                 logger.warning("YoloAssist detect failed: %s", exc)
+        yolo_engine = self._yolo_engine if cfg_mode == "yolo" else None
+        if cfg_mode == "yolo" and yolo_engine is None:
+            from yolo_detector import get_yolo_engine
+
+            yolo_engine = get_yolo_engine(cfg)
+            self._yolo_engine = yolo_engine
         result = find_best_target(
             frame_bgr,
             hsv_ranges,
@@ -1021,9 +1033,11 @@ class AssistRuntime:
                 effective_overlay_fov_radius(cfg)
             ),
             target_selection_mode=str(cfg.get("target_selection_mode", "apex")),
-            external_boxes=external_boxes,
+            external_boxes=external_boxes if cfg_mode != "yolo" else None,
             yolo_fusion_boost=float(cfg.get("yolo_fusion_boost", 0.30)),
             yolo_fusion_min_iou=float(cfg.get("yolo_fusion_min_iou", 0.28)),
+            yolo_engine=yolo_engine,
+            ads_active=bool(cfg.get("_ads_active", False)),
         )
         with self._lock:
 

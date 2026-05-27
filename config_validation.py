@@ -76,8 +76,8 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
 
     cfg: dict[str, Any] = dict(raw)
     mode = str(cfg.get("detection_mode", "apex")).strip().lower()
-    if mode not in ("shape", "hsv", "hybrid", "apex"):
-        raise ConfigError("detection_mode must be apex, shape, hsv, or hybrid")
+    if mode not in ("shape", "hsv", "hybrid", "apex", "yolo"):
+        raise ConfigError("detection_mode must be apex, shape, hsv, hybrid, or yolo")
     cfg["detection_mode"] = mode
     if mode in ("hsv", "hybrid"):
         cfg["hsv_ranges"] = _validate_hsv_ranges(cfg.get("hsv_ranges"))
@@ -363,5 +363,34 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     cfg["yolo_device"] = str(cfg.get("yolo_device", "auto")).strip().lower()
     if cfg["yolo_device"] not in ("auto", "cpu", "cuda"):
         raise ConfigError("yolo_device must be auto, cpu, or cuda")
+    cfg["yolo_iou_thres"] = _require_number(
+        cfg, "yolo_iou_thres", default=0.25, minimum=0.05, maximum=0.95
+    )
+    cfg["yolo_max_det"] = int(
+        _require_number(cfg, "yolo_max_det", default=12.0, minimum=1, maximum=100)
+    )
+    cfg["yolo_use_fp16"] = bool(cfg.get("yolo_use_fp16", False))
+    cfg["yolo_aim_fraction"] = _require_number(
+        cfg, "yolo_aim_fraction", default=0.38, minimum=0.1, maximum=0.9
+    )
+    cfg["yolo_target_pick"] = str(cfg.get("yolo_target_pick", "nearest")).strip().lower()
+    excl = cfg.get("yolo_exclude_labels", ["teammate"])
+    if isinstance(excl, str):
+        cfg["yolo_exclude_labels"] = [
+            x.strip().lower() for x in excl.split(",") if x.strip()
+        ]
+    else:
+        cfg["yolo_exclude_labels"] = [str(x).strip().lower() for x in excl]
+
+    if mode == "yolo":
+        wp = str(cfg.get("yolo_weights_path", "") or "").strip()
+        if not wp:
+            raise ConfigError("detection_mode=yolo requires yolo_weights_path")
+        from pathlib import Path
+
+        app_root = Path(__file__).resolve().parent
+        p = Path(wp)
+        if not p.is_file() and not (app_root / wp).is_file():
+            raise ConfigError(f"yolo_weights_path not found: {wp}")
 
     return cfg

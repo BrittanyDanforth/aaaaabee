@@ -52,8 +52,15 @@ DETECTION_MODE_HYBRID = "hybrid"
 # Default "best-of-all-signals" mode tuned for Apex Legends. Fuses shape edges,
 # saturation, motion difference, and the Apex red-enemy-outline cue.
 DETECTION_MODE_APEX = "apex"
+DETECTION_MODE_YOLO = "yolo"
 _VALID_DETECTION_MODES = frozenset(
-    {DETECTION_MODE_SHAPE, DETECTION_MODE_HSV, DETECTION_MODE_HYBRID, DETECTION_MODE_APEX}
+    {
+        DETECTION_MODE_SHAPE,
+        DETECTION_MODE_HSV,
+        DETECTION_MODE_HYBRID,
+        DETECTION_MODE_APEX,
+        DETECTION_MODE_YOLO,
+    }
 )
 DETECTION_MODE_DEFAULT = DETECTION_MODE_APEX
 
@@ -4650,10 +4657,42 @@ def find_best_target(
     external_boxes: Sequence[ExternalBox] | None = None,
     yolo_fusion_boost: float = 0.30,
     yolo_fusion_min_iou: float = 0.28,
+    yolo_engine: Any | None = None,
+    ads_active: bool = False,
 ) -> DetectionResult:
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
+
+    resolved_mode = (detection_mode or DETECTION_MODE_DEFAULT).strip().lower()
+    if resolved_mode == DETECTION_MODE_YOLO:
+        from yolo_detector import find_best_yolo_target
+
+        if yolo_engine is None:
+            return DetectionResult(
+                None,
+                0,
+                0.0,
+                debug_lines=["yolo_mode but engine not loaded — set yolo_weights_path"],
+                active=False,
+            )
+        return find_best_yolo_target(
+            frame_bgr,
+            int(fov_radius),
+            float(min_area),
+            cx,
+            cy,
+            engine=yolo_engine,
+            sticky_target=sticky_target,
+            stickiness_pixels=stickiness_pixels,
+            min_height_px=min_height_px,
+            min_confidence=min_confidence,
+            body_shape_min_score=float(body_shape_min_score or _MIN_BODY_SHAPE_ACCEPT),
+            currently_locked=currently_locked,
+            ads_active=ads_active,
+            debug=debug,
+        )
+
     # PERF: pre-compute HSV once and stash on the context so the mask
     # builders (build_hsv_mask / build_red_enemy_mask /
     # build_chroma_spread_mask) all share it.  Profiled at ~0.17 ms per
@@ -4668,10 +4707,6 @@ def find_best_target(
         if display_fov_radius is not None and display_fov_radius > 0
         else float(fov_radius) * 0.757
     )
-
-    resolved_mode = detection_mode
-    if resolved_mode is None:
-        resolved_mode = DETECTION_MODE_DEFAULT
 
     candidates, dbg = _collect_candidates(
         frame_bgr,

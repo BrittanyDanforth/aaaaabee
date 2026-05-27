@@ -8,7 +8,7 @@ ABA keeps **shape + red + motion** detection by default. Use this doc to compare
 
 | Piece | ApexAimBot | ABA (OverlayAssist) |
 |-------|------------|---------------------|
-| Detect | YOLOv5 `APEX416SFP32.engine` @ 416px, conf 0.5, IoU 0.25 | `detection_mode: apex` (CV fusion) |
+| Detect | YOLOv5 `APEX416SFP32.engine` @ 416px, conf 0.5, IoU 0.25 | `detection_mode: yolo` (see [YOLO_DETECTION.md](YOLO_DETECTION.md)) |
 | Capture | Center rect 416×416 or 600×300 @ 1080p | FOV crop + `unified_fov` ring |
 | Target pick | **Nearest** to grab center | `score_target` + lock (`target_selection_mode: nearest` optional) |
 | Aim point | Bbox center − **20% box height** (upper body) | Chest band `torso_aim_fraction` (~0.38–0.40) |
@@ -69,7 +69,7 @@ To experiment with YOLO on Apex:
 
 ## GUI preset in ABA
 
-**Presets → ApexAimBot** applies nearest-target selection + pull/smooth values tuned to approximate their PID + step caps. Still uses ABA detection and safety — not a 1:1 clone.
+**Presets → ApexAimBot** sets `detection_mode: yolo`, nearest pick, and Apex-like YOLO thresholds. You must supply `models/apex_yolo.pt` (or your `.engine` + `yolo_yolov5_root`). Pull uses ABA safety — not their Logitech driver.
 
 ## What we did *not* port (on purpose)
 

@@ -18,7 +18,8 @@ ABA is **Apex-first** (shape + red outline + motion fusion). VALOAI is **Valoran
 ## What we ported into ABA
 
 1. **`tracking_fusion.py`** — IoU box match, external-box score boost, nearest-crosshair selection.
-2. **`yolo_assist.py`** — optional PyTorch YOLO second opinion (off by default).
+2. **`yolo_detector.py`** — **primary** detection when `detection_mode: yolo` (replaces CV).
+3. **`yolo_assist.py`** — optional CV fusion boost when `detection_mode: apex` + `yolo_assist_enabled`.
 3. **Config** (see below) — enable only if you have compatible weights + GPU.
 
 ## Config keys
@@ -43,7 +44,7 @@ ABA is **Apex-first** (shape + red outline + motion fusion). VALOAI is **Valoran
 |-------|----------|
 | `apex` | Default ranked scoring (body shape, red, motion, distance). |
 | `nearest` / `nearest_center` / `valoai` | Among body-qualified candidates, pick closest to crosshair (valoai-style). Still uses ABA FP filters. |
-| `apex_yolo_fusion` | Same as apex; enable `yolo_assist_enabled` for YOLO boosts. |
+| `apex_yolo_fusion` | Legacy: apex CV + `yolo_assist_enabled`. Prefer `detection_mode: yolo` instead. |
 
 ### Optional YOLO assist
 

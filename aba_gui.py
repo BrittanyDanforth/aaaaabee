@@ -84,8 +84,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
     # PHASE-5 AUDIT: "Tracking" preset sits between Responsive and Strong.
     # Looser body-shape gate + tighter smoothing + slightly higher pull
     # speed than Responsive, without arming Strong's recoil / jitter.
-    # Inspired by github.com/1bit-monster7/ApexAimBot (PID-ish snap, nearest target,
-    # upper-body aim bias). Still ABA apex CV detect — not their TensorRT engine.
+    # ApexAimBot-style: YOLO primary detect + nearest pick (needs weights — see docs).
     "ApexAimBot": {
         "pull_strength": 0.92,
         "smoothing_tau_still": 0.028,
@@ -98,9 +97,15 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "deadzone_pixels": 2,
         "magnetism_radius_pixels": 72,
         "target_selection_mode": "nearest",
-        "detection_mode": "apex",
-        "detection_motion_assist": True,
-        "detection_motion_threshold": 10,
+        "detection_mode": "yolo",
+        "yolo_weights_path": "models/apex_yolo.pt",
+        "yolo_yolov5_root": "",
+        "yolo_inference_size": 416,
+        "yolo_confidence_min": 0.5,
+        "yolo_iou_thres": 0.25,
+        "yolo_target_pick": "nearest",
+        "yolo_aim_fraction": 0.36,
+        "yolo_exclude_labels": ["teammate"],
         "prediction_vertical_cap_pixels": 4.0,
         "recoil_compensation_enabled": False,
         "jitter_enabled": False,
@@ -175,6 +180,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
 # the Apex red-enemy-outline cue with shape edges, saturation, and motion difference.
 DETECTION_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("apex", "Apex (default — auto-fuses red outline + shape + motion)"),
+    ("yolo", "YOLO (neural — requires yolo_weights_path + torch)"),
     ("shape", "Shape only (no colour cue)"),
     ("hybrid", "Hybrid (shape + HSV)"),
     ("hsv", "HSV only (legacy colour mask)"),
@@ -907,7 +913,7 @@ class AbaApplication:
         # the audit fixes specifically validate.
         self._section(parent, "Detection mode")
         current = str(self.config.get("detection_mode", "apex")).lower()
-        if current not in {"apex", "shape", "hsv", "hybrid"}:
+        if current not in {"apex", "shape", "hsv", "hybrid", "yolo"}:
             current = "apex"
         self._detection_mode_var = tk.StringVar(value=current)
         row = tk.Frame(parent, bg=UI_PANEL)
@@ -919,7 +925,7 @@ class AbaApplication:
         combo = ttk.Combobox(
             row,
             textvariable=self._detection_mode_var,
-            values=("apex", "shape", "hsv", "hybrid"),
+            values=("apex", "yolo", "shape", "hsv", "hybrid"),
             state="readonly",
             width=12,
         )
@@ -930,8 +936,9 @@ class AbaApplication:
         )
         tk.Label(
             parent,
-            text="apex = Apex enemy red outline + shape/chroma/motion fusion (default).\n"
-                 "shape/hsv/hybrid are legacy modes kept for back-compat only.",
+            text="apex = red outline + shape/chroma/motion (default).\n"
+                 "yolo = YOLOv5 primary detect (set yolo_weights_path; pip install -r requirements-yolo.txt).\n"
+                 "shape/hsv/hybrid = legacy CV modes.",
             bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
         ).pack(anchor="w", pady=(0, 8))
 
@@ -945,7 +952,7 @@ class AbaApplication:
 
     def _on_detection_mode_change(self) -> None:
         mode = self._detection_mode_var.get().strip().lower()
-        if mode not in {"apex", "shape", "hsv", "hybrid"}:
+        if mode not in {"apex", "shape", "hsv", "hybrid", "yolo"}:
             mode = "apex"
         try:
             self.config = self._controller.apply_config_patch(
