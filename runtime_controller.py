@@ -162,18 +162,18 @@ class RuntimeController:
                 if getattr(live, "_stats", None) is not None:
                     live._stats.configured_fps = max(1, int(fps))
             if yolo_touched:
-                from yolo_assist import try_create_yolo_assist
                 from yolo_targeting import reload_yolo_engine
 
-                det_mode = str(merged.get("detection_mode", "apex")).strip().lower()
-                live._yolo_engine = reload_yolo_engine(merged)
-                if hasattr(live, "_reset_apex_aim_state"):
-                    live._reset_apex_aim_state()
-                live._yolo_assist = (
-                    try_create_yolo_assist(merged) if det_mode != "yolo" else None
+                mode_keys_changed = (
+                    "detection_mode" in patch or "pull_mode" in patch
                 )
-                if hasattr(live, "_ensure_apex_recoil"):
-                    live._ensure_apex_recoil(merged)
+                # sync_config_subsystems already reloads engine on mode flip.
+                if not mode_keys_changed:
+                    live._yolo_engine = reload_yolo_engine(merged)
+                    if hasattr(live, "_reset_apex_aim_state"):
+                        live._reset_apex_aim_state()
+                elif hasattr(live, "_reset_apex_aim_state"):
+                    live._reset_apex_aim_state()
             elif any(
                 k in patch
                 for k in (

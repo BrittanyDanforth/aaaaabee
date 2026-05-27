@@ -48,8 +48,10 @@ On `detection_mode` / `pull_mode` change, `sync_config_subsystems`:
 
 - Resets `TargetLockState`
 - Calls `_reset_apex_aim_state()` (PID + recoil index)
+- Clears `_last_apex_box`, motion carryover, overlay dot (no cross-mode bleed)
 - Clears `_yolo_engine` and bridge cache when leaving YOLO
-- Reloads engine when entering YOLO
+- Reloads engine when entering YOLO (tuning-only YOLO key changes reload via `apply_config_patch` without re-sync)
+- Updates `_yolo_assist` / Apex recoil when entering or leaving YOLO
 - Drops `PullController` for `apexaimbot_pid`; recreates it for ABA pull
 
 Repeated YOLO → apex → YOLO is covered by mocked integration tests (no weights file required).

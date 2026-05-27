@@ -73,6 +73,8 @@ def test_repeated_yolo_apex_yolo_subsystem_state() -> None:
         )
         rt._target_lock.target_lost_frames = 3
         rt._last_apex_box = (40.0, 80.0)
+        rt._last_motion = MagicMock(name="motion")
+        rt._frame_has_target = True
         rt._apex_recoil = MagicMock()
         rt._overlay = MagicMock(name="overlay")
 
@@ -83,6 +85,10 @@ def test_repeated_yolo_apex_yolo_subsystem_state() -> None:
         rt.sync_config_subsystems(_yolo_pid_cfg())
         assert rt._target_lock.locked_target is None
         assert rt._target_lock.target_lost_frames == 0
+        assert rt._last_apex_box is None
+        assert rt._last_motion is None
+        assert rt._frame_has_target is False
+        rt._overlay.set_state.assert_called_with(False, None)
         assert rt._detect_ctx is None
         assert rt._pull is None
         assert uses_apex_pid_pull(rt.config) or rt._pull is None

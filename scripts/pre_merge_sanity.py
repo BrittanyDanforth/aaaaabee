@@ -153,9 +153,11 @@ def check_mode_flip_state() -> None:
         rt._target_lock.locked_target = Target(
             1.0, 2.0, 10.0, 1.0, 0.9, bbox_w=10, bbox_h=20
         )
+        rt._last_apex_box = (40.0, 80.0)
         n_before = len(engines)
         rt.sync_config_subsystems(yolo)
         assert rt._target_lock.locked_target is None
+        assert rt._last_apex_box is None
         assert rt._pull is None
         assert rt._detect_ctx is None
         assert len(engines) > n_before

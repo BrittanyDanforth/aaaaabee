@@ -360,6 +360,15 @@ class AssistRuntime:
             self._target_lock.reset()
             if hasattr(self, "_reset_apex_aim_state"):
                 self._reset_apex_aim_state()
+            self._last_apex_box = None
+            self._last_motion = None
+            self._frame_has_target = False
+            self._aim_tracker.reset_overlay_smoothing()
+            if self._overlay is not None:
+                try:
+                    self._overlay.set_state(False, None)
+                except Exception:
+                    logger.debug("overlay reset on mode flip failed", exc_info=True)
         if not now_yolo:
             self._yolo_engine = None
             reset_apexaimbot_cache()
@@ -426,6 +435,12 @@ class AssistRuntime:
                     ),
                 )
             )
+
+        from yolo_assist import try_create_yolo_assist
+
+        self._yolo_assist = try_create_yolo_assist(cfg) if not now_yolo else None
+        if now_yolo:
+            self._ensure_apex_recoil(cfg)
 
     @staticmethod
     def _frame_overlay_point(

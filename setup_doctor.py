@@ -192,14 +192,14 @@ def run_setup_doctor(*, require_venv: bool = False) -> DoctorReport:
 
     if CONFIG.is_file():
         try:
-            import json
+            from assist import load_config
 
-            raw = json.loads(CONFIG.read_text(encoding="utf-8"))
-            mode = str(raw.get("detection_mode", "apex")).lower()
+            cfg = load_config(CONFIG)
+            mode = str(cfg.get("detection_mode", "apex")).lower()
             if mode == "yolo":
                 from pathlib import Path as _Path
 
-                wp = str(raw.get("yolo_weights_path", "") or "")
+                wp = str(cfg.get("yolo_weights_path", "") or "")
                 candidates = [
                     APP_ROOT / wp,
                     VENDOR_APEX / "weights" / _Path(wp).name,
