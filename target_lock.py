@@ -392,6 +392,21 @@ def lock_target_is_plausible(
     return True
 
 
+def may_assist_pull_target_yolo(
+    target: Target | None,
+    *,
+    detection_fresh: bool,
+    target_lost_frames: int = 0,
+    stale_grace_frames: int = 8,
+) -> bool:
+    """YOLO/Apex path — no CV humanoid plausibility gates on pull."""
+    if target is None:
+        return False
+    if detection_fresh:
+        return True
+    return stale_grace_frames > 0 and target_lost_frames <= stale_grace_frames
+
+
 def may_assist_pull_target(
     target: Target | None,
     *,

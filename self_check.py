@@ -132,6 +132,20 @@ def run_yolo_detection_check(
         f"  OK  ApexAimBot engine loaded weights={eng.config.weights_path.name} "
         f"imgsz={eng.config.model_imgsz}"
     ]
+    try:
+        import numpy as np
+        from apexaimbot_bridge import detect_frame
+
+        sz = int(eng.config.model_imgsz)
+        frame = np.zeros((sz, sz, 3), dtype=np.uint8)
+        det = detect_frame(
+            eng, frame, fov_center_x=sz / 2.0, fov_center_y=sz / 2.0
+        )
+        lines.append(
+            f"  OK  YOLO forward pass (candidates={det.candidates}, active={det.active})"
+        )
+    except Exception as exc:
+        return False, lines, f"YOLO inference smoke test failed: {exc}"
     return True, lines, None
 
 

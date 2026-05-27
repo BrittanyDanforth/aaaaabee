@@ -134,6 +134,7 @@ PROFILE_APEX_STYLE_PERF_TEST = "apex_style_perf_test"
 PROFILE_OWNED_DEV_LIVE = "owned_dev_live"
 PROFILE_LEGACY_APEX = "apex_style"
 PROFILE_CUSTOM = "custom"
+PROFILE_APEXAIMBOT = "apexaimbot"
 
 VALID_PROFILES = frozenset(
     {
@@ -144,6 +145,7 @@ VALID_PROFILES = frozenset(
         PROFILE_OWNED_DEV_LIVE,
         PROFILE_LEGACY_APEX,
         PROFILE_CUSTOM,
+        PROFILE_APEXAIMBOT,
     }
 )
 
@@ -241,6 +243,30 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "capture_fps": 30,
         "ads_input_mode": "disabled",
         "dry_run_force_detect": True,
+    },
+    PROFILE_APEXAIMBOT: {
+        **_APEX_TUNING,
+        "profile": PROFILE_APEXAIMBOT,
+        "detection_mode": "yolo",
+        "pull_mode": "apexaimbot_pid",
+        "mouse_backend": "apexaimbot",
+        "target_selection_mode": "nearest",
+        "yolo_skip_motion_smooth": True,
+        "yolo_apex_nearest_lock": True,
+        "yolo_fixed_square_capture": True,
+        "yolo_direct_overlay": True,
+        "yolo_pull_stale_grace_frames": 8,
+        "apex_pid_subtick_hz": 120,
+        "apexaimbot_mouse_modifier": 0.8,
+        "pull_strength": 0.92,
+        "smoothing_tau_still": 0.028,
+        "smoothing_tau_moving": 0.012,
+        "velocity_smoothing": 0.36,
+        "max_pull_speed_pixels_per_frame": 28.0,
+        "body_shape_min_score": 0.40,
+        "recoil_compensation_enabled": False,
+        "jitter_enabled": False,
+        "pull_subtick_hz": 0,
     },
 }
 

@@ -225,6 +225,17 @@ def detect_frame(
     return DetectionResult(t, len(box_list), conf, debug_lines=dbg, active=True)
 
 
+def reset_apexaimbot_pid(rt: ApexAimBotRuntime) -> None:
+    """Clear integral state when lock is lost (avoid snap on re-acquire)."""
+    for pid in (rt.pid_x, rt.pid_y):
+        pid.PIDOutput = 0.0
+        pid.Error = 0.0
+        pid.LastError = 0.0
+        pid.LastLastError = 0.0
+        pid.SystemOutput = 0.0
+        pid.LastSystemOutput = 0.0
+
+
 def pid_mouse_delta(
     rt: ApexAimBotRuntime,
     *,

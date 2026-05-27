@@ -23,6 +23,7 @@ from ban_safety import (
 )
 from capture import (
     build_capture_region,
+    build_square_capture_region,
     frame_from_monitor,
     grab_bgr,
     to_monitor_coords,
@@ -38,6 +39,7 @@ from target_lock import (
     TargetLockState,
     apply_target_lock,
     apply_yolo_target_lock,
+    may_assist_pull_target_yolo,
     detection_sticky_context,
     lock_target_is_plausible,
     locked_target_may_refresh_motion_memory,
@@ -57,6 +59,7 @@ from profiles import (
     effective_detection_fov_radius,
     effective_fov_radius,
     effective_overlay_fov_radius,
+    effective_yolo_grab_half,
     effective_overlay_fps,
 )
 from pull import PullController, PullTuning
@@ -260,6 +263,75 @@ class AssistRuntime:
         )
         self._last_motion = motion
         return motion
+
+    def _motion_from_yolo_target(
+        self,
+        target: Target,
+        time_sec: float,
+        *,
+        stale: bool = False,
+    ) -> TargetMotion | None:
+        """Apex YOLO path: raw detect aim — no chest-band EMA stack."""
+        if target is None:
+            if stale and self._last_motion is not None:
+                return self._last_motion
+            return None
+        if stale and self._last_motion is not None:
+            return self._last_motion
+        from motion import TargetMotion
+
+        m = TargetMotion(
+            target.centroid_x,
+            target.centroid_y,
+            0.0,
+            0.0,
+            overlay_x=target.centroid_x,
+            overlay_y=target.centroid_y,
+        )
+        self._last_motion = m
+        return m
+
+    def _run_apex_pid_subticks(
+        self,
+        *,
+        engine: Any,
+        pull_target: Target,
+        frame_cx: float,
+        frame_cy: float,
+        box_wh: tuple[float, float],
+        hip_fire: bool,
+        deadline: float,
+        subtick_hz: int,
+    ) -> None:
+        """Extra PID moves between detect frames (ApexAimBot cadence)."""
+        from apexaimbot_bridge import in_lock_box, pid_mouse_delta
+
+        if subtick_hz <= 0:
+            return
+        sub_dt = 1.0 / float(subtick_hz)
+        bw, bh = box_wh
+        while time.perf_counter() < deadline:
+            t_sleep = sub_dt - (time.perf_counter() % sub_dt)
+            if t_sleep > 0.001:
+                self._sleep_interruptible(min(t_sleep, deadline - time.perf_counter()))
+            if time.perf_counter() >= deadline:
+                break
+            err_x = float(pull_target.centroid_x - frame_cx)
+            err_y = float(pull_target.centroid_y - frame_cy)
+            if not in_lock_box(
+                engine,
+                error_x=err_x,
+                error_y=err_y,
+                box_width=bw,
+                box_height=bh,
+                hip_fire=hip_fire,
+            ):
+                continue
+            pdx, pdy = pid_mouse_delta(
+                engine, error_x=err_x, error_y=err_y, hip_fire=hip_fire
+            )
+            if pdx or pdy:
+                self._safe_mouse_move(pdx, pdy)
 
     @staticmethod
     def _frame_overlay_point(
@@ -1061,6 +1133,10 @@ class AssistRuntime:
                 if self._pull is not None:
                     self._pull.reset()
                 self._aim_tracker.soft_reset()
+                if cfg_mode == "yolo" and self._yolo_engine is not None:
+                    from apexaimbot_bridge import reset_apexaimbot_pid
+
+                    reset_apexaimbot_pid(self._yolo_engine)
 
             fh, fw = frame_bgr.shape[0], frame_bgr.shape[1]
             if cfg_mode == "yolo" and bool(cfg.get("yolo_apex_nearest_lock", True)):
@@ -1241,7 +1317,11 @@ class AssistRuntime:
         print(f"[ABA] Profile: {profile} | capture_fps={fps} | Mouse: {self._mouse.name}")
         print(f"[ABA] Target process: {cfg.get('target_process_name', '') or '(none)'}")
         print(
-            "[ABA] Aim path: shape-only detect -> motion.observe_target(bbox+FOV) -> pull/overlay"
+            (
+                "[ABA] Aim path: YOLO/ApexAimBot (detect+nearest+PID) -> aba_mouse.dll/Win32"
+                if str(self.config.get("detection_mode", "apex")).lower() == "yolo"
+                else "[ABA] Aim path: shape-only detect -> motion.observe_target(bbox+FOV) -> pull/overlay"
+            )
         )
         if cfg.get("pause_on_target_closed", True) and cfg.get("target_process_name"):
             print("[ABA] Assist pauses when target process is not running.")
@@ -1414,19 +1494,30 @@ class AssistRuntime:
                         or abs(center_x - self._last_capture_center_x) > 0.25
                         or abs(center_y - self._last_capture_center_y) > 0.25
                     )
+                    yolo_square = det_mode_loop == "yolo" and bool(
+                        cfg.get("yolo_fixed_square_capture", True)
+                    )
                     if (
                         cap_region is None
                         or detect_fov != self._last_fov_radius
                         or center_moved
                     ):
-                        cap_region = build_capture_region(
-                            mon,
-                            center_x,
-                            center_y,
-                            capture_fov,
-                            use_crop=bool(cfg["capture_fov_crop"]),
-                            crop_padding=float(cfg["capture_crop_padding"]),
-                        )
+                        if yolo_square:
+                            cap_region = build_square_capture_region(
+                                mon,
+                                center_x,
+                                center_y,
+                                effective_yolo_grab_half(cfg),
+                            )
+                        else:
+                            cap_region = build_capture_region(
+                                mon,
+                                center_x,
+                                center_y,
+                                capture_fov,
+                                use_crop=bool(cfg["capture_fov_crop"]),
+                                crop_padding=float(cfg["capture_crop_padding"]),
+                            )
                         self._frame_cx = center_x - cap_region.offset_x
                         self._frame_cy = center_y - cap_region.offset_y
                         self._last_capture_center_x = center_x
@@ -1514,15 +1605,25 @@ class AssistRuntime:
                     # frozen anchor for one frame so pull/overlay don't teleport
                     # on the exact frame the lock expires. Previously hardcoded
                     # False made the entire CRIT2 block dead code.
-                    motion = self._smooth_aim(
-                        target,
-                        t0,
-                        stale=stale_det,
-                        keep_motion_anchor=(
-                            target is None
-                            and self._locked_target is not None
-                        ),
+                    yolo_pure = det_mode_loop == "yolo" and bool(
+                        cfg.get("yolo_skip_motion_smooth", True)
                     )
+                    if yolo_pure:
+                        motion = self._motion_from_yolo_target(
+                            target,
+                            t0,
+                            stale=stale_det,
+                        )
+                    else:
+                        motion = self._smooth_aim(
+                            target,
+                            t0,
+                            stale=stale_det,
+                            keep_motion_anchor=(
+                                target is None
+                                and self._locked_target is not None
+                            ),
+                        )
                     stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
                     with self._lock:
                         firing_now = self._is_firing
@@ -1542,28 +1643,42 @@ class AssistRuntime:
                             fov_cx=frame_cx,
                             fov_cy=frame_cy,
                         )
-                    may_assist_pull = may_assist_pull_target(
-                        target,
-                        detection_fresh=detection_fresh,
-                        center_y=frame_cy,
-                        target_lost_frames=self._target_lost_frames,
-                        stale_grace_frames=stale_grace,
-                        frame_w=fw,
-                        frame_h=fh,
-                        fov_cx=frame_cx,
-                        fov_cy=frame_cy,
-                    )
-                    plausible_lock = (
-                        target is not None
-                        and lock_target_is_plausible(
+                    if det_mode_loop == "yolo":
+                        yolo_grace = int(
+                            cfg.get("yolo_pull_stale_grace_frames", 8)
+                        )
+                        may_assist_pull = may_assist_pull_target_yolo(
                             target,
+                            detection_fresh=detection_fresh,
+                            target_lost_frames=self._target_lost_frames,
+                            stale_grace_frames=yolo_grace,
+                        )
+                        plausible_lock = target is not None and (
+                            detection_fresh or self._target_lost_frames <= yolo_grace
+                        )
+                    else:
+                        may_assist_pull = may_assist_pull_target(
+                            target,
+                            detection_fresh=detection_fresh,
                             center_y=frame_cy,
+                            target_lost_frames=self._target_lost_frames,
+                            stale_grace_frames=stale_grace,
                             frame_w=fw,
                             frame_h=fh,
                             fov_cx=frame_cx,
                             fov_cy=frame_cy,
                         )
-                    )
+                        plausible_lock = (
+                            target is not None
+                            and lock_target_is_plausible(
+                                target,
+                                center_y=frame_cy,
+                                frame_w=fw,
+                                frame_h=fh,
+                                fov_cx=frame_cx,
+                                fov_cy=frame_cy,
+                            )
+                        )
                     unlock_grace = int(
                         cfg.get("target_lost_frames_before_unlock", 18)
                     )
@@ -1581,23 +1696,34 @@ class AssistRuntime:
                     # Red dot only on fresh confirmed overlay — never rebuild while
                     # stale (STALE label in debug = frozen lock). Brief flicker
                     # uses hold-last below on plausible locks only.
-                    build_frame_overlay = show_for_overlay and plausible_lock
+                    build_frame_overlay = show_for_overlay and (
+                        plausible_lock or det_mode_loop == "yolo"
+                    )
                     frame_overlay: tuple[float, float] | None = None
                     monitor_overlay: tuple[float, float] | None = None
                     if (
-                        motion is not None
-                        and target is not None
+                        target is not None
                         and cap_region is not None
                         and build_frame_overlay
                     ):
-                        frame_overlay = self._frame_overlay_point(
-                            motion,
-                            cap_region,
-                            center_x=float(center_x),
-                            center_y=float(center_y),
-                            detect_fov=float(detect_fov),
-                            display_fov=float(overlay_fov),
-                        )
+                        if det_mode_loop == "yolo" and bool(
+                            cfg.get("yolo_direct_overlay", True)
+                        ):
+                            frame_overlay = (
+                                float(target.centroid_x),
+                                float(target.centroid_y),
+                            )
+                        elif motion is not None:
+                            frame_overlay = self._frame_overlay_point(
+                                motion,
+                                cap_region,
+                                center_x=float(center_x),
+                                center_y=float(center_y),
+                                detect_fov=float(detect_fov),
+                                display_fov=float(overlay_fov),
+                            )
+                        else:
+                            frame_overlay = None
                         if frame_overlay is not None:
                             fx, fy = frame_overlay
                             self._aim_tracker.sync_overlay_follow_frame(fx, fy)
@@ -1627,8 +1753,12 @@ class AssistRuntime:
                     # never re-introduces the sky-drift cases we just
                     # fixed.
                     pull_target = None
-                    if target is not None and motion is not None:
-                        if frame_overlay is not None:
+                    if target is not None and (
+                        motion is not None or det_mode_loop == "yolo"
+                    ):
+                        if det_mode_loop == "yolo" and apex_pid_loop:
+                            pull_target = target
+                        elif frame_overlay is not None:
                             pull_target = replace(
                                 target,
                                 centroid_x=frame_overlay[0],
@@ -1979,8 +2109,32 @@ class AssistRuntime:
                     # ['pull_subtick_hz'] to e.g. 240 for a 240 Hz
                     # mouse-tick on top of 60 Hz detect.
                     pull_subtick_hz = int(cfg.get("pull_subtick_hz", 0) or 0)
+                    apex_subtick_hz = int(cfg.get("apex_pid_subtick_hz", 0) or 0)
                     deadline = t0 + frame_interval
                     if (
+                        apex_pid
+                        and apex_subtick_hz > 0
+                        and self._yolo_engine is not None
+                        and pull_target is not None
+                        and pull_gate
+                        and not paused
+                        and self._should_run()
+                    ):
+                        bw, bh = self._last_apex_box or (
+                            float(pull_target.bbox_w),
+                            float(pull_target.bbox_h),
+                        )
+                        self._run_apex_pid_subticks(
+                            engine=self._yolo_engine,
+                            pull_target=pull_target,
+                            frame_cx=frame_cx,
+                            frame_cy=frame_cy,
+                            box_wh=(bw, bh),
+                            hip_fire=bool(firing_now and not ads_live),
+                            deadline=deadline,
+                            subtick_hz=apex_subtick_hz,
+                        )
+                    elif (
                         pull_subtick_hz > 0
                         and self._pull is not None
                         and ads_for_assist

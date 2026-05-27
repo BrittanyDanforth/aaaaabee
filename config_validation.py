@@ -385,6 +385,19 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     )
     cfg["yolo_use_fp16"] = bool(cfg.get("yolo_use_fp16", False))
     cfg["yolo_apex_nearest_lock"] = bool(cfg.get("yolo_apex_nearest_lock", True))
+    cfg["yolo_skip_motion_smooth"] = bool(cfg.get("yolo_skip_motion_smooth", True))
+    cfg["yolo_fixed_square_capture"] = bool(
+        cfg.get("yolo_fixed_square_capture", True)
+    )
+    cfg["yolo_direct_overlay"] = bool(cfg.get("yolo_direct_overlay", True))
+    cfg["yolo_pull_stale_grace_frames"] = int(
+        _require_number(
+            cfg, "yolo_pull_stale_grace_frames", default=8.0, minimum=0, maximum=60
+        )
+    )
+    cfg["apex_pid_subtick_hz"] = int(
+        _require_number(cfg, "apex_pid_subtick_hz", default=0.0, minimum=0, maximum=480)
+    )
     cfg["apexaimbot_mouse_modifier"] = _require_number(
         cfg, "apexaimbot_mouse_modifier", default=0.8, minimum=0.05, maximum=4.0
     )

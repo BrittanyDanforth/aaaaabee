@@ -109,10 +109,13 @@ def find_best_yolo_target(
             None, result.candidates, 0.0, debug_lines=result.debug_lines + ["below_min_height"],
             active=False,
         )
-    if t.confidence < min_confidence or t.body_shape_score < body_shape_min_score:
+    # YOLO scores are synthetic — only enforce model confidence, not CV body gates.
+    if t.confidence < min_confidence:
         return DetectionResult(
-            t, result.candidates, t.confidence,
-            debug_lines=result.debug_lines,
+            None,
+            result.candidates,
+            0.0,
+            debug_lines=result.debug_lines + ["below_min_confidence"],
             active=False,
         )
     if sticky_target is not None and stickiness_pixels > 0:

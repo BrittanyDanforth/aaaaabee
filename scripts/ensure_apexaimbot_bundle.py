@@ -36,6 +36,17 @@ def main() -> int:
         print("  FAIL missing vendored yolov5 tree", file=sys.stderr)
         ok_all = False
 
+    dll_script = Path(__file__).resolve().parent / "ensure_aba_mouse_dll.py"
+    if dll_script.is_file():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("ensure_aba_mouse_dll", dll_script)
+        assert spec and spec.loader
+        dll_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(dll_mod)
+        if dll_mod.main() != 0:
+            print("  WARN aba_mouse.dll missing — run scripts/build_aba_mouse_dll.bat")
+
     return 0 if ok_all else 1
 
 
