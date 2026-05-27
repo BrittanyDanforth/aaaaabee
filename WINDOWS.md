@@ -21,6 +21,8 @@ Failures **pause once** with a clear message. Log: `logs\aba_setup.log`
 
 **Folder path has `(1)` or other parentheses** (common in `Downloads\... (1)\...`): that is supported. If you still see `was unexpected at this time`, move the repo to a path without parentheses (e.g. `C:\OverlayAssist`).
 
+**Missing `.venv\Scripts\python.exe` after "Virtual environment created"**: delete the `.venv` folder and run `run_windows.bat` again (the script auto-removes broken venvs). If it still fails, the path is probably too long — move the whole folder to `C:\OverlayAssist` and run from there.
+
 ### If setup fails
 
 ```bat

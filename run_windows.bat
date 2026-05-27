@@ -92,7 +92,8 @@ echo   BAN RISK on live EAC/BattlEye/Vanguard - offline/private only.
 echo   No injection into game process.
 echo.
 
-if exist "%PY%" goto :HaveVenv
+call :VerifyVenv
+if not errorlevel 1 goto :HaveVenv
 
 set "PY_BOOT="
 set "PY_BOOT_DISPLAY="
@@ -132,29 +133,29 @@ if errorlevel 1 goto :PyVersionFail
 call :Log "Creating virtual environment..."
 echo Creating virtual environment at:
 echo   "%VENV%"
-!PY_BOOT! -m venv "%VENV%"
+set "ENSURE_VENV=%ROOT%\scripts\ensure_venv.py"
+if not exist "%ENSURE_VENV%" goto :VenvBatchFallback
+!PY_BOOT! "%ENSURE_VENV%" "%ROOT%"
 if errorlevel 1 goto :VenvCreateFail
-
-if exist "%PY%" goto :VenvPyOk
-set "FAILMSG=Missing after venv create: %PY%"
-goto :SetupFail
-:VenvPyOk
-if exist "%PIP%" goto :VenvPipOk
-set "FAILMSG=Missing after venv create: %PIP%"
-goto :SetupFail
-:VenvPipOk
+call :VerifyVenv
+if errorlevel 1 goto :VenvCreateFail
 call :Log "Virtual environment OK."
 echo Virtual environment created.
+goto :HaveVenv
+
+:VenvBatchFallback
+if exist "%VENV%" rmdir /s /q "%VENV%" 2>nul
+!PY_BOOT! -m venv "%VENV%"
+if errorlevel 1 goto :VenvCreateFail
+call :VerifyVenv
+if errorlevel 1 goto :VenvCreateFail
+call :Log "Virtual environment OK."
+echo Virtual environment created.
+goto :HaveVenv
 
 :HaveVenv
-if exist "%PY%" goto :HaveVenvPy
-set "FAILMSG=Missing %PY% - delete the .venv folder and run this script again."
-goto :SetupFail
-:HaveVenvPy
-if exist "%PIP%" goto :HaveVenvPip
-set "FAILMSG=Missing %PIP% - delete the .venv folder and run this script again."
-goto :SetupFail
-:HaveVenvPip
+call :VerifyVenv
+if errorlevel 1 goto :VenvBroken
 
 call :Log "Venv Python: %PY%"
 echo Using venv Python:
@@ -213,7 +214,11 @@ set "FAILMSG=Python !PY_BOOT_DISPLAY! failed --version check."
 goto :SetupFail
 
 :VenvCreateFail
-set "FAILMSG=Failed to create .venv with !PY_BOOT_DISPLAY!. Run setup_doctor.py for details."
+set "FAILMSG=Failed to create .venv with !PY_BOOT_DISPLAY!. Delete the .venv folder, move the project to a shorter path (e.g. C:\OverlayAssist), then run this script again."
+goto :SetupFail
+
+:VenvBroken
+set "FAILMSG=Broken .venv at %VENV% - delete the .venv folder or move the project to C:\OverlayAssist (long Downloads paths often break venv), then run run_windows.bat again."
 goto :SetupFail
 
 :VenvRunFail
@@ -248,6 +253,13 @@ echo Run: cd /d "%ROOT%"
 echo      python setup_doctor.py
 pause
 endlocal & exit /b 1
+
+:VerifyVenv
+if not exist "%PY%" exit /b 1
+if not exist "%PIP%" exit /b 1
+"%PY%" -c "import sys" 1>nul 2>nul
+if errorlevel 1 exit /b 1
+exit /b 0
 
 :Log
 set "LOGMSG=%~1"

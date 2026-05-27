@@ -27,6 +27,8 @@ def test_run_windows_has_keep_open_wrapper() -> None:
     text = (REPO_ROOT / "run_windows.bat").read_text(encoding="utf-8")
     assert "_aba_run" in text
     assert "cmd /k" in text
+    assert "ensure_venv.py" in text
+    assert ":VerifyVenv" in text
 
 
 def test_run_windows_has_hwid_fail_label() -> None:
