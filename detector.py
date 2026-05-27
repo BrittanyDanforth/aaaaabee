@@ -4687,7 +4687,6 @@ def find_best_target(
             stickiness_pixels=stickiness_pixels,
             min_height_px=min_height_px,
             min_confidence=min_confidence,
-            body_shape_min_score=float(body_shape_min_score or _MIN_BODY_SHAPE_ACCEPT),
             currently_locked=currently_locked,
             ads_active=ads_active,
             debug=debug,
@@ -5511,20 +5510,21 @@ def draw_debug(
     # hardcoded ``DETECTION_MODE_SHAPE`` made the apex/hybrid masks
     # invisible in the debug viewer, misleading users debugging Apex
     # detection by showing only the shape channel.
-    dbg_mode = detection_mode if detection_mode is not None else DETECTION_MODE_SHAPE
-    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=dbg_mode)
-    mask_fov = (
-        int(display_fov_radius)
-        if display_fov_radius is not None
-        else int(fov_radius)
-    )
-    fov = _build_fov_mask(h, w, cx_f, cy_f, mask_fov)
-    vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
-    mask = cv2.bitwise_and(mask, mask, mask=fov)
-    mask = cv2.bitwise_and(mask, mask, mask=vm)
-    tint = np.zeros_like(out)
-    tint[:, :] = (0, 255, 0)
-    out = np.where(mask[:, :, None] > 0, cv2.addWeighted(out, 0.5, tint, 0.5, 0), out)
+    dbg_mode = (detection_mode or DETECTION_MODE_SHAPE).strip().lower()
+    if dbg_mode != DETECTION_MODE_YOLO:
+        mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=dbg_mode)
+        mask_fov = (
+            int(display_fov_radius)
+            if display_fov_radius is not None
+            else int(fov_radius)
+        )
+        fov = _build_fov_mask(h, w, cx_f, cy_f, mask_fov)
+        vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
+        mask = cv2.bitwise_and(mask, mask, mask=fov)
+        mask = cv2.bitwise_and(mask, mask, mask=vm)
+        tint = np.zeros_like(out)
+        tint[:, :] = (0, 255, 0)
+        out = np.where(mask[:, :, None] > 0, cv2.addWeighted(out, 0.5, tint, 0.5, 0), out)
 
     ring_r = int(display_fov_radius) if display_fov_radius is not None else int(fov_radius)
     cv2.circle(out, (cx, cy), ring_r, (0, 255, 0), 2)

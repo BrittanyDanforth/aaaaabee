@@ -95,12 +95,21 @@ class AssistRuntime:
         # Body-column aim smoothing (bbox-aware — required for moving targets)
         self._aim_tracker = TargetTracker()
         self._last_motion: TargetMotion | None = None
-        # Stateful detection context — supplies prev-frame gray buffer for the
-        # motion-difference channel that boosts recall on low-contrast targets.
-        self._detect_ctx = DetectionContext(
-            motion_assist=bool(config.get("detection_motion_assist", True)),
-            motion_threshold=int(config.get("detection_motion_threshold", 10)),
-        )
+        det_mode = str(config.get("detection_mode", "apex")).strip().lower()
+        # CV motion-assist context is unused on YOLO-primary detect.
+        self._detect_ctx: DetectionContext | None
+        if det_mode == "yolo":
+            self._detect_ctx = None
+        else:
+            self._detect_ctx = DetectionContext(
+                motion_assist=bool(config.get("detection_motion_assist", True)),
+                motion_threshold=int(config.get("detection_motion_threshold", 10)),
+            )
+        if det_mode == "yolo" and not bool(config.get("yolo_apex_nearest_lock", True)):
+            logger.warning(
+                "yolo_apex_nearest_lock=False enables CV apply_target_lock on "
+                "synthetic YOLO scores — prefer True for ApexAimBot parity"
+            )
         from yolo_assist import try_create_yolo_assist
         from yolo_detector import reload_yolo_engine
 
@@ -108,7 +117,6 @@ class AssistRuntime:
         self._last_apex_box: tuple[float, float] | None = None
         self._apex_recoil: Any = None
         self._apex_pid_moved_this_frame = False
-        det_mode = str(config.get("detection_mode", "apex")).strip().lower()
         if det_mode == "yolo":
             self._ensure_apex_recoil(config)
         self._yolo_assist = (
@@ -610,34 +618,56 @@ class AssistRuntime:
             import json
             from datetime import datetime
 
-            import detector
+            import cv2
 
             out_root = Path(str(cfg.get("debug_frames_dir", "artifacts/debug_frames")))
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             out_dir = out_root / stamp
             out_dir.mkdir(parents=True, exist_ok=True)
-            hsv = cfg["hsv_ranges"]
-            min_area = float(cfg["min_target_area_pixels"])
-            candidates, mask, _parts = detector.enumerate_candidates(
-                frame_bgr, hsv, int(fov), min_area, cx, cy,
-                torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
-                body_shape_min_score=float(cfg.get("body_shape_min_score", 0.40)),
-                detection_mode=str(cfg.get("detection_mode", "apex")),
-            )
-            import cv2
-
+            cfg_mode = str(cfg.get("detection_mode", "apex")).strip().lower()
             cv2.imwrite(str(out_dir / "01_original.png"), frame_bgr)
-            cv2.imwrite(str(out_dir / "02_hsv_mask.png"), mask)
-            overlay = detector.render_debug_artifacts(
-                frame_bgr,
-                candidates,
-                det.target if det.target is not None else None,
-                int(fov),
-                cx,
-                cy,
-                mask=mask,
-            )
-            cv2.imwrite(str(out_dir / "03_overlay.png"), overlay)
+            if cfg_mode == "yolo":
+                overlay = frame_bgr.copy()
+                if det.target is not None:
+                    t = det.target
+                    x1, y1 = int(t.bbox_x), int(t.bbox_y)
+                    x2, y2 = x1 + int(t.bbox_w), y1 + int(t.bbox_h)
+                    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.circle(
+                        overlay,
+                        (int(t.centroid_x), int(t.centroid_y)),
+                        6,
+                        (0, 0, 255),
+                        2,
+                    )
+                cv2.imwrite(str(out_dir / "03_overlay.png"), overlay)
+            else:
+                import detector
+
+                hsv = cfg["hsv_ranges"]
+                min_area = float(cfg["min_target_area_pixels"])
+                candidates, mask, _parts = detector.enumerate_candidates(
+                    frame_bgr,
+                    hsv,
+                    int(fov),
+                    min_area,
+                    cx,
+                    cy,
+                    torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
+                    body_shape_min_score=float(cfg.get("body_shape_min_score", 0.40)),
+                    detection_mode=cfg_mode,
+                )
+                cv2.imwrite(str(out_dir / "02_hsv_mask.png"), mask)
+                overlay = detector.render_debug_artifacts(
+                    frame_bgr,
+                    candidates,
+                    det.target if det.target is not None else None,
+                    int(fov),
+                    cx,
+                    cy,
+                    mask=mask,
+                )
+                cv2.imwrite(str(out_dir / "03_overlay.png"), overlay)
             from dataclasses import asdict
 
             meta = {
@@ -949,7 +979,8 @@ class AssistRuntime:
         # for ``stop()`` / ``_teardown`` (full session end).
         self._aim_tracker.soft_reset()
         self._last_motion = None
-        self._detect_ctx.reset()
+        if self._detect_ctx is not None:
+            self._detect_ctx.reset()
         # Do not clear _is_firing here — LMB may still be held (hip fire).
         if self._pull is not None:
             self._pull.reset()
@@ -1010,8 +1041,9 @@ class AssistRuntime:
     def _sync_ads_assist_state(self, ads_for_assist: bool) -> None:
         """Clear lock on ADS end; reset overlay confirm counter on ADS start."""
         if ads_for_assist and not self._prev_ads_for_assist:
-            self._detect_ctx._validated_bbox = None
-            self._detect_ctx._validated_credit = 0
+            if self._detect_ctx is not None:
+                self._detect_ctx._validated_bbox = None
+                self._detect_ctx._validated_credit = 0
             with self._lock:
                 self._target_lock.overlay_confirm_frames = 0
         if self._prev_ads_for_assist and not ads_for_assist:
@@ -1082,43 +1114,71 @@ class AssistRuntime:
 
             yolo_engine = get_yolo_engine(cfg)
             self._yolo_engine = yolo_engine
-        result = find_best_target(
-            frame_bgr,
-            hsv_ranges,
-            fov_radius,
-            min_area,
-            center_x,
-            center_y,
-            sticky_target=sticky,
-            stickiness_pixels=float(cfg["target_stickiness_pixels"]),
-            distance_weight=float(cfg["distance_score_weight"]),
-            area_weight=float(cfg["area_score_weight"]),
-            min_height_px=float(cfg["humanoid_min_height_pixels"]),
-            min_aspect=float(cfg["humanoid_min_aspect"]),
-            max_aspect=float(cfg["humanoid_max_aspect"]),
-            min_solidity=float(cfg.get("humanoid_min_solidity", 0.25)),
-            torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
-            body_shape_min_score=float(cfg.get("body_shape_min_score", 0.40)),
-            head_score_weight=float(cfg.get("head_score_weight", 0.26)),
-            torso_score_weight=float(cfg.get("torso_score_weight", 0.26)),
-            limb_stack_score_weight=float(cfg.get("limb_stack_score_weight", 0.22)),
-            aim_y_min_fraction=float(cfg.get("aim_body_y_min_fraction", 0.28)),
-            aim_y_max_fraction=float(cfg.get("aim_body_y_max_fraction", 0.52)),
-            debug=bool(cfg.get("verbose_logging", False)),
-            detection_mode=str(cfg.get("detection_mode", "apex")),
-            context=self._detect_ctx,
-            currently_locked=currently_locked,
-            exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
-            display_fov_radius=float(
-                effective_overlay_fov_radius(cfg)
-            ),
-            target_selection_mode=str(cfg.get("target_selection_mode", "apex")),
-            external_boxes=external_boxes if cfg_mode != "yolo" else None,
-            yolo_fusion_boost=float(cfg.get("yolo_fusion_boost", 0.30)),
-            yolo_fusion_min_iou=float(cfg.get("yolo_fusion_min_iou", 0.28)),
-            yolo_engine=yolo_engine,
-            ads_active=bool(cfg.get("_ads_active", False)),
-        )
+        if cfg_mode == "yolo":
+            from yolo_detector import find_best_yolo_target
+
+            if yolo_engine is None:
+                result = DetectionResult(
+                    None,
+                    0,
+                    0.0,
+                    debug_lines=["yolo_mode but engine not loaded — set yolo_weights_path"],
+                    active=False,
+                )
+            else:
+                result = find_best_yolo_target(
+                    frame_bgr,
+                    int(fov_radius),
+                    float(min_area),
+                    center_x,
+                    center_y,
+                    engine=yolo_engine,
+                    sticky_target=sticky,
+                    stickiness_pixels=float(cfg["target_stickiness_pixels"]),
+                    min_height_px=float(cfg["humanoid_min_height_pixels"]),
+                    min_confidence=float(cfg.get("yolo_confidence_min", 0.5)),
+                    currently_locked=currently_locked,
+                    ads_active=bool(cfg.get("_ads_active", False)),
+                    debug=bool(cfg.get("verbose_logging", False)),
+                )
+        else:
+            result = find_best_target(
+                frame_bgr,
+                hsv_ranges,
+                fov_radius,
+                min_area,
+                center_x,
+                center_y,
+                sticky_target=sticky,
+                stickiness_pixels=float(cfg["target_stickiness_pixels"]),
+                distance_weight=float(cfg["distance_score_weight"]),
+                area_weight=float(cfg["area_score_weight"]),
+                min_height_px=float(cfg["humanoid_min_height_pixels"]),
+                min_aspect=float(cfg["humanoid_min_aspect"]),
+                max_aspect=float(cfg["humanoid_max_aspect"]),
+                min_solidity=float(cfg.get("humanoid_min_solidity", 0.25)),
+                torso_aim_fraction=float(cfg.get("torso_aim_fraction", 0.38)),
+                body_shape_min_score=float(cfg.get("body_shape_min_score", 0.40)),
+                head_score_weight=float(cfg.get("head_score_weight", 0.26)),
+                torso_score_weight=float(cfg.get("torso_score_weight", 0.26)),
+                limb_stack_score_weight=float(cfg.get("limb_stack_score_weight", 0.22)),
+                aim_y_min_fraction=float(cfg.get("aim_body_y_min_fraction", 0.28)),
+                aim_y_max_fraction=float(cfg.get("aim_body_y_max_fraction", 0.52)),
+                debug=bool(cfg.get("verbose_logging", False)),
+                detection_mode=str(cfg.get("detection_mode", "apex")),
+                context=self._detect_ctx,
+                currently_locked=currently_locked,
+                exclude_bottom_frac=viewmodel_exclude_bottom(cfg),
+                display_fov_radius=float(
+                    effective_overlay_fov_radius(cfg)
+                ),
+                target_selection_mode=str(cfg.get("target_selection_mode", "apex")),
+                external_boxes=external_boxes,
+                yolo_fusion_boost=float(cfg.get("yolo_fusion_boost", 0.30)),
+                yolo_fusion_min_iou=float(cfg.get("yolo_fusion_min_iou", 0.28)),
+                yolo_engine=None,
+                ads_active=bool(cfg.get("_ads_active", False)),
+            )
         if cfg_mode == "yolo" and result.target is not None:
             self._last_apex_box = (
                 float(result.target.bbox_w),
@@ -1158,7 +1218,9 @@ class AssistRuntime:
                 )
             locked = self._target_lock.locked_target
             if (
-                locked is not None
+                cfg_mode != "yolo"
+                and self._detect_ctx is not None
+                and locked is not None
                 and result.target is not None
                 and self._target_lock.target_lost_frames == 0
                 and locked_target_may_refresh_motion_memory(
@@ -1260,38 +1322,46 @@ class AssistRuntime:
             float(cfg.get("smoothing_tau_moving", 0.028)),
         )
 
-        self._pull = PullController(
-            PullTuning(
-                max_speed=float(cfg["max_pull_speed_pixels_per_frame"]),
-                pull_strength=float(cfg["pull_strength"]),
-                deadzone=float(cfg["deadzone_pixels"]),
-                velocity_smoothing=float(cfg["velocity_smoothing"]),
-                smoothing_curve=str(cfg["smoothing_curve"]),
-                magnetism_radius=float(cfg["magnetism_radius_pixels"]),
-                magnetism_min_scale=float(cfg["magnetism_min_pull_scale"]),
-                fov_radius=float(
-                    effective_detection_fov_radius(cfg, ads_active=False)
-                ),
-                fov_edge_min_scale=float(cfg["fov_edge_min_pull_scale"]),
-                prediction_enabled=bool(cfg["prediction_enabled"]),
-                prediction_lead_seconds=float(cfg["prediction_lead_seconds"]),
-                prediction_max_pixels=float(cfg["prediction_max_pixels"]),
-                humanize_enabled=bool(cfg["humanize_enabled"]),
-                humanize_amplitude=float(cfg["humanize_amplitude_pixels"]),
-                humanize_jerk_limit=float(cfg["humanize_jerk_limit"]),
-                aim_pre_smoothed=True,
-                recoil_compensation_enabled=bool(
-                    cfg.get("recoil_compensation_enabled", False)
-                ),
-                recoil_pull_down_pixels_per_second=float(
-                    cfg.get("recoil_pull_down_pixels_per_second", 0.0)
-                ),
-                jitter_enabled=bool(cfg.get("jitter_enabled", False)),
-                jitter_amplitude_pixels=float(cfg.get("jitter_amplitude_pixels", 0.0)),
-                jitter_frequency_hz=float(cfg.get("jitter_frequency_hz", 6.0)),
-                stale_grace_frames=int(cfg.get("mouse_gate_stale_grace_frames", 12)),
+        from profiles import uses_apex_pid_pull
+
+        self._pull = None
+        if not uses_apex_pid_pull(cfg):
+            self._pull = PullController(
+                PullTuning(
+                    max_speed=float(cfg["max_pull_speed_pixels_per_frame"]),
+                    pull_strength=float(cfg["pull_strength"]),
+                    deadzone=float(cfg["deadzone_pixels"]),
+                    velocity_smoothing=float(cfg["velocity_smoothing"]),
+                    smoothing_curve=str(cfg["smoothing_curve"]),
+                    magnetism_radius=float(cfg["magnetism_radius_pixels"]),
+                    magnetism_min_scale=float(cfg["magnetism_min_pull_scale"]),
+                    fov_radius=float(
+                        effective_detection_fov_radius(cfg, ads_active=False)
+                    ),
+                    fov_edge_min_scale=float(cfg["fov_edge_min_pull_scale"]),
+                    prediction_enabled=bool(cfg["prediction_enabled"]),
+                    prediction_lead_seconds=float(cfg["prediction_lead_seconds"]),
+                    prediction_max_pixels=float(cfg["prediction_max_pixels"]),
+                    humanize_enabled=bool(cfg["humanize_enabled"]),
+                    humanize_amplitude=float(cfg["humanize_amplitude_pixels"]),
+                    humanize_jerk_limit=float(cfg["humanize_jerk_limit"]),
+                    aim_pre_smoothed=True,
+                    recoil_compensation_enabled=bool(
+                        cfg.get("recoil_compensation_enabled", False)
+                    ),
+                    recoil_pull_down_pixels_per_second=float(
+                        cfg.get("recoil_pull_down_pixels_per_second", 0.0)
+                    ),
+                    jitter_enabled=bool(cfg.get("jitter_enabled", False)),
+                    jitter_amplitude_pixels=float(
+                        cfg.get("jitter_amplitude_pixels", 0.0)
+                    ),
+                    jitter_frequency_hz=float(cfg.get("jitter_frequency_hz", 6.0)),
+                    stale_grace_frames=int(
+                        cfg.get("mouse_gate_stale_grace_frames", 12)
+                    ),
+                )
             )
-        )
 
         mouse_listener = None
         keyboard_listener = None
@@ -1448,7 +1518,8 @@ class AssistRuntime:
                         if self._pull is not None:
                             self._pull.reset()
                         self._aim_tracker.reset()
-                        self._detect_ctx.reset()
+                        if self._detect_ctx is not None:
+                            self._detect_ctx.reset()
                         if str(cfg.get("detection_mode", "apex")).strip().lower() == "yolo":
                             self._reset_apex_aim_state()
                         # FIX (Bug A): reset the ADS tracker-reset flag too so
@@ -1593,7 +1664,8 @@ class AssistRuntime:
                         # resets on all subsequent idle frames.
                         if not self._prev_ads_tracker_reset:
                             self._aim_tracker.reset()
-                            self._detect_ctx.reset()
+                            if self._detect_ctx is not None:
+                                self._detect_ctx.reset()
                             self._prev_ads_tracker_reset = True
                     target = det.target
                     stale_det = target is not None and self._target_lost_frames > 0
@@ -1626,6 +1698,11 @@ class AssistRuntime:
                             ),
                         )
                     stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
+                    overlay_stale_grace = (
+                        int(cfg.get("yolo_pull_stale_grace_frames", 8))
+                        if det_mode_loop == "yolo"
+                        else stale_grace
+                    )
                     with self._lock:
                         firing_now = self._is_firing
                     fh, fw = frame_bgr.shape[0], frame_bgr.shape[1]
@@ -2043,7 +2120,7 @@ class AssistRuntime:
                                 held is not None
                                 and locked_hold
                                 and plausible_lock
-                                and self._target_lost_frames <= stale_grace
+                                and self._target_lost_frames <= overlay_stale_grace
                                 and not stale_det
                             ):
                                 overlay_pt = held

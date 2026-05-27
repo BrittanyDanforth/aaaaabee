@@ -21,10 +21,12 @@ from profiles import (
     effective_detection_fov_radius,
     effective_fov_radius,
     effective_overlay_fov_radius,
+    is_yolo_detection,
 )
 from target_lock import (
     TargetLockState,
     apply_target_lock,
+    apply_yolo_target_lock,
     detection_sticky_context,
     may_assist_pull_target,
     viewmodel_exclude_bottom,
@@ -81,7 +83,7 @@ def resolve_runtime_fov(
     detect_fov = int(
         effective_detection_fov_radius(config, ads_active=ads_active)
     )
-    if bool(config.get("unified_fov", True)):
+    if bool(config.get("unified_fov", True)) and not is_yolo_detection(config):
         detect_fov = user_fov
     ring_inner = int(float(user_fov) * 0.96)
     config["_runtime_fov"] = user_fov
@@ -266,42 +268,80 @@ class TargetingRuntime:
 
             yolo_engine = get_yolo_engine(config)
             self._yolo_engine = yolo_engine
-        raw = detector.find_best_target(
-            frame_bgr,
-            config.get("hsv_ranges"),
-            fov,
-            min_area,
-            cx,
-            cy,
-            sticky_target=sticky,
-            stickiness_pixels=float(config.get("target_stickiness_pixels", 90.0)),
-            distance_weight=float(config.get("distance_score_weight", 1.0)),
-            area_weight=float(config.get("area_score_weight", 0.5)),
-            currently_locked=currently_locked,
-            exclude_bottom_frac=viewmodel_exclude_bottom(config),
-            min_height_px=float(config.get("humanoid_min_height_pixels", 16)),
-            min_aspect=float(config.get("humanoid_min_aspect", 1.2)),
-            max_aspect=float(config.get("humanoid_max_aspect", 4.5)),
-            min_solidity=float(config.get("humanoid_min_solidity", 0.25)),
-            torso_aim_fraction=float(config.get("torso_aim_fraction", 0.38)),
-            body_shape_min_score=float(config.get("body_shape_min_score", 0.40)),
-            detection_mode=det_mode,
-            context=self._detect_ctx if det_mode != "yolo" else None,
-            debug=debug,
-            display_fov_radius=float(effective_overlay_fov_radius(config)),
-            yolo_engine=yolo_engine,
-            ads_active=ads_active,
-        )
-        result, is_stale = apply_target_lock(
-            self._lock_state,
-            raw,
-            center_y=cy,
-            cfg=config,
-            on_lock_expired=self.tracker.soft_reset,
-            fov_cx=cx,
-            fov_cy=cy,
-            frame_size=(w, h),
-        )
+        if det_mode == "yolo":
+            from yolo_detector import find_best_yolo_target
+
+            if yolo_engine is None:
+                raw = DetectionResult(
+                    None,
+                    0,
+                    0.0,
+                    debug_lines=["yolo_mode but engine not loaded"],
+                    active=False,
+                )
+            else:
+                raw = find_best_yolo_target(
+                    frame_bgr,
+                    fov,
+                    min_area,
+                    cx,
+                    cy,
+                    engine=yolo_engine,
+                    sticky_target=sticky,
+                    stickiness_pixels=float(
+                        config.get("target_stickiness_pixels", 90.0)
+                    ),
+                    min_height_px=float(config.get("humanoid_min_height_pixels", 16)),
+                    min_confidence=float(config.get("yolo_confidence_min", 0.5)),
+                    currently_locked=currently_locked,
+                    ads_active=ads_active,
+                    debug=debug,
+                )
+        else:
+            raw = detector.find_best_target(
+                frame_bgr,
+                config.get("hsv_ranges"),
+                fov,
+                min_area,
+                cx,
+                cy,
+                sticky_target=sticky,
+                stickiness_pixels=float(config.get("target_stickiness_pixels", 90.0)),
+                distance_weight=float(config.get("distance_score_weight", 1.0)),
+                area_weight=float(config.get("area_score_weight", 0.5)),
+                currently_locked=currently_locked,
+                exclude_bottom_frac=viewmodel_exclude_bottom(config),
+                min_height_px=float(config.get("humanoid_min_height_pixels", 16)),
+                min_aspect=float(config.get("humanoid_min_aspect", 1.2)),
+                max_aspect=float(config.get("humanoid_max_aspect", 4.5)),
+                min_solidity=float(config.get("humanoid_min_solidity", 0.25)),
+                torso_aim_fraction=float(config.get("torso_aim_fraction", 0.38)),
+                body_shape_min_score=float(config.get("body_shape_min_score", 0.40)),
+                detection_mode=det_mode,
+                context=self._detect_ctx,
+                debug=debug,
+                display_fov_radius=float(effective_overlay_fov_radius(config)),
+                yolo_engine=None,
+                ads_active=ads_active,
+            )
+        if det_mode == "yolo" and bool(config.get("yolo_apex_nearest_lock", True)):
+            result, is_stale = apply_yolo_target_lock(
+                self._lock_state,
+                raw,
+                cfg=config,
+                on_lock_expired=self.tracker.soft_reset,
+            )
+        else:
+            result, is_stale = apply_target_lock(
+                self._lock_state,
+                raw,
+                center_y=cy,
+                cfg=config,
+                on_lock_expired=self.tracker.soft_reset,
+                fov_cx=cx,
+                fov_cy=cy,
+                frame_size=(w, h),
+            )
 
         tsec = time.perf_counter() if time_sec is None else time_sec
         detection_fresh = (
@@ -345,35 +385,45 @@ class TargetingRuntime:
                     observe_called=False,
                 )
         else:
-            self._observe_target_calls += 1
-            observe_called = True
-            # Pass RAW detector bbox to motion.observe_target.  Motion
-            # now has its own internal bbox EMA
-            # (TargetTracker._smoothed_clamp_bbox) that's used for the
-            # chest-band clamp.  Reading the smoothed bbox back from
-            # the tracker keeps the audit's reported bbox aligned with
-            # the bbox motion actually used for clamping.
-            motion = self.tracker.observe_target(
-                t.centroid_x,
-                t.centroid_y,
-                tsec,
-                bbox_x=t.bbox_x,
-                bbox_y=t.bbox_y,
-                bbox_w=t.bbox_w,
-                bbox_h=t.bbox_h,
-                aim_is_body_anchor=True,
-            )
-            tracker_bbox = self.tracker._body_bbox
-            if tracker_bbox is not None:
-                bx_t, by_t, bw_t, bh_t = tracker_bbox
-                self._last_observe_bbox = (
-                    int(round(bx_t)), int(round(by_t)),
-                    int(round(bw_t)), int(round(bh_t)),
+            if det_mode == "yolo" and bool(config.get("yolo_skip_motion_smooth", True)):
+                motion = TargetMotion(
+                    t.centroid_x,
+                    t.centroid_y,
+                    0.0,
+                    0.0,
+                    overlay_x=t.centroid_x,
+                    overlay_y=t.centroid_y,
                 )
+                self._last_observe_bbox = (t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
             else:
-                self._last_observe_bbox = (
-                    t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h
+                self._observe_target_calls += 1
+                observe_called = True
+                motion = self.tracker.observe_target(
+                    t.centroid_x,
+                    t.centroid_y,
+                    tsec,
+                    bbox_x=t.bbox_x,
+                    bbox_y=t.bbox_y,
+                    bbox_w=t.bbox_w,
+                    bbox_h=t.bbox_h,
+                    aim_is_body_anchor=True,
                 )
+                tracker_bbox = self.tracker._body_bbox
+                if tracker_bbox is not None:
+                    bx_t, by_t, bw_t, bh_t = tracker_bbox
+                    self._last_observe_bbox = (
+                        int(round(bx_t)),
+                        int(round(by_t)),
+                        int(round(bw_t)),
+                        int(round(bh_t)),
+                    )
+                else:
+                    self._last_observe_bbox = (
+                        t.bbox_x,
+                        t.bbox_y,
+                        t.bbox_w,
+                        t.bbox_h,
+                    )
 
         ox, oy = motion.overlay_xy()
         px, py = _ring_clamp_frame(ox, oy, cx, cy, float(fov))

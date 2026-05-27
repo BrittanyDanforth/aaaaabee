@@ -46,6 +46,17 @@ That pulls **up** from detection center by 20% of bbox height (upper torso/head 
 
 ABA uses `torso_aim_fraction` and `aim_body_y_min/max_fraction` on the **red mask column** — usually more stable on Apex outlines. For a similar *feel*, try `torso_aim_fraction: 0.35`–`0.38`, not raw bbox center.
 
+## YOLO-primary path (no red-mask body tracking)
+
+With `detection_mode: yolo` and `pull_mode: apexaimbot_pid` (ApexAimBot preset):
+
+- Live detect uses vendored YOLO + nearest + 20% bbox aim offset — **not** HSV/red clustering or `observe_target` chest EMA.
+- `DetectionContext` and `PullController` are not constructed on the live path (overlay glide + Apex PID only).
+- Debug frame save and the OpenCV debug window skip CV mask building in YOLO mode.
+- `yolo_confidence_min` is used for both model `conf_thres` and post-filter (aligned).
+
+CV keys in the profile (`body_shape_*`, `torso_aim_fraction`, ABA pull sliders) remain for compatibility if you switch back to `detection_mode: apex` or `pull_mode: aba`.
+
 ## Pull smoothness: upstream `run_ai` vs ABA
 
 Upstream ([`main.py` `run_ai`](https://github.com/1bit-monster7/ApexAimBot/blob/main/main.py)) runs one tight loop: grab → infer → nearest → PID → `_mouse(dx, dy)` **every iteration**. Loop rate is inference-bound (often well above 60 Hz on GPU), not a separate capture budget.

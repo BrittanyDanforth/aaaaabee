@@ -270,6 +270,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "yolo_fixed_square_capture": True,
         "yolo_direct_overlay": True,
         "yolo_pull_stale_grace_frames": 8,
+        "detection_motion_assist": False,
         "apex_pid_subtick_hz": 120,
         "apexaimbot_mouse_modifier": 0.8,
         "apexaimbot_pid_x_p": 0.36,
@@ -358,8 +359,20 @@ def effective_overlay_fov_radius(
     return effective_fov_radius(config, ads_active=ads_active)
 
 
-def _is_yolo_mode(config: dict[str, Any]) -> bool:
+def is_yolo_detection(config: dict[str, Any]) -> bool:
+    """Primary detector is vendored YOLO (not red-mask CV)."""
     return str(config.get("detection_mode", "apex")).strip().lower() == "yolo"
+
+
+def uses_apex_pid_pull(config: dict[str, Any]) -> bool:
+    """Vendored Apex PID pull — no PullController EMA on the aim path."""
+    return is_yolo_detection(config) and str(
+        config.get("pull_mode", "aba")
+    ).strip().lower() == "apexaimbot_pid"
+
+
+def _is_yolo_mode(config: dict[str, Any]) -> bool:
+    return is_yolo_detection(config)
 
 
 def effective_yolo_grab_half(config: dict[str, Any]) -> int:

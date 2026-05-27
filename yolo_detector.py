@@ -64,7 +64,6 @@ def find_best_yolo_target(
     stickiness_pixels: float = 90.0,
     min_height_px: float = 0.0,
     min_confidence: float = 0.30,
-    body_shape_min_score: float = 0.40,
     currently_locked: bool = False,
     ads_active: bool = False,
     debug: bool = False,
