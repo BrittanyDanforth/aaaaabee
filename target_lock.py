@@ -392,6 +392,21 @@ def lock_target_is_plausible(
     return True
 
 
+def may_assist_pull_target_yolo(
+    target: Target | None,
+    *,
+    detection_fresh: bool,
+    target_lost_frames: int = 0,
+    stale_grace_frames: int = 8,
+) -> bool:
+    """YOLO/Apex path — no CV humanoid plausibility gates on pull."""
+    if target is None:
+        return False
+    if detection_fresh:
+        return True
+    return stale_grace_frames > 0 and target_lost_frames <= stale_grace_frames
+
+
 def may_assist_pull_target(
     target: Target | None,
     *,
@@ -621,6 +636,54 @@ def detection_sticky_context(
     sticky = state.locked_target if in_grace else None
     currently_locked = state.locked_target is not None and in_grace
     return sticky, currently_locked, lost_max
+
+
+def apply_yolo_target_lock(
+    state: TargetLockState,
+    result: DetectionResult,
+    *,
+    cfg: dict[str, Any],
+    on_lock_expired: Callable[[], None] | None = None,
+    on_new_target: Callable[[], None] | None = None,
+) -> tuple[DetectionResult, bool]:
+    """ApexAimBot-style: nearest detection each frame; short grace when infer misses."""
+    lost_max = int(cfg.get("target_lost_frames_before_unlock", 18))
+    if result.target is not None:
+        prev = state.locked_target
+        if prev is not None and on_new_target is not None:
+            import math
+
+            switch_px = float(cfg.get("yolo_switch_reset_pixels", 80.0))
+            dist = math.hypot(
+                result.target.centroid_x - prev.centroid_x,
+                result.target.centroid_y - prev.centroid_y,
+            )
+            if dist > switch_px:
+                on_new_target()
+        state.locked_target = result.target
+        state.target_lost_frames = 0
+        state.switch_candidate = None
+        state.switch_frames = 0
+        state.pool_hold_streak = 0
+        state.overlay_confirm_frames = 999
+        return result, False
+    state.target_lost_frames += 1
+    locked = state.locked_target
+    if locked is not None and state.target_lost_frames <= lost_max:
+        return (
+            DetectionResult(
+                locked,
+                result.candidates,
+                locked.confidence,
+                debug_lines=(result.debug_lines or []) + ["yolo_grace"],
+                active=True,
+            ),
+            True,
+        )
+    state.reset()
+    if on_lock_expired is not None:
+        on_lock_expired()
+    return DetectionResult(None, result.candidates, 0.0), False
 
 
 def apply_target_lock(

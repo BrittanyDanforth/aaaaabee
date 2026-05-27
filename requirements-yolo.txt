@@ -1,0 +1,4 @@
+# YOLO primary detection (detection_mode=yolo). Install on top of requirements.txt.
+# CPU wheels are default; for CUDA use https://pytorch.org/get-started/locally/
+torch>=2.0.0
+torchvision>=0.15.0

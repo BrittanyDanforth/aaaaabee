@@ -66,7 +66,7 @@ echo   ABA - Apex reference external assist
 echo ========================================
 echo   Folder: %ROOT%
 echo   Log:    %LOGFILE%
-echo   Default: apex_style_live_safe (real mouse + hooks after GUI ban ack).
+echo   Default profile: apexaimbot (YOLO + PID + aba_mouse.dll after GUI ban ack).
 echo   BAN RISK on live EAC/BattlEye/Vanguard — offline/private only.
 echo   No injection into game process.
 echo.
@@ -186,6 +186,22 @@ echo Running setup doctor...
 if errorlevel 1 (
   set "FAILMSG=Setup doctor found problems. See output above."
   goto :SetupFail
+)
+
+echo.
+echo Verifying ApexAimBot bundle (weights + vendor tree)...
+"%PY%" scripts\ensure_apexaimbot_bundle.py
+if errorlevel 1 (
+  set "FAILMSG=ApexAimBot bundle incomplete. Run: python scripts\ensure_apexaimbot_bundle.py
+  goto :SetupFail
+)
+
+echo.
+echo Verifying aba_mouse.dll (open-source, built from C — not downloaded)...
+"%PY%" scripts\ensure_aba_mouse_dll.py
+if errorlevel 1 (
+  echo Building aba_mouse.dll...
+  call scripts\build_aba_mouse_dll.bat
 )
 
 echo.

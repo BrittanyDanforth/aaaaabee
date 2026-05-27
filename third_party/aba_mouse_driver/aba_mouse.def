@@ -1,0 +1,9 @@
+LIBRARY aba_mouse
+EXPORTS
+    mouse_open
+    moveR
+    mouse_down
+    mouse_up
+    scroll
+    key_down
+    key_up

@@ -27,6 +27,12 @@ class MouseGateContext:
     target_lost_frames: int = 0
     stale_grace_frames: int = 12
     pull_budget_scale: float = _DEFAULT_PULL_BUDGET_SCALE
+    # ApexAimBot preset: LMB hip-fire assist without ADS
+    assist_without_ads: bool = False
+    # Vendored recoil pattern — not gated on target lock / stale detect
+    recoil_only: bool = False
+    # Vendored Apex PID: Y axis has no per-step cap upstream; skip ABA pull budget
+    apex_pid_move: bool = False
 
 
 @dataclass(frozen=True)
@@ -57,35 +63,42 @@ def evaluate_mouse_gate(config: dict[str, Any], ctx: MouseGateContext) -> MouseG
         return MouseGateResult(True, "")
 
     if not ctx.running:
-        return MouseGateResult(False, "runtime not running")
+        return MouseGateResult(False, "gate[pull]: runtime not running")
     if ctx.stopping:
-        return MouseGateResult(False, "stopping")
+        return MouseGateResult(False, "gate[pull]: stopping")
     if ctx.paused:
-        return MouseGateResult(False, "target paused")
+        return MouseGateResult(False, "gate[pull]: target paused")
     if not ctx.mouse_enabled:
-        return MouseGateResult(False, "mouse disabled")
+        return MouseGateResult(False, "gate[pull]: mouse disabled")
     if dry_run_mode(config):
-        return MouseGateResult(False, "dry_run / allow_live_mouse=false")
+        return MouseGateResult(False, "gate[pull]: dry_run / allow_live_mouse=false")
     if not live_assist_enabled(config):
-        return MouseGateResult(False, "allow_live_mouse=false")
-    if not ctx.ads_active:
-        return MouseGateResult(False, "ADS not active")
+        return MouseGateResult(False, "gate[pull]: allow_live_mouse=false")
+    if not ctx.ads_active and not ctx.assist_without_ads:
+        return MouseGateResult(False, "gate[pull]: ADS not active (enable ADS or apexaimbot_pid+LMB)")
+    if ctx.recoil_only:
+        if not ctx.target_process_ok:
+            return MouseGateResult(False, "gate[recoil]: target process not present")
+        return MouseGateResult(True, "")
     if not _target_lock_ok(ctx):
         if ctx.has_target and not ctx.detection_fresh:
             return MouseGateResult(
                 False,
-                f"stale detection ({ctx.target_lost_frames} lost frames)",
+                f"gate[pull]: stale detection ({ctx.target_lost_frames} lost frames)",
             )
-        return MouseGateResult(False, "no target lock")
+        return MouseGateResult(False, "gate[pull]: no target lock")
     if not ctx.target_process_ok:
-        return MouseGateResult(False, "target process not present")
+        return MouseGateResult(False, "gate[pull]: target process not present")
+
+    if ctx.apex_pid_move:
+        return MouseGateResult(True, "")
 
     mag = (ctx.dx * ctx.dx + ctx.dy * ctx.dy) ** 0.5
     budget = pull_budget_px(ctx, config)
     if mag > budget:
         return MouseGateResult(
             False,
-            f"pull {mag:.1f}px exceeds budget {budget:.1f}",
+            f"gate[pull]: move {mag:.1f}px exceeds budget {budget:.1f}",
         )
 
     return MouseGateResult(True, "")

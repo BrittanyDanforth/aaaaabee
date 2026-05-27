@@ -151,6 +151,23 @@ class MouseGateTests(unittest.TestCase):
         self.assertFalse(r.allowed)
         self.assertIn("stale", r.reason)
 
+    def test_apexaimbot_hip_fire_allowed_without_ads(self) -> None:
+        ctx = MouseGateContext(
+            running=True,
+            stopping=False,
+            paused=False,
+            mouse_enabled=True,
+            ads_active=False,
+            assist_without_ads=True,
+            has_target=True,
+            target_process_ok=True,
+            dx=3,
+            dy=2,
+            max_pull_per_frame=12.0,
+        )
+        r = evaluate_mouse_gate(self._cfg(), ctx)
+        self.assertTrue(r.allowed)
+
     def test_stale_lock_allowed_within_grace(self) -> None:
         ctx = MouseGateContext(
             running=True,

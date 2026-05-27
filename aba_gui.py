@@ -84,6 +84,57 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
     # PHASE-5 AUDIT: "Tracking" preset sits between Responsive and Strong.
     # Looser body-shape gate + tighter smoothing + slightly higher pull
     # speed than Responsive, without arming Strong's recoil / jitter.
+    # ApexAimBot-style: YOLO primary detect + nearest pick (needs weights — see docs).
+    "ApexAimBot": {
+        "profile": "apexaimbot",
+        "pull_strength": 0.92,
+        "smoothing_tau_still": 0.028,
+        "smoothing_tau_moving": 0.012,
+        "velocity_smoothing": 0.36,
+        "max_pull_speed_pixels_per_frame": 28.0,
+        "torso_aim_fraction": 0.36,
+        "target_stickiness_pixels": 55,
+        "body_shape_min_score": 0.40,
+        "deadzone_pixels": 2,
+        "magnetism_radius_pixels": 72,
+        "target_selection_mode": "nearest",
+        "detection_mode": "yolo",
+        "pull_mode": "apexaimbot_pid",
+        "yolo_weights_path": "third_party/apexaimbot/weights/APEX416SFP32.engine",
+        "yolo_yolov5_root": "third_party/apexaimbot",
+        "yolo_inference_size": 416,
+        "yolo_grab_width": 416,
+        "yolo_grab_height": 416,
+        "yolo_confidence_min": 0.5,
+        "yolo_iou_thres": 0.25,
+        "yolo_max_det": 3,
+        "yolo_aim_fraction": 0.2,
+        "yolo_exclude_labels": ["teammate"],
+        "yolo_device": "",
+        "yolo_apex_nearest_lock": True,
+        "mouse_backend": "apexaimbot",
+        "apexaimbot_mouse_modifier": 0.8,
+        "yolo_skip_motion_smooth": True,
+        "yolo_fixed_square_capture": True,
+        "yolo_direct_overlay": True,
+        "yolo_pull_stale_grace_frames": 8,
+        "apex_pid_subtick_hz": 120,
+        "apexaimbot_recoil_enabled": True,
+        "apexaimbot_recoil_weapon": "R-301",
+        "apexaimbot_auto_sens_modifier": True,
+        "apexaimbot_sens": 5,
+        "apexaimbot_ads_sens": 1,
+        "apexaimbot_pid_x_p": 0.36,
+        "apexaimbot_pid_x_i": 0.032,
+        "apexaimbot_pid_x_d": 0.01,
+        "apexaimbot_pid_y_p": 0.2,
+        "apexaimbot_min_step": 10,
+        "apexaimbot_max_step": 6,
+        "prediction_vertical_cap_pixels": 4.0,
+        "recoil_compensation_enabled": False,
+        "jitter_enabled": False,
+        "pull_subtick_hz": 0,
+    },
     "Tracking": {
         "body_shape_min_score": 0.42,
         "target_stickiness_pixels": 70,
@@ -154,6 +205,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
 # the Apex red-enemy-outline cue with shape edges, saturation, and motion difference.
 DETECTION_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("apex", "Apex (default — auto-fuses red outline + shape + motion)"),
+    ("yolo", "YOLO (neural — requires yolo_weights_path + torch)"),
     ("shape", "Shape only (no colour cue)"),
     ("hybrid", "Hybrid (shape + HSV)"),
     ("hsv", "HSV only (legacy colour mask)"),
@@ -259,6 +311,7 @@ class AbaApplication:
         self._bool_vars: dict[str, tk.BooleanVar] = {}
         self._active_tab = "basic"
         self._advanced_mode = False
+        self._combo_vars: dict[str, tk.StringVar] = {}
 
         self._root = tk.Tk()
         self._root.title("ABA")
@@ -608,6 +661,14 @@ class AbaApplication:
                 ctrl.set(float(self.config[key]))
         for key, var in self._bool_vars.items():
             var.set(bool(self.config.get(key, False)))
+        for key, var in self._combo_vars.items():
+            val = str(self.config.get(key, var.get())).strip().lower()
+            var.set(val)
+        if hasattr(self, "_detection_mode_var"):
+            self._detection_mode_var.set(
+                str(self.config.get("detection_mode", "apex")).strip().lower()
+            )
+        self._profile = normalize_profile_name(str(self.config.get("profile", self._profile)))
         self._update_fov_summary_label()
 
     def _show_tab(self, tab_id: str) -> None:
@@ -886,7 +947,7 @@ class AbaApplication:
         # the audit fixes specifically validate.
         self._section(parent, "Detection mode")
         current = str(self.config.get("detection_mode", "apex")).lower()
-        if current not in {"apex", "shape", "hsv", "hybrid"}:
+        if current not in {"apex", "shape", "hsv", "hybrid", "yolo"}:
             current = "apex"
         self._detection_mode_var = tk.StringVar(value=current)
         row = tk.Frame(parent, bg=UI_PANEL)
@@ -898,7 +959,7 @@ class AbaApplication:
         combo = ttk.Combobox(
             row,
             textvariable=self._detection_mode_var,
-            values=("apex", "shape", "hsv", "hybrid"),
+            values=("apex", "yolo", "shape", "hsv", "hybrid"),
             state="readonly",
             width=12,
         )
@@ -909,8 +970,9 @@ class AbaApplication:
         )
         tk.Label(
             parent,
-            text="apex = Apex enemy red outline + shape/chroma/motion fusion (default).\n"
-                 "shape/hsv/hybrid are legacy modes kept for back-compat only.",
+            text="apex = red outline + shape/chroma/motion (default).\n"
+                 "yolo = YOLOv5 primary detect (set yolo_weights_path; pip install -r requirements-yolo.txt).\n"
+                 "shape/hsv/hybrid = legacy CV modes.",
             bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
         ).pack(anchor="w", pady=(0, 8))
 
@@ -921,17 +983,88 @@ class AbaApplication:
             parent, "Limb stack weight", "limb_stack_score_weight",
             minimum=0.0, maximum=0.5,
         )
+        self._on_apex_controls_panel(parent)
 
     def _on_detection_mode_change(self) -> None:
         mode = self._detection_mode_var.get().strip().lower()
-        if mode not in {"apex", "shape", "hsv", "hybrid"}:
+        if mode not in {"apex", "shape", "hsv", "hybrid", "yolo"}:
             mode = "apex"
-        try:
-            self.config = self._controller.apply_config_patch(
-                {"detection_mode": mode}, persist=False
+        patch: dict[str, Any] = {"detection_mode": mode}
+        if mode == "yolo":
+            patch.update(
+                {
+                    "profile": "apexaimbot",
+                    "pull_mode": "apexaimbot_pid",
+                    "mouse_backend": "apexaimbot",
+                    "yolo_weights_path": "third_party/apexaimbot/weights/APEX416SFP32.engine",
+                    "yolo_yolov5_root": "third_party/apexaimbot",
+                }
             )
+        try:
+            self.config = self._controller.apply_config_patch(patch, persist=False)
+            self._sync_controls_from_config()
         except Exception as exc:
             self._error_var.set(f"Detection mode update: {exc}")
+
+    def _bind_apex_combobox(
+        self,
+        parent: tk.Frame,
+        label: str,
+        config_key: str,
+        values: tuple[str, ...],
+    ) -> None:
+        from tkinter import ttk
+
+        row = tk.Frame(parent, bg=UI_PANEL)
+        row.pack(fill=tk.X, pady=4)
+        tk.Label(row, text=label, bg=UI_PANEL, fg=UI_TEXT, width=14, anchor="w").pack(
+            side=tk.LEFT
+        )
+        current = str(self.config.get(config_key, values[0])).strip().lower()
+        if current not in values:
+            current = values[0]
+        var = tk.StringVar(value=current)
+        self._combo_vars[config_key] = var
+        combo = ttk.Combobox(row, textvariable=var, values=values, state="readonly", width=16)
+        combo.pack(side=tk.LEFT)
+
+        def _apply(_e: object | None = None) -> None:
+            val = var.get().strip().lower()
+            if val not in values:
+                return
+            try:
+                self.config = self._controller.apply_config_patch(
+                    {config_key: val}, persist=False
+                )
+                self._sync_controls_from_config()
+            except Exception as exc:
+                self._error_var.set(f"{config_key} update: {exc}")
+
+        combo.bind("<<ComboboxSelected>>", _apply)
+
+    def _on_apex_controls_panel(self, parent: tk.Frame) -> None:
+        self._section(parent, "ApexAimBot (YOLO + PID)")
+        self._bind_apex_combobox(
+            parent,
+            "Pull mode",
+            "pull_mode",
+            ("aba", "apexaimbot_pid"),
+        )
+        self._bind_apex_combobox(
+            parent,
+            "Mouse backend",
+            "mouse_backend",
+            ("auto", "apex", "apexaimbot", "win32_sendinput", "logitech_ghub", "pynput"),
+        )
+        self._toggle(parent, "Apex per-weapon recoil", "apexaimbot_recoil_enabled")
+        self._slider(
+            parent,
+            "Apex sens (INI)",
+            "apexaimbot_sens",
+            minimum=1.0,
+            maximum=10.0,
+            resolution=0.5,
+        )
 
     # === ADVANCED: Overlay ===
     def _build_overlay_adv_panel(self, parent: tk.Frame) -> None:

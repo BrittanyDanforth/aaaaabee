@@ -27,6 +27,10 @@ python3 aba.py --debug          # CLI + debug window
 
 On Cloud VMs (headless Linux), screen capture via `mss` will fail with `"drawable's visual not found"` — this is expected. Detection, motion, pull, and mouse-backend subsystems all work without a display.
 
+### YOLO primary detection (vendored ApexAimBot)
+
+When `detection_mode` is `yolo`, detection uses **`third_party/apexaimbot/`** (vendored YOLOv5 + bundled `APEX416SFP32.engine`). Requires `pip install -r requirements-yolo.txt`. Verify weights: `python3 scripts/ensure_apexaimbot_weights.py`. Preset **ApexAimBot** sets `pull_mode: apexaimbot_pid`.
+
 ### Detection inspection (no display needed)
 
 ```bash

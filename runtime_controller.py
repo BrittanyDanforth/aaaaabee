@@ -56,13 +56,9 @@ class RuntimeController:
         with self._lock:
             merged = dict(self._config)
             merged.update(patch)
-        try:
-            from config_validation import validate_config
-            from profiles import apply_profile
+        from config_pipeline import normalize_app_config
 
-            merged = validate_config(apply_profile(merged))
-        except Exception:
-            pass
+        merged = normalize_app_config(merged)
         with self._lock:
             self._config = merged
         if persist:
@@ -99,6 +95,73 @@ class RuntimeController:
                 live._detect_ctx.motion_threshold = int(
                     merged.get("detection_motion_threshold", 10)
                 )
+            if "mouse_backend" in patch and not live._dry:
+                from mouse_io import create_mouse_backend
+
+                live._mouse = create_mouse_backend(str(merged.get("mouse_backend", "auto")))
+            yolo_touched = any(
+                k in patch
+                for k in (
+                    "detection_mode",
+                    "yolo_weights_path",
+                    "yolo_yolov5_root",
+                    "yolo_inference_size",
+                    "yolo_confidence_min",
+                    "yolo_iou_thres",
+                    "yolo_max_det",
+                    "yolo_grab_width",
+                    "yolo_grab_height",
+                    "yolo_use_fp16",
+                    "yolo_aim_fraction",
+                    "yolo_device",
+                    "pull_mode",
+                    "apexaimbot_pid_x_p",
+                    "apexaimbot_pid_x_i",
+                    "apexaimbot_pid_x_d",
+                    "apexaimbot_pid_y_p",
+                    "apexaimbot_pid_y_i",
+                    "apexaimbot_pid_y_d",
+                    "apexaimbot_min_step",
+                    "apexaimbot_max_step",
+                    "apexaimbot_lock_range_x",
+                    "apexaimbot_lock_range_y",
+                    "apex_pid_subtick_hz",
+                    "apexaimbot_recoil_enabled",
+                    "apexaimbot_recoil_weapon",
+                    "apexaimbot_sens",
+                    "apexaimbot_ads_sens",
+                    "apexaimbot_auto_sens_modifier",
+                    "apexaimbot_recoil_modifier",
+                    "apexaimbot_scale_pid_by_modifier",
+                    "apexaimbot_mouse_modifier",
+                    "yolo_switch_reset_pixels",
+                )
+            )
+            if yolo_touched:
+                from yolo_detector import reload_yolo_engine
+                from yolo_assist import try_create_yolo_assist
+
+                det_mode = str(merged.get("detection_mode", "apex")).strip().lower()
+                live._yolo_engine = reload_yolo_engine(merged)
+                if hasattr(live, "_reset_apex_aim_state"):
+                    live._reset_apex_aim_state()
+                live._yolo_assist = (
+                    try_create_yolo_assist(merged) if det_mode != "yolo" else None
+                )
+                if hasattr(live, "_ensure_apex_recoil"):
+                    live._ensure_apex_recoil(merged)
+            elif any(
+                k in patch
+                for k in (
+                    "apexaimbot_recoil_enabled",
+                    "apexaimbot_recoil_weapon",
+                    "apexaimbot_sens",
+                    "apexaimbot_ads_sens",
+                    "apexaimbot_auto_sens_modifier",
+                    "apexaimbot_recoil_modifier",
+                )
+            ) and hasattr(live, "_ensure_apex_recoil"):
+                live._ensure_apex_recoil(merged)
             if hasattr(live, "_pull") and live._pull is not None:
                 live._pull.update_tuning(
                     pull_strength=float(merged.get("pull_strength", 0.82)),

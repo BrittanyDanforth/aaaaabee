@@ -81,6 +81,35 @@ _APEX_TUNING: dict[str, Any] = {
     "smoothing_tau_moving": 0.018,
     "body_shape_min_score": 0.40,
     "detection_mode": "apex",
+    # YOLO primary when detection_mode=yolo; optional CV fusion when yolo_assist_enabled.
+    "target_selection_mode": "apex",
+    "yolo_assist_enabled": False,
+    "yolo_weights_path": "third_party/apexaimbot/weights/APEX416SFP32.engine",
+    "yolo_yolov5_root": "third_party/apexaimbot",
+    "yolo_grab_width": 416,
+    "yolo_grab_height": 416,
+    "pull_mode": "aba",
+    "apexaimbot_pid_x_p": 0.36,
+    "apexaimbot_pid_x_i": 0.032,
+    "apexaimbot_pid_x_d": 0.01,
+    "apexaimbot_pid_y_p": 0.2,
+    "apexaimbot_pid_y_i": 0.0,
+    "apexaimbot_pid_y_d": 0.0,
+    "apexaimbot_min_step": 10,
+    "apexaimbot_max_step": 6,
+    "apexaimbot_lock_range_x": 1.0,
+    "apexaimbot_lock_range_y": 0.5,
+    "yolo_inference_size": 416,
+    "yolo_confidence_min": 0.5,
+    "yolo_iou_thres": 0.25,
+    "yolo_max_det": 3,
+    "yolo_target_pick": "nearest",
+    "yolo_aim_fraction": 0.2,
+    "yolo_exclude_labels": ["teammate"],
+    "yolo_use_fp16": False,
+    "yolo_fusion_boost": 0.30,
+    "yolo_fusion_min_iou": 0.28,
+    "yolo_device": "",
     "detection_motion_assist": True,
     "detection_motion_threshold": 10,
     "head_score_weight": 0.26,
@@ -105,6 +134,7 @@ PROFILE_APEX_STYLE_PERF_TEST = "apex_style_perf_test"
 PROFILE_OWNED_DEV_LIVE = "owned_dev_live"
 PROFILE_LEGACY_APEX = "apex_style"
 PROFILE_CUSTOM = "custom"
+PROFILE_APEXAIMBOT = "apexaimbot"
 
 VALID_PROFILES = frozenset(
     {
@@ -115,6 +145,7 @@ VALID_PROFILES = frozenset(
         PROFILE_OWNED_DEV_LIVE,
         PROFILE_LEGACY_APEX,
         PROFILE_CUSTOM,
+        PROFILE_APEXAIMBOT,
     }
 )
 
@@ -213,6 +244,55 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "ads_input_mode": "disabled",
         "dry_run_force_detect": True,
     },
+    PROFILE_APEXAIMBOT: {
+        **_APEX_TUNING,
+        "profile": PROFILE_APEXAIMBOT,
+        "allow_live_mouse": True,
+        "ads_input_mode": "both",
+        "capture_fps": 60,
+        "detection_mode": "yolo",
+        "pull_mode": "apexaimbot_pid",
+        "mouse_backend": "apexaimbot",
+        "target_selection_mode": "nearest",
+        "yolo_weights_path": "third_party/apexaimbot/weights/APEX416SFP32.engine",
+        "yolo_yolov5_root": "third_party/apexaimbot",
+        "yolo_inference_size": 416,
+        "yolo_grab_width": 416,
+        "yolo_grab_height": 416,
+        "yolo_confidence_min": 0.5,
+        "yolo_iou_thres": 0.25,
+        "yolo_max_det": 3,
+        "yolo_aim_fraction": 0.2,
+        "yolo_exclude_labels": ["teammate"],
+        "yolo_device": "",
+        "yolo_skip_motion_smooth": True,
+        "yolo_apex_nearest_lock": True,
+        "yolo_fixed_square_capture": True,
+        "yolo_direct_overlay": True,
+        "yolo_pull_stale_grace_frames": 8,
+        "apex_pid_subtick_hz": 120,
+        "apexaimbot_mouse_modifier": 0.8,
+        "apexaimbot_pid_x_p": 0.36,
+        "apexaimbot_pid_x_i": 0.032,
+        "apexaimbot_pid_x_d": 0.01,
+        "apexaimbot_pid_y_p": 0.2,
+        "apexaimbot_min_step": 10,
+        "apexaimbot_max_step": 6,
+        "pull_strength": 0.92,
+        "smoothing_tau_still": 0.028,
+        "smoothing_tau_moving": 0.012,
+        "velocity_smoothing": 0.36,
+        "max_pull_speed_pixels_per_frame": 28.0,
+        "body_shape_min_score": 0.40,
+        "recoil_compensation_enabled": False,
+        "jitter_enabled": False,
+        "pull_subtick_hz": 0,
+        "apexaimbot_recoil_enabled": True,
+        "apexaimbot_recoil_weapon": "R-301",
+        "apexaimbot_auto_sens_modifier": True,
+        "apexaimbot_sens": 5,
+        "apexaimbot_ads_sens": 1,
+    },
 }
 
 APEX_STYLE_DEFAULTS = PROFILE_DEFAULTS[PROFILE_APEX_STYLE_DRY_RUN].copy()
@@ -278,6 +358,17 @@ def effective_overlay_fov_radius(
     return effective_fov_radius(config, ads_active=ads_active)
 
 
+def _is_yolo_mode(config: dict[str, Any]) -> bool:
+    return str(config.get("detection_mode", "apex")).strip().lower() == "yolo"
+
+
+def effective_yolo_grab_half(config: dict[str, Any]) -> int:
+    """Half-width of Apex 416×416 grab in pixels."""
+    gw = int(config.get("yolo_grab_width", config.get("yolo_inference_size", 416)))
+    gh = int(config.get("yolo_grab_height", config.get("yolo_inference_size", 416)))
+    return max(80, max(gw, gh) // 2)
+
+
 def effective_detection_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
     """
     Detection + pull FOV radius.
@@ -289,6 +380,8 @@ def effective_detection_fov_radius(config: dict[str, Any], *, ads_active: bool) 
     Legacy split mode (``unified_fov=False``): adds ``detection_fov_margin_pixels``
     or ``detection_fov_margin_scale`` on top of the display radius.
     """
+    if _is_yolo_mode(config):
+        return effective_yolo_grab_half(config)
     core = effective_fov_radius(config, ads_active=ads_active)
     if bool(config.get("unified_fov", True)):
         return min(400, max(80, core))
@@ -300,7 +393,10 @@ def effective_detection_fov_radius(config: dict[str, Any], *, ads_active: bool) 
 
 def effective_capture_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
     """Capture crop must cover detection FOV + padding."""
-    detect = effective_detection_fov_radius(config, ads_active=ads_active)
+    if _is_yolo_mode(config):
+        detect = effective_yolo_grab_half(config)
+    else:
+        detect = effective_detection_fov_radius(config, ads_active=ads_active)
     extra = int(config.get("capture_extra_pixels", 8))
     return detect + extra
 

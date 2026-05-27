@@ -13,7 +13,9 @@ LOGS_DIR = APP_ROOT / "logs"
 VENV_PY = APP_ROOT / ".venv" / "Scripts" / "python.exe"
 VENV_PIP = APP_ROOT / ".venv" / "Scripts" / "pip.exe"
 REQUIREMENTS = APP_ROOT / "requirements.txt"
+REQUIREMENTS_YOLO = APP_ROOT / "requirements-yolo.txt"
 CONFIG = APP_ROOT / "config.json"
+VENDOR_APEX = APP_ROOT / "third_party" / "apexaimbot"
 ABA_ENTRY = APP_ROOT / "aba.py"
 ASSIST_ENTRY = APP_ROOT / "assist.py"
 OVERLAY_ENTRY = APP_ROOT / "overlay_assist.py"
@@ -174,6 +176,55 @@ def run_setup_doctor(*, require_venv: bool = False) -> DoctorReport:
             True,
             "Path contains spaces — batch uses quoted paths",
         )
+
+    report.add(
+        "apexaimbot_vendor_tree",
+        (VENDOR_APEX / "models" / "common.py").is_file(),
+        str(VENDOR_APEX),
+        fix="Pull latest repo — third_party/apexaimbot should ship with ABA",
+    )
+    report.add(
+        "requirements_yolo_txt",
+        REQUIREMENTS_YOLO.is_file(),
+        str(REQUIREMENTS_YOLO),
+        fix="Restore requirements-yolo.txt from the repository",
+    )
+
+    if CONFIG.is_file():
+        try:
+            import json
+
+            raw = json.loads(CONFIG.read_text(encoding="utf-8"))
+            mode = str(raw.get("detection_mode", "apex")).lower()
+            if mode == "yolo":
+                from pathlib import Path as _Path
+
+                wp = str(raw.get("yolo_weights_path", "") or "")
+                candidates = [
+                    APP_ROOT / wp,
+                    VENDOR_APEX / "weights" / _Path(wp).name,
+                ]
+                found = next((p for p in candidates if p.is_file()), None)
+                report.add(
+                    "yolo_weights_file",
+                    found is not None,
+                    str(found or wp),
+                    fix="Run: python3 scripts/ensure_apexaimbot_weights.py "
+                    "(or git pull — engine should be bundled under third_party/apexaimbot/weights/)",
+                )
+                try:
+                    import torch  # noqa: F401
+
+                    report.add("torch_installed", True, "torch import OK")
+                except ImportError:
+                    report.add(
+                        "torch_installed",
+                        False,
+                        "torch not installed",
+                        fix="pip install -r requirements-yolo.txt",
+                    )
+        except Exception as exc:
+            report.add("config_json_parse", False, str(exc))
 
     return report
 
