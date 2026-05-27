@@ -12,9 +12,8 @@ ABA ships **1:1** ApexAimBot detection code under `third_party/apexaimbot/`:
 ## Setup (Windows)
 
 1. `pip install -r requirements-yolo.txt`
-2. Copy weights from [ApexAimBot](https://github.com/1bit-monster7/ApexAimBot):
-
-   `function/weights/APEX416SFP32.engine` → `third_party/apexaimbot/weights/APEX416SFP32.engine`
+2. Weights ship in-repo: `third_party/apexaimbot/weights/APEX416SFP32.engine` (~8 MiB, SHA-256 checked).  
+   Verify: `python3 scripts/ensure_apexaimbot_weights.py`
 
 3. GUI preset **ApexAimBot** sets:
    - `yolo_yolov5_root: third_party/apexaimbot`

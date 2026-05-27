@@ -8,6 +8,6 @@ Copied into ABA — **do not reimplement on top of this tree**.
 - `PID.py` — incremental PID used by their aim loop
 - `engine.py` — `DetectMultiBackend` loader (from `_init_main`)
 
-**Weights (not in git):** copy `ApexAimBot/function/weights/APEX416SFP32.engine` to `weights/APEX416SFP32.engine`.
+**Weights (bundled):** `weights/APEX416SFP32.engine` (~8 MiB, SHA-256 verified — see `weights/WEIGHTS.md`).
 
 See `docs/YOLO_DETECTION.md` in the repo root.

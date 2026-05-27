@@ -29,7 +29,7 @@ On Cloud VMs (headless Linux), screen capture via `mss` will fail with `"drawabl
 
 ### YOLO primary detection (vendored ApexAimBot)
 
-When `detection_mode` is `yolo`, detection uses **`third_party/apexaimbot/`** (their YOLOv5 + `interface_img_gpt_plus` / nearest pick). Requires `pip install -r requirements-yolo.txt` and copying `APEX416SFP32.engine` into `third_party/apexaimbot/weights/`. Preset **ApexAimBot** sets `pull_mode: apexaimbot_pid` for their PID mouse path. See `docs/YOLO_DETECTION.md` and `python3 setup_doctor.py`.
+When `detection_mode` is `yolo`, detection uses **`third_party/apexaimbot/`** (vendored YOLOv5 + bundled `APEX416SFP32.engine`). Requires `pip install -r requirements-yolo.txt`. Verify weights: `python3 scripts/ensure_apexaimbot_weights.py`. Preset **ApexAimBot** sets `pull_mode: apexaimbot_pid`.
 
 ### Detection inspection (no display needed)
 

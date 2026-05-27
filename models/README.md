@@ -1,11 +1,5 @@
-# YOLO weights
+# YOLO weights (optional override)
 
-Place Apex (or custom) YOLOv5 weights here for `detection_mode: yolo`.
+Default Apex TensorRT engine is **bundled** at `third_party/apexaimbot/weights/APEX416SFP32.engine`.
 
-Example: copy `APEX416.pt` or TensorRT `.engine` from [ApexAimBot](https://github.com/1bit-monster7/ApexAimBot) and set:
-
-```json
-"yolo_weights_path": "models/apex_yolo.pt"
-```
-
-For `.engine` / `.onnx`, also set `yolo_yolov5_root` to their `yolov5` folder.
+Put alternate `.pt` / `.engine` files here only if you use custom weights and set `yolo_weights_path` in config.

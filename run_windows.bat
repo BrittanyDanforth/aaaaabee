@@ -189,6 +189,14 @@ if errorlevel 1 (
 )
 
 echo.
+echo Verifying bundled ApexAimBot weights...
+"%PY%" scripts\ensure_apexaimbot_weights.py
+if errorlevel 1 (
+  set "FAILMSG=ApexAimBot weights missing or corrupt. Run: python scripts\ensure_apexaimbot_weights.py"
+  goto :SetupFail
+)
+
+echo.
 echo Running self-check...
 call :Log "Self-check starting"
 "%PY%" aba.py --self-check

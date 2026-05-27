@@ -84,7 +84,7 @@ _APEX_TUNING: dict[str, Any] = {
     # YOLO primary when detection_mode=yolo; optional CV fusion when yolo_assist_enabled.
     "target_selection_mode": "apex",
     "yolo_assist_enabled": False,
-    "yolo_weights_path": "",
+    "yolo_weights_path": "third_party/apexaimbot/weights/APEX416SFP32.engine",
     "yolo_yolov5_root": "third_party/apexaimbot",
     "yolo_grab_width": 416,
     "yolo_grab_height": 416,

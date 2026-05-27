@@ -209,8 +209,8 @@ def run_setup_doctor(*, require_venv: bool = False) -> DoctorReport:
                     "yolo_weights_file",
                     found is not None,
                     str(found or wp),
-                    fix="Copy ApexAimBot/function/weights/APEX416SFP32.engine to "
-                    "third_party/apexaimbot/weights/",
+                    fix="Run: python3 scripts/ensure_apexaimbot_weights.py "
+                    "(or git pull — engine should be bundled under third_party/apexaimbot/weights/)",
                 )
                 try:
                     import torch  # noqa: F401
