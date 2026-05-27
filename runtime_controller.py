@@ -14,6 +14,59 @@ from process_presence import ProcessPresenceDebouncer
 
 logger = logging.getLogger("aba.controller")
 
+# Patch keys that trigger YOLO / Apex hot-reload handling in apply_config_patch.
+_YOLO_TOUCHED_KEYS = frozenset({
+    "detection_mode",
+    "yolo_weights_path",
+    "yolo_yolov5_root",
+    "yolo_inference_size",
+    "yolo_confidence_min",
+    "yolo_iou_thres",
+    "yolo_max_det",
+    "yolo_grab_width",
+    "yolo_grab_height",
+    "yolo_use_fp16",
+    "yolo_aim_fraction",
+    "yolo_device",
+    "pull_mode",
+    "apexaimbot_pid_x_p",
+    "apexaimbot_pid_x_i",
+    "apexaimbot_pid_x_d",
+    "apexaimbot_pid_y_p",
+    "apexaimbot_pid_y_i",
+    "apexaimbot_pid_y_d",
+    "apexaimbot_min_step",
+    "apexaimbot_max_step",
+    "apexaimbot_lock_range_x",
+    "apexaimbot_lock_range_y",
+    "apex_pid_subtick_hz",
+    "apexaimbot_recoil_enabled",
+    "apexaimbot_recoil_weapon",
+    "apexaimbot_sens",
+    "apexaimbot_ads_sens",
+    "apexaimbot_auto_sens_modifier",
+    "apexaimbot_recoil_modifier",
+    "apexaimbot_scale_pid_by_modifier",
+    "apexaimbot_mouse_modifier",
+    "yolo_switch_reset_pixels",
+})
+
+_MODE_SUBSYSTEM_KEYS = frozenset({
+    "detection_mode",
+    "pull_mode",
+    "detection_motion_assist",
+    "detection_motion_threshold",
+})
+
+_RECOIL_ONLY_KEYS = frozenset({
+    "apexaimbot_recoil_enabled",
+    "apexaimbot_recoil_weapon",
+    "apexaimbot_sens",
+    "apexaimbot_ads_sens",
+    "apexaimbot_auto_sens_modifier",
+    "apexaimbot_recoil_modifier",
+})
+
 # Keys that require a fresh vendored engine (cache key in apexaimbot_bridge).
 _YOLO_ENGINE_TUNE_KEYS = frozenset({
     "yolo_weights_path",
@@ -41,6 +94,28 @@ _YOLO_ENGINE_TUNE_KEYS = frozenset({
     "apexaimbot_recoil_modifier",
     "apexaimbot_scale_pid_by_modifier",
 })
+
+
+def patch_touches_yolo(patch: dict[str, Any]) -> bool:
+    return any(k in patch for k in _YOLO_TOUCHED_KEYS)
+
+
+def should_reload_yolo_engine(
+    patch: dict[str, Any],
+    merged: dict[str, Any],
+    *,
+    full_replace: bool = False,
+) -> bool:
+    """True when live YOLO mode must reload the vendored engine from merged cfg."""
+    from profiles import is_yolo_detection
+
+    if not is_yolo_detection(merged):
+        return False
+    if full_replace:
+        return True
+    if any(k in patch for k in _YOLO_ENGINE_TUNE_KEYS):
+        return True
+    return False
 
 
 class RuntimeController:
@@ -137,51 +212,19 @@ class RuntimeController:
                 from mouse_io import create_mouse_backend
 
                 live._mouse = create_mouse_backend(str(merged.get("mouse_backend", "auto")))
-            yolo_touched = any(
-                k in patch
-                for k in (
-                    "detection_mode",
-                    "yolo_weights_path",
-                    "yolo_yolov5_root",
-                    "yolo_inference_size",
-                    "yolo_confidence_min",
-                    "yolo_iou_thres",
-                    "yolo_max_det",
-                    "yolo_grab_width",
-                    "yolo_grab_height",
-                    "yolo_use_fp16",
-                    "yolo_aim_fraction",
-                    "yolo_device",
-                    "pull_mode",
-                    "apexaimbot_pid_x_p",
-                    "apexaimbot_pid_x_i",
-                    "apexaimbot_pid_x_d",
-                    "apexaimbot_pid_y_p",
-                    "apexaimbot_pid_y_i",
-                    "apexaimbot_pid_y_d",
-                    "apexaimbot_min_step",
-                    "apexaimbot_max_step",
-                    "apexaimbot_lock_range_x",
-                    "apexaimbot_lock_range_y",
-                    "apex_pid_subtick_hz",
-                    "apexaimbot_recoil_enabled",
-                    "apexaimbot_recoil_weapon",
-                    "apexaimbot_sens",
-                    "apexaimbot_ads_sens",
-                    "apexaimbot_auto_sens_modifier",
-                    "apexaimbot_recoil_modifier",
-                    "apexaimbot_scale_pid_by_modifier",
-                    "apexaimbot_mouse_modifier",
-                    "yolo_switch_reset_pixels",
-                )
-            )
-            if (
-                "detection_mode" in patch
-                or "pull_mode" in patch
-                or "detection_motion_assist" in patch
-                or "detection_motion_threshold" in patch
-            ) and hasattr(live, "sync_config_subsystems"):
+            yolo_touched = patch_touches_yolo(patch)
+            if any(k in patch for k in _MODE_SUBSYSTEM_KEYS) and hasattr(
+                live, "sync_config_subsystems"
+            ):
                 live.sync_config_subsystems(merged)
+                if not live._dry and (
+                    "detection_mode" in patch or "pull_mode" in patch
+                ):
+                    from mouse_io import create_mouse_backend
+
+                    live._mouse = create_mouse_backend(
+                        str(merged.get("mouse_backend", "auto"))
+                    )
             if "capture_fps" in patch or full_replace:
                 from profiles import effective_capture_fps
 
@@ -190,31 +233,19 @@ class RuntimeController:
                 if getattr(live, "_stats", None) is not None:
                     live._stats.configured_fps = max(1, int(fps))
             if yolo_touched:
-                from profiles import is_yolo_detection
                 from yolo_targeting import reload_yolo_engine
 
-                mode_keys_changed = (
-                    "detection_mode" in patch or "pull_mode" in patch
-                )
-                tune_changed = any(k in patch for k in _YOLO_ENGINE_TUNE_KEYS)
-                if is_yolo_detection(merged) and (
-                    not mode_keys_changed or tune_changed or full_replace
-                ):
+                if should_reload_yolo_engine(patch, merged, full_replace=full_replace):
                     live._yolo_engine = reload_yolo_engine(merged)
                 if hasattr(live, "_reset_apex_aim_state"):
                     live._reset_apex_aim_state()
-            elif any(
-                k in patch
-                for k in (
-                    "apexaimbot_recoil_enabled",
-                    "apexaimbot_recoil_weapon",
-                    "apexaimbot_sens",
-                    "apexaimbot_ads_sens",
-                    "apexaimbot_auto_sens_modifier",
-                    "apexaimbot_recoil_modifier",
-                )
-            ) and hasattr(live, "_ensure_apex_recoil"):
-                live._ensure_apex_recoil(merged)
+            if any(k in patch for k in _RECOIL_ONLY_KEYS) and hasattr(
+                live, "_ensure_apex_recoil"
+            ):
+                from profiles import is_yolo_detection, uses_apex_pid_pull
+
+                if is_yolo_detection(merged) and uses_apex_pid_pull(merged):
+                    live._ensure_apex_recoil(merged)
             if hasattr(live, "_pull") and live._pull is not None:
                 live._pull.update_tuning(
                     pull_strength=float(merged.get("pull_strength", 0.82)),

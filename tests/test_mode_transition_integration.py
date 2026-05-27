@@ -168,6 +168,43 @@ def test_full_save_in_yolo_mode_reloads_engine_for_aim_fraction() -> None:
     assert live._yolo_engine is not None
 
 
+def test_yolo_to_apex_clears_all_stale_runtime_objects() -> None:
+    """Leaving YOLO+PID must not leave engine, cache, recoil, or overlay carryover."""
+    import apexaimbot_bridge as bridge
+
+    engines: list[MagicMock] = []
+
+    def fake_reload(_cfg: dict) -> MagicMock:
+        eng = MagicMock(name=f"eng{len(engines)}")
+        engines.append(eng)
+        return eng
+
+    reset_apexaimbot_cache = bridge.reset_apexaimbot_cache
+    reset_apexaimbot_cache()
+    with patch("yolo_targeting.reload_yolo_engine", side_effect=fake_reload):
+        rt = _make_assist_runtime(_yolo_pid_cfg())
+        rt.sync_config_subsystems(_yolo_pid_cfg())
+        rt._yolo_engine = engines[-1]
+        rt._last_apex_box = (50.0, 100.0)
+        rt._apex_recoil = MagicMock()
+        rt._overlay = MagicMock()
+        bridge._engine_cache = MagicMock(name="cached_engine")
+
+        rt.sync_config_subsystems(_apex_cv_cfg())
+
+        assert rt._yolo_engine is None
+        assert bridge._engine_cache is None
+        assert rt._apex_recoil is None
+        assert rt._last_apex_box is None
+        assert rt._last_motion is None
+        assert rt._target_lock.locked_target is None
+        from pull import PullController
+
+        assert isinstance(rt._pull, PullController)
+        assert rt._detect_ctx is not None
+        rt._overlay.set_state.assert_called_with(False, None)
+
+
 def test_reset_apex_pid_on_mode_change() -> None:
     rt = _make_assist_runtime(_yolo_pid_cfg())
     eng = MagicMock()

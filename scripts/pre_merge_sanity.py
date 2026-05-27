@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 FOCUSED_TESTS = [
     "tests/test_apex_stack_regression.py",
     "tests/test_mode_transition_integration.py",
+    "tests/test_save_yolo_hot_reload.py",
+    "tests/test_selfcheck_yolo_pipeline.py",
     "tests/test_apex_integration_quality.py",
     "tests/test_apex_lock_and_nearest.py",
     "tests/test_yolo_cv_bypass.py",

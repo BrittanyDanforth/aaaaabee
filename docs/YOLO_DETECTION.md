@@ -1,37 +1,60 @@
 # YOLO primary detection (vendored ApexAimBot)
 
-ABA ships **1:1** ApexAimBot detection code under `third_party/apexaimbot/`:
+Shipped default: **`config.json` uses `profile: apexaimbot`** → `detection_mode: yolo`, `pull_mode: apexaimbot_pid`, `mouse_backend: apexaimbot`. That is the full YOLO + Apex PID stack, not red-mask CV.
 
-- `models/`, `utils/` — their YOLOv5 fork
-- `detect.py` — `interface_img_gpt_plus` + `send_nearest_pos_to_mouse_ctrl` from `main.py`
-- `PID.py` — `PID_PLUS_PLUS` from their repo
-- `engine.py` — `DetectMultiBackend` load (same as `_init_main`)
+Production path (single pipeline):
 
-`apexaimbot_bridge.py` wires this into `detector.find_best_target` when `detection_mode=yolo`.
+`config_pipeline.load_app_config` → `yolo_targeting.yolo_detect_and_lock` → `apexaimbot_bridge` → `apex_aim_loop` (PID/subticks)
 
-## Setup (Windows)
+`aba.py --self-check` runs:
+
+1. **Pipeline check** (no torch): mocked infer through `yolo_detect_and_lock` + lock-box math.
+2. **Engine check** (optional): real weights load + `detect_frame` when `torch` is installed.
+
+## Requirements (apexaimbot profile)
 
 1. `pip install -r requirements-yolo.txt`
-2. Weights ship in-repo: `third_party/apexaimbot/weights/APEX416SFP32.engine` (~8 MiB, SHA-256 checked).  
+2. Weights: `third_party/apexaimbot/weights/APEX416SFP32.engine`  
    Verify: `python3 scripts/ensure_apexaimbot_weights.py`
+3. Windows desktop for live capture + GUI (`run_windows.bat` → doctor → self-check → UI)
+4. Ban-risk acknowledgment in GUI if `allow_live_mouse: true`
 
-3. GUI preset **ApexAimBot** sets:
-   - `yolo_yolov5_root: third_party/apexaimbot`
-   - `yolo_weights_path: third_party/apexaimbot/weights/APEX416SFP32.engine`
-   - `yolo_aim_fraction: 0.2` (their `box_height * 0.2` aim offset)
-   - `pull_mode: apexaimbot_pid` (their PID + min/max step caps)
+## Switch back to CV / ABA pull (red-mask body detect)
 
-4. `python3 aba.py --self-check`
+In the GUI **Advanced → Detection mode** combobox, choose **`apex`**. That applies `CV_LEAVE_YOLO_PATCH`: `pull_mode: aba`, `mouse_backend: auto`, profile `apex_style_live_trace`.
+
+Or edit `config.json` manually:
+
+```json
+{
+  "profile": "apex_style_live_trace",
+  "detection_mode": "apex",
+  "pull_mode": "aba",
+  "mouse_backend": "auto"
+}
+```
+
+Save Settings while running hot-reloads subsystems (no Stop→Start). See `docs/APEX_STACK_RISKS.md` for FPS caps and risky flags.
 
 ## Pull modes
 
 | `pull_mode` | Behaviour |
 |-------------|-----------|
-| `aba` | Default `PullController` smoothing |
-| `apexaimbot_pid` | Their incremental PID on aim error (when ADS + lock box) |
+| `aba` | ABA `PullController` + CV body detect (`detection_mode: apex`) |
+| `apexaimbot_pid` | Vendored incremental PID (use with `detection_mode: yolo`) |
+
+## Basic tab in YOLO mode
+
+**Aim Height** drives `yolo_aim_fraction` (not CV `torso_aim_fraction`). Save Settings and sliders use the same hot-reload path.
 
 ## Not vendored (by design)
 
-- Mouse: preset uses `mouse_backend: apexaimbot` (Logitech DLL if present, else Win32). See `third_party/apexaimbot/driver/README.md`
-- Recoil tables / weapon ID from `G.py` — optional future port
-- Win32-only grab — ABA uses `mss` capture; detect uses center crop to 416×416 like their `grab_rect`
+- Logitech driver DLL — optional; falls back to Win32
+- Full upstream recoil weapon tables — partial port via `ApexRecoilController`
+- Screen grab — ABA uses `mss`; detect center-crops to 416×416 like upstream `grab_rect`
+
+## Architecture reference
+
+- Code: `yolo_targeting.py`, `apexaimbot_bridge.py`, `runtime_controller.py`
+- Risks / merge checklist: `docs/APEX_STACK_RISKS.md`
+- Pre-merge: `python3 scripts/pre_merge_sanity.py --pytest`

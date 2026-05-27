@@ -74,6 +74,16 @@ Repeated YOLO → apex → YOLO is covered by mocked integration tests (no weigh
 - Overlay gate tests match **behavior**, not frozen source strings
 - Full-suite CV/screenshot tuning deferred to a **separate** project
 
+## Save Settings vs sliders (c945bc8 bug class)
+
+`RuntimeController.should_reload_yolo_engine()`:
+
+- **YOLO mode + Save Settings (`full_replace`)** → always reload engine (any key in saved config).
+- **Slider / partial patch** → reload when any `_YOLO_ENGINE_TUNE_KEYS` value changes.
+- **Mode-only patch** (`detection_mode` / `pull_mode`) → `sync_config_subsystems` reloads; engine reload not duplicated.
+
+Recoil-only keys call `_ensure_apex_recoil` even when engine reload is skipped.
+
 ## Pre-merge checklist (run before merge)
 
 From repo root:
@@ -82,4 +92,4 @@ From repo root:
 python3 scripts/pre_merge_sanity.py --pytest
 ```
 
-This verifies: `config.json` + `run_windows.bat` apexaimbot defaults, Save Settings (no recursion, disk write, live sync), YOLO↔apex mode-flip state, risk doc coverage, and the focused pytest files listed in the script.
+This verifies: `config.json` + `run_windows.bat` apexaimbot defaults, Save Settings (no recursion, disk write, live sync), YOLO↔apex mode-flip state (engine/cache/recoil/overlay), `self_check` YOLO pipeline (mocked), generic Save/tune-key reload tests, risk doc coverage, and the focused pytest files listed in the script.
