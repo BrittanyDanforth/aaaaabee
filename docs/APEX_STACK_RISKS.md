@@ -60,3 +60,13 @@ Repeated YOLO → apex → YOLO is covered by mocked integration tests (no weigh
 - Mode/config hot-reload parity tests green
 - Overlay gate tests match **behavior**, not frozen source strings
 - Full-suite CV/screenshot tuning deferred to a **separate** project
+
+## Pre-merge checklist (run before merge)
+
+From repo root:
+
+```bash
+python3 scripts/pre_merge_sanity.py --pytest
+```
+
+This verifies: `config.json` + `run_windows.bat` apexaimbot defaults, Save Settings (no recursion, disk write, live sync), YOLO↔apex mode-flip state, risk doc coverage, and the focused pytest files listed in the script.
