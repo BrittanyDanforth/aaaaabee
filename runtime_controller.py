@@ -108,6 +108,13 @@ class RuntimeController:
                     "yolo_inference_size",
                     "yolo_confidence_min",
                     "yolo_device",
+                    "pull_mode",
+                    "apexaimbot_pid_x_p",
+                    "apexaimbot_pid_x_i",
+                    "apexaimbot_pid_x_d",
+                    "apexaimbot_pid_y_p",
+                    "apexaimbot_min_step",
+                    "apexaimbot_max_step",
                 )
             )
             if yolo_touched:

@@ -197,10 +197,10 @@ def pid_mouse_delta(
     *,
     error_x: float,
     error_y: float,
-    ads_active: bool,
+    hip_fire: bool,
 ) -> tuple[int, int]:
-    """ApexAimBot run_ai PID + step caps (min_step ADS, max_step hip)."""
-    step = rt.config.min_step if ads_active else rt.config.max_step
+    """ApexAimBot run_ai PID + step caps (min_step when left_down_not_right, else max_step)."""
+    step = rt.config.min_step if hip_fire else rt.config.max_step
     pid_x = int(rt.pid_x.getMove(error_x, step))
     pid_y = int(rt.pid_y.getMove(error_y))
     return pid_x, pid_y
@@ -213,9 +213,22 @@ def in_lock_box(
     error_y: float,
     box_width: float,
     box_height: float,
-    ads_active: bool,
+    hip_fire: bool,
 ) -> bool:
-    """have_luck from Apex main: abs_x <= box_width * range."""
-    rng_x = 0.7 if not ads_active else rt.config.lock_range_x
+    """have_luck from Apex main: _range 1.0 hip / 0.7 ADS, _range_y 0.5."""
+    rng_x = 1.0 if hip_fire else 0.7
     rng_y = rt.config.lock_range_y
     return abs(error_x) <= (box_width * rng_x) and abs(error_y) <= (box_height * rng_y)
+
+
+def validate_yolo_config(cfg: dict[str, Any]) -> Path:
+    """Resolve weights path or raise (for setup doctor / self-check)."""
+    merged = dict(cfg)
+    if not merged.get("yolo_yolov5_root") and VENDOR_DEFAULT.is_dir():
+        merged["yolo_yolov5_root"] = str(VENDOR_DEFAULT)
+    vendor = _resolve_vendor_root(merged)
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    from engine import ApexAimBotDetectConfig
+
+    return ApexAimBotDetectConfig.from_app_config(merged).weights_path

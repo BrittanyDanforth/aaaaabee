@@ -87,31 +87,51 @@ def run_yolo_detection_check(
     *,
     log_line: Callable[[str], None] | None = None,
 ) -> tuple[bool, list[str], str | None]:
-    """Validate YOLO weights path and (if torch is installed) engine load."""
-    from yolo_detector import YoloEngineConfig, try_create_yolo_engine
+    """Validate vendored ApexAimBot weights path and engine load when torch is present."""
+    from pathlib import Path
+
+    from apexaimbot_bridge import VENDOR_DEFAULT, get_apexaimbot_runtime
 
     def _log(msg: str) -> None:
         if log_line is not None:
             log_line(msg)
 
+    cfg = dict(config)
+    if not cfg.get("yolo_yolov5_root") and VENDOR_DEFAULT.is_dir():
+        cfg["yolo_yolov5_root"] = str(VENDOR_DEFAULT)
+
+    vendor = Path(str(cfg.get("yolo_yolov5_root", VENDOR_DEFAULT)))
+    if not (vendor / "models" / "common.py").is_file():
+        return False, [], f"Vendored yolov5 missing at {vendor}"
+
     try:
-        YoloEngineConfig.from_app_config(config)
+        import sys
+
+        if str(vendor.resolve()) not in sys.path:
+            sys.path.insert(0, str(vendor.resolve()))
+        from engine import ApexAimBotDetectConfig
+
+        acfg = ApexAimBotDetectConfig.from_app_config(cfg)
+        _log(f"yolo weights resolved: {acfg.weights_path}")
     except Exception as exc:
         _log(f"yolo config fail: {exc}")
-        return False, [], f"YOLO config invalid: {exc}"
+        return False, [], f"YOLO/ApexAimBot config invalid: {exc}"
 
     try:
         import torch  # noqa: F401
     except ImportError:
         lines = [
-            "  OK  YOLO weights path valid (install torch: pip install -r requirements-yolo.txt)"
+            "  OK  vendored tree + weights path (install torch: pip install -r requirements-yolo.txt)"
         ]
         return True, lines, None
 
-    eng = try_create_yolo_engine(config)
+    eng = get_apexaimbot_runtime(cfg)
     if eng is None:
-        return False, [], "YOLO engine failed to load (see logs)"
-    lines = [f"  OK  YOLO engine loaded backend={eng._backend} weights={eng.config.weights_path.name}"]
+        return False, [], "ApexAimBot engine failed to load (see logs)"
+    lines = [
+        f"  OK  ApexAimBot engine loaded weights={eng.config.weights_path.name} "
+        f"imgsz={eng.config.model_imgsz}"
+    ]
     return True, lines, None
 
 

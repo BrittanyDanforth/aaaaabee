@@ -1617,18 +1617,20 @@ class AssistRuntime:
                         and target is not None
                         and may_assist_pull
                     )
+                    det_mode = str(cfg.get("detection_mode", "apex")).strip().lower()
+                    pull_mode = str(cfg.get("pull_mode", "aba")).strip().lower()
+                    apex_pid = pull_mode == "apexaimbot_pid" and det_mode == "yolo"
+                    # ApexAimBot pulls while firing (LMB); ABA default still ADS-gated.
+                    pull_gate = ads_for_assist or (apex_pid and firing_now)
                     if (
                         not paused
                         and self._should_run()
-                        and ads_for_assist
+                        and pull_gate
                         and may_pull
                     ):
-                        det_mode = str(cfg.get("detection_mode", "apex")).strip().lower()
-                        pull_mode = str(cfg.get("pull_mode", "aba")).strip().lower()
                         pr = None
                         if (
-                            pull_mode == "apexaimbot_pid"
-                            and det_mode == "yolo"
+                            apex_pid
                             and self._yolo_engine is not None
                             and pull_target is not None
                         ):
@@ -1640,19 +1642,21 @@ class AssistRuntime:
                                 float(pull_target.bbox_w),
                                 float(pull_target.bbox_h),
                             )
+                            # Hip = LMB without ADS (maps to Apex left_down_not_right).
+                            hip_fire = bool(firing_now and not ads_live)
                             if in_lock_box(
                                 self._yolo_engine,
                                 error_x=err_x,
                                 error_y=err_y,
                                 box_width=bw,
                                 box_height=bh,
-                                ads_active=ads_for_assist,
+                                hip_fire=hip_fire,
                             ):
                                 pdx, pdy = pid_mouse_delta(
                                     self._yolo_engine,
                                     error_x=err_x,
                                     error_y=err_y,
-                                    ads_active=ads_for_assist,
+                                    hip_fire=hip_fire,
                                 )
                                 from pull import PullResult
 
