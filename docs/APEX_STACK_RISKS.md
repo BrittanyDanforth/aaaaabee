@@ -12,6 +12,8 @@ This document is for **PR #28+** (consolidated YOLO + ApexAimBot path). It is se
 | Mode / pull subsystem swap | `AssistRuntime.sync_config_subsystems` |
 | CV + leftover ApexAimBot keys | `config_pipeline.reconcile_detection_stack` on every `normalize_app_config` |
 | Test harness vs live | `docs/TARGETING_RUNTIME_HARNESS.md` — use `targeting_shared` for parity |
+| Shipped `apexaimbot` + live Start | `ban_safety._LIVE_INPUT_PROFILES` must include `PROFILE_APEXAIMBOT` or Start raises after ban ack |
+| `overlay_ring_fixed_hip: false` | Runtime must pass `ads_active` into `effective_overlay_fov_radius` (main loop + hot-reload) |
 | CV red-mask body detect | `detector.py` — **not** coupled to ApexAimBot |
 
 Focused regression: `tests/test_apex_stack_regression.py`, `tests/test_mode_transition_integration.py`, `tests/test_apex_*` (mocked, no torch in CI).

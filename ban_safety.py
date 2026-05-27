@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from profiles import (
+    PROFILE_APEXAIMBOT,
     PROFILE_APEX_STYLE_DRY_RUN,
     PROFILE_APEX_STYLE_LIVE_SAFE,
     PROFILE_APEX_STYLE_LIVE_TRACE,
@@ -28,6 +29,7 @@ KNOWN_ANTICHEAT_PROCESS_NAMES = frozenset(
 
 _LIVE_INPUT_PROFILES = frozenset(
     {
+        PROFILE_APEXAIMBOT,
         PROFILE_APEX_STYLE_LIVE_SAFE,
         PROFILE_APEX_STYLE_LIVE_TRACE,
     }

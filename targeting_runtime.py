@@ -77,10 +77,11 @@ def resolve_runtime_fov(
     )
     if bool(config.get("unified_fov", True)) and not is_yolo_detection(config):
         detect_fov = user_fov
-    ring_inner = int(float(user_fov) * 0.96)
+    overlay_fov = int(effective_overlay_fov_radius(config, ads_active=ads_active))
+    ring_inner = float(overlay_fov) * 0.96
     config["_runtime_fov"] = user_fov
     config["_runtime_detect_fov"] = float(detect_fov)
-    config["_runtime_overlay_fov"] = float(ring_inner)
+    config["_runtime_overlay_fov"] = ring_inner
     return user_fov, detect_fov
 
 
@@ -160,8 +161,7 @@ class TargetingRuntime:
 
     def _apply_motion_config(self, config: dict[str, Any], cx: float, cy: float) -> None:
         display_fov = float(
-            config.get("_runtime_overlay_fov")
-            or effective_overlay_fov_radius(config)
+            effective_overlay_fov_radius(config, ads_active=ads_active)
         )
         self.tracker.configure_fov_clamp(cx, cy, display_fov)
         self.tracker.configure_prediction(

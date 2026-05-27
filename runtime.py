@@ -1597,7 +1597,9 @@ class AssistRuntime:
                     )
 
                     user_fov = effective_fov_radius(cfg, ads_active=ads_for_assist)
-                    overlay_fov = effective_overlay_fov_radius(cfg)
+                    overlay_fov = effective_overlay_fov_radius(
+                        cfg, ads_active=ads_for_assist
+                    )
                     detect_fov = effective_detection_fov_radius(
                         cfg, ads_active=ads_for_assist
                     )

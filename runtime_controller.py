@@ -306,7 +306,12 @@ class RuntimeController:
             ):
                 from profiles import effective_overlay_fov_radius
 
-                overlay_fov = int(effective_overlay_fov_radius(merged))
+                ads_active = False
+                if getattr(live, "_ads", None) is not None:
+                    ads_active = bool(live._ads.is_ads_active())
+                overlay_fov = int(
+                    effective_overlay_fov_radius(merged, ads_active=ads_active)
+                )
                 if getattr(live, "_overlay", None) is not None:
                     try:
                         import mss
@@ -341,15 +346,17 @@ class RuntimeController:
                         cy = mon["height"] / 2.0 + float(
                             merged.get("crosshair_offset_y", 0.0)
                         )
-                        from profiles import effective_fov_radius
+                        from profiles import effective_overlay_fov_radius
 
                         ads_active = False
                         if getattr(live, "_ads", None) is not None:
                             ads_active = bool(live._ads.is_ads_active())
                         fov_r = int(
-                            effective_fov_radius(merged, ads_active=ads_active)
+                            effective_overlay_fov_radius(
+                                merged, ads_active=ads_active
+                            )
                         )
-                        live._overlay.update_fov(fov_r, ads_active, cx, cy)
+                        live._overlay.update_fov(fov_r, False, cx, cy)
                         live._last_fov_radius = -1
                     except Exception:
                         logger.exception("hot-reload crosshair center failed")

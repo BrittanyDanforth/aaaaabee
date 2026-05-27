@@ -34,6 +34,8 @@ FOCUSED_TESTS = [
     "tests/test_targeting_shared_parity.py",
     "tests/test_mode_transition_churn.py",
     "tests/test_config_save_slider_parity.py",
+    "tests/test_shipped_defaults_policy.py",
+    "tests/test_overlay_ads_fov_wiring.py",
 ]
 
 RISK_DOC_NEEDLES = (
@@ -48,10 +50,13 @@ RISK_DOC_NEEDLES = (
 
 def check_shipped_defaults() -> None:
     sys.path.insert(0, str(ROOT))
+    from ban_safety import validate_runtime_policy
     from config_pipeline import load_app_config
     from profiles import effective_capture_fps, is_yolo_detection, uses_apex_pid_pull
 
     cfg = load_app_config(ROOT / "config.json")
+    ok, msg = validate_runtime_policy(cfg)
+    assert ok, f"shipped config fails validate_runtime_policy: {msg}"
     assert cfg.get("profile") == "apexaimbot", cfg.get("profile")
     assert str(cfg.get("detection_mode", "")).lower() == "yolo"
     assert uses_apex_pid_pull(cfg)

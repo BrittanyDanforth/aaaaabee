@@ -11,6 +11,7 @@ from ban_safety import (
     validate_runtime_policy,
 )
 from profiles import (
+    PROFILE_APEXAIMBOT,
     PROFILE_APEX_STYLE_DRY_RUN,
     PROFILE_APEX_STYLE_LIVE_SAFE,
     PROFILE_APEX_STYLE_LIVE_TRACE,
@@ -31,6 +32,11 @@ class BanSafetyTests(unittest.TestCase):
 
     def test_live_trace_valid(self) -> None:
         cfg = apply_profile({"profile": PROFILE_APEX_STYLE_LIVE_TRACE})
+        ok, msg = validate_runtime_policy(cfg)
+        self.assertTrue(ok, msg)
+
+    def test_apexaimbot_shipped_profile_valid_with_live_mouse(self) -> None:
+        cfg = apply_profile({"profile": PROFILE_APEXAIMBOT, "allow_live_mouse": True})
         ok, msg = validate_runtime_policy(cfg)
         self.assertTrue(ok, msg)
 

@@ -24,3 +24,16 @@ def test_ring_clamp_inside_limit_unchanged() -> None:
         105.0, 100.0, 100.0, 100.0, detect_fov=200.0, display_fov=180.0
     )
     assert px == 105.0 and py == 100.0
+
+
+def test_harness_must_not_use_pre_scaled_display_fov() -> None:
+    """_runtime_overlay_fov is ring_inner (×0.96); clamp needs full overlay radius."""
+    detect, display_inner = 208.0, 134.4
+    full_display = 140.0
+    wrong = ring_clamp_frame_point(
+        300.0, 100.0, 100.0, 100.0, detect_fov=detect, display_fov=display_inner
+    )
+    right = ring_clamp_frame_point(
+        300.0, 100.0, 100.0, 100.0, detect_fov=detect, display_fov=full_display
+    )
+    assert wrong != right

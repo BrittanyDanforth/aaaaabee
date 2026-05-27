@@ -649,6 +649,10 @@ class AbaApplication:
             self.config = self._controller.apply_config_patch(patch, persist=False)
         except Exception as exc:
             self._error_var.set(f"Config update: {exc}")
+            if key in self._sliders:
+                prev = float(self.config.get(cfg_key, self._sliders[key].value()))
+                self._sliders[key].set(prev)
+                self._sliders[key]._val_label.config(text=str(self._sliders[key].value()))
 
     def _on_bool_change(self, key: str) -> None:
         patch = {key: bool(self._bool_vars[key].get())}
