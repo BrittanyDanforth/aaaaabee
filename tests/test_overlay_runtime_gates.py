@@ -1,4 +1,4 @@
-"""Runtime overlay/pull gate logic — AST + hold-last contract (production paths)."""
+"""Runtime overlay/pull gate logic — semantic contracts (not brittle exact source text)."""
 
 from __future__ import annotations
 
@@ -10,26 +10,92 @@ from pathlib import Path
 RUNTIME = Path(__file__).resolve().parents[1] / "runtime.py"
 
 
-def _runtime_build_frame_overlay_expr() -> str | None:
+def _overlay_gate_block() -> str:
     text = RUNTIME.read_text(encoding="utf-8")
-    m = re.search(
-        r"build_frame_overlay\s*=\s*show_for_overlay\s+and\s+plausible_lock",
-        text,
+    idx = text.find("build_frame_overlay =")
+    if idx < 0:
+        return ""
+    return text[idx : idx + 600]
+
+
+def _mirror_build_frame_overlay(
+    *,
+    show_for_overlay: bool,
+    plausible_lock: bool,
+    det_mode_loop: str,
+) -> bool:
+    """Match runtime.py: show_for_overlay and (plausible_lock or yolo mode)."""
+    return show_for_overlay and (
+        plausible_lock or det_mode_loop == "yolo"
     )
-    return m.group(0) if m else None
 
 
-class RuntimeBuildFrameOverlayAstTests(unittest.TestCase):
-    def test_runtime_assigns_stale_only_build_gate(self) -> None:
-        expr = _runtime_build_frame_overlay_expr()
-        self.assertIsNotNone(expr, "build_frame_overlay formula missing or changed")
+class RuntimeBuildFrameOverlayGateTests(unittest.TestCase):
+    def test_runtime_defines_overlay_build_gate(self) -> None:
+        block = _overlay_gate_block()
+        self.assertIn("build_frame_overlay", block)
+        self.assertIn("show_for_overlay", block)
+        self.assertIn("plausible_lock", block)
 
-    def test_runtime_gate_used_in_frame_overlay_if(self) -> None:
+    def test_runtime_yolo_mode_can_build_without_cv_plausible_lock(self) -> None:
+        block = _overlay_gate_block()
+        self.assertRegex(
+            block,
+            r"plausible_lock\s+or\s+det_mode_loop\s*==\s*[\"']yolo[\"']",
+        )
+
+    def test_mirror_yolo_stale_grace_still_builds_overlay(self) -> None:
+        got = _mirror_build_frame_overlay(
+            show_for_overlay=True,
+            plausible_lock=True,
+            det_mode_loop="yolo",
+        )
+        self.assertTrue(got)
+
+    def test_mirror_cv_requires_plausible_lock(self) -> None:
+        self.assertFalse(
+            _mirror_build_frame_overlay(
+                show_for_overlay=True,
+                plausible_lock=False,
+                det_mode_loop="apex",
+            )
+        )
+        self.assertTrue(
+            _mirror_build_frame_overlay(
+                show_for_overlay=True,
+                plausible_lock=True,
+                det_mode_loop="apex",
+            )
+        )
+
+    def test_runtime_gate_used_when_computing_frame_overlay(self) -> None:
         text = RUNTIME.read_text(encoding="utf-8")
-        self.assertIn("and build_frame_overlay", text)
         idx = text.find("build_frame_overlay =")
-        block = text[idx : idx + 800]
+        block = text[idx : idx + 1200]
         self.assertIn("and build_frame_overlay", block)
+
+    def test_ast_assign_is_bool_and_of_show_and_or_branch(self) -> None:
+        tree = ast.parse(RUNTIME.read_text(encoding="utf-8"))
+        assign_value = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id == "build_frame_overlay":
+                        assign_value = node.value
+        self.assertIsInstance(assign_value, ast.BoolOp)
+        assert isinstance(assign_value, ast.BoolOp)
+        self.assertIsInstance(assign_value.op, ast.And)
+        names = {
+            n.id
+            for n in ast.walk(assign_value)
+            if isinstance(n, ast.Name)
+        }
+        self.assertIn("show_for_overlay", names)
+        self.assertIn("plausible_lock", names)
+
+    def test_no_stale_det_and_locked_grace_gate(self) -> None:
+        text = RUNTIME.read_text(encoding="utf-8")
+        self.assertNotIn("stale_det and locked_grace", text)
 
     def test_no_debug_diamond_unclamped_fallback(self) -> None:
         text = RUNTIME.read_text(encoding="utf-8")
@@ -80,7 +146,7 @@ class HoldLastOverlayLogicTests(unittest.TestCase):
 
 
 class HostileAuditFixesVerifiedTests(unittest.TestCase):
-    """Grep guards: six confirmed half-wires from hostile audit must stay fixed."""
+    """Grep guards: confirmed half-wires from hostile audit must stay fixed."""
 
     def test_pull_stale_grace_not_hardcoded_12(self) -> None:
         pull = (Path(__file__).resolve().parents[1] / "pull.py").read_text(encoding="utf-8")

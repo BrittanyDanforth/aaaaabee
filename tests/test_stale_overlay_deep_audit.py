@@ -43,8 +43,10 @@ def _mirror_build(
     show: bool,
     plausible: bool,
     fresh: bool,
+    det_mode_loop: str = "apex",
 ) -> bool:
-    return show and plausible
+    del fresh  # overlay build no longer keys off stale_det alone
+    return show and (plausible or det_mode_loop == "yolo")
 
 
 class GateWiringTests(unittest.TestCase):
@@ -54,7 +56,11 @@ class GateWiringTests(unittest.TestCase):
         text = RUNTIME.read_text(encoding="utf-8")
         self.assertNotIn("stale_det and locked_grace", text)
         self.assertIn("plausible_lock", text)
-        self.assertIn("show_for_overlay and plausible_lock", text)
+        self.assertIn("show_for_overlay", text)
+        self.assertRegex(
+            text,
+            r"plausible_lock\s+or\s+det_mode_loop\s*==\s*[\"']yolo[\"']",
+        )
 
     def test_mirror_matches_documented_stale_grace(self) -> None:
         t = Target(

@@ -1,5 +1,7 @@
 # ApexAimBot tuning reference (1bit-monster7)
 
+See also **[APEX_STACK_RISKS.md](APEX_STACK_RISKS.md)** for architecture boundaries, profile FPS caps, and what not to mix with CV detector tuning.
+
 Source: [1bit-monster7/ApexAimBot](https://github.com/1bit-monster7/ApexAimBot/tree/main) — Apex-focused YOLO (TensorRT `.engine`), PID mouse via **Logitech driver**, per-weapon recoil tables, 1080p.
 
 ABA keeps **shape + red + motion** detection by default. Use this doc to compare knobs and optional presets — not to copy Logitech/recoil subprocesses wholesale.
