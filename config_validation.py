@@ -401,6 +401,25 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     cfg["apexaimbot_mouse_modifier"] = _require_number(
         cfg, "apexaimbot_mouse_modifier", default=0.8, minimum=0.05, maximum=4.0
     )
+    cfg["apexaimbot_scale_pid_by_modifier"] = bool(
+        cfg.get("apexaimbot_scale_pid_by_modifier", False)
+    )
+    cfg["apexaimbot_recoil_enabled"] = bool(cfg.get("apexaimbot_recoil_enabled", False))
+    cfg["apexaimbot_recoil_weapon"] = str(
+        cfg.get("apexaimbot_recoil_weapon", "R-301")
+    ).strip().upper()
+    cfg["apexaimbot_auto_sens_modifier"] = bool(
+        cfg.get("apexaimbot_auto_sens_modifier", True)
+    )
+    cfg["apexaimbot_sens"] = _require_number(
+        cfg, "apexaimbot_sens", default=5.0, minimum=0.5, maximum=20.0
+    )
+    cfg["apexaimbot_ads_sens"] = _require_number(
+        cfg, "apexaimbot_ads_sens", default=1.0, minimum=0.1, maximum=10.0
+    )
+    cfg["yolo_switch_reset_pixels"] = _require_number(
+        cfg, "yolo_switch_reset_pixels", default=80.0, minimum=20.0, maximum=400.0
+    )
     cfg["yolo_aim_fraction"] = _require_number(
         cfg, "yolo_aim_fraction", default=0.38, minimum=0.1, maximum=0.9
     )

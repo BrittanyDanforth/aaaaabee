@@ -50,14 +50,11 @@ def get_yolo_engine(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:
     if str(cfg.get("detection_mode", "apex")).strip().lower() != "yolo":
         return None
     global _yolo_engine_cache
-    merged = dict(cfg)
-    if not merged.get("yolo_yolov5_root") and VENDOR_ROOT.is_dir():
-        merged["yolo_yolov5_root"] = str(VENDOR_ROOT)
+    from apexaimbot_bridge import prepare_apex_cfg
+
+    merged = prepare_apex_cfg(cfg)
     if str(VENDOR_ROOT) not in sys.path:
         sys.path.insert(0, str(VENDOR_ROOT))
-    from ini_config import merge_app_config
-
-    merged = merge_app_config(merged)
     key = _yolo_cache_key(merged)
     if _yolo_engine_cache is None or _yolo_engine_cache[0] != key:
         _yolo_engine_cache = (key, get_apexaimbot_runtime(merged))

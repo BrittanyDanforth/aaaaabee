@@ -90,15 +90,16 @@ def run_yolo_detection_check(
     """Validate vendored ApexAimBot weights path and engine load when torch is present."""
     from pathlib import Path
 
-    from apexaimbot_bridge import VENDOR_DEFAULT, get_apexaimbot_runtime
+    from apexaimbot_bridge import VENDOR_DEFAULT, get_apexaimbot_runtime, prepare_apex_cfg
 
     def _log(msg: str) -> None:
         if log_line is not None:
             log_line(msg)
 
-    cfg = dict(config)
-    if not cfg.get("yolo_yolov5_root") and VENDOR_DEFAULT.is_dir():
-        cfg["yolo_yolov5_root"] = str(VENDOR_DEFAULT)
+    cfg = prepare_apex_cfg(dict(config))
+    if not cfg.get("yolo_weights_path") and VENDOR_DEFAULT.is_dir():
+        cfg["yolo_weights_path"] = "third_party/apexaimbot/weights/APEX416SFP32.engine"
+    cfg.setdefault("detection_mode", "yolo")
 
     vendor = Path(str(cfg.get("yolo_yolov5_root", VENDOR_DEFAULT)))
     if not (vendor / "models" / "common.py").is_file():
@@ -120,10 +121,11 @@ def run_yolo_detection_check(
     try:
         import torch  # noqa: F401
     except ImportError:
-        lines = [
-            "  OK  vendored tree + weights path (install torch: pip install -r requirements-yolo.txt)"
-        ]
-        return True, lines, None
+        return (
+            False,
+            [],
+            "YOLO mode requires torch: pip install -r requirements-yolo.txt",
+        )
 
     eng = get_apexaimbot_runtime(cfg)
     if eng is None:

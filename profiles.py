@@ -267,6 +267,11 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "recoil_compensation_enabled": False,
         "jitter_enabled": False,
         "pull_subtick_hz": 0,
+        "apexaimbot_recoil_enabled": True,
+        "apexaimbot_recoil_weapon": "R-301",
+        "apexaimbot_auto_sens_modifier": True,
+        "apexaimbot_sens": 5,
+        "apexaimbot_ads_sens": 1,
     },
 }
 

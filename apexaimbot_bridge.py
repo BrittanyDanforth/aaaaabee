@@ -44,13 +44,15 @@ class ApexAimBotRuntime:
         py = float(cfg.get("pid_y_p", cfg.get("apexaimbot_pid_y_p", 0.2)))
         iy = float(cfg.get("pid_y_i", cfg.get("apexaimbot_pid_y_i", 0.0)))
         dy = float(cfg.get("pid_y_d", cfg.get("apexaimbot_pid_y_d", 0.0)))
-        mod = float(cfg.get("apexaimbot_mouse_modifier", 0.8))
+        # Upstream applies modifier_value to recoil only, not PID in run_ai.
+        mod = float(cfg.get("apexaimbot_recoil_modifier", cfg.get("apexaimbot_mouse_modifier", 0.8)))
+        scale_pid = bool(cfg.get("apexaimbot_scale_pid_by_modifier", False))
         return cls(
             model=model,
             config=acfg,
             pid_x=PID_PLUS_PLUS(0, px, ix, dx),
             pid_y=PID_PLUS_PLUS(0, py, iy, dy),
-            mouse_modifier=max(0.05, min(4.0, mod)),
+            mouse_modifier=max(0.05, min(4.0, mod)) if scale_pid else 1.0,
         )
 
 
@@ -90,6 +92,20 @@ def reset_apexaimbot_cache() -> None:
     _engine_cache = None
 
 
+def prepare_apex_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Merge vendored 1bit.ai.config into app cfg (same as yolo_detector)."""
+    merged = dict(cfg)
+    if not str(merged.get("yolo_yolov5_root", "") or "").strip():
+        if VENDOR_DEFAULT.is_dir():
+            merged["yolo_yolov5_root"] = str(VENDOR_DEFAULT)
+    vendor = _resolve_vendor_root(merged)
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    from ini_config import merge_app_config
+
+    return merge_app_config(merged)
+
+
 def _cache_key(cfg: dict[str, Any]) -> tuple[Any, ...]:
     return (
         str(cfg.get("yolo_weights_path", "")),
@@ -97,29 +113,41 @@ def _cache_key(cfg: dict[str, Any]) -> tuple[Any, ...]:
         int(cfg.get("yolo_inference_size", 416)),
         float(cfg.get("yolo_confidence_min", 0.5)),
         float(cfg.get("yolo_iou_thres", 0.25)),
+        float(cfg.get("apexaimbot_pid_x_p", 0.36)),
+        float(cfg.get("apexaimbot_pid_x_i", 0.032)),
+        float(cfg.get("apexaimbot_pid_x_d", 0.01)),
+        float(cfg.get("apexaimbot_pid_y_p", 0.2)),
+        float(cfg.get("apexaimbot_pid_y_i", 0.0)),
+        float(cfg.get("apexaimbot_pid_y_d", 0.0)),
+        float(cfg.get("apexaimbot_min_step", 10)),
+        float(cfg.get("apexaimbot_max_step", 6)),
+        float(cfg.get("apexaimbot_mouse_modifier", 0.8)),
+        bool(cfg.get("apexaimbot_scale_pid_by_modifier", False)),
+        str(cfg.get("yolo_device", "")),
     )
 
 
 def _load_runtime(cfg: dict[str, Any]) -> ApexAimBotRuntime:
-    return ApexAimBotRuntime.from_app_config(cfg)
+    return ApexAimBotRuntime.from_app_config(prepare_apex_cfg(cfg))
 
 
 def get_apexaimbot_runtime(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:
     global _engine_cache
     if str(cfg.get("detection_mode", "apex")).strip().lower() != "yolo":
         return None
-    key = _cache_key(cfg)
+    merged = prepare_apex_cfg(cfg)
+    key = _cache_key(merged)
     if _engine_cache is None or _engine_cache[0] != key:
         rt: ApexAimBotRuntime | None = None
         try:
-            rt = _load_runtime(cfg)
+            rt = _load_runtime(merged)
         except Exception as exc:
-            wpath = str(cfg.get("yolo_weights_path", "") or "")
+            wpath = str(merged.get("yolo_weights_path", "") or "")
             if wpath.lower().endswith(".engine"):
                 logger.warning(
                     "TensorRT engine load failed (%s); trying APEX22W.pt", exc
                 )
-                fb = dict(cfg)
+                fb = dict(merged)
                 fb["yolo_weights_path"] = "third_party/apexaimbot/weights/APEX22W.pt"
                 try:
                     rt = _load_runtime(fb)
@@ -248,7 +276,10 @@ def pid_mouse_delta(
     pid_x = int(rt.pid_x.getMove(error_x, step))
     pid_y = int(rt.pid_y.getMove(error_y))
     mod = float(rt.mouse_modifier)
-    return int(round(pid_x * mod)), int(round(pid_y * mod))
+    if mod != 1.0:
+        pid_x = int(round(pid_x * mod))
+        pid_y = int(round(pid_y * mod))
+    return pid_x, pid_y
 
 
 def in_lock_box(
@@ -268,7 +299,7 @@ def in_lock_box(
 
 def validate_yolo_config(cfg: dict[str, Any]) -> Path:
     """Resolve weights path or raise (for setup doctor / self-check)."""
-    merged = dict(cfg)
+    merged = prepare_apex_cfg(cfg)
     if not merged.get("yolo_yolov5_root") and VENDOR_DEFAULT.is_dir():
         merged["yolo_yolov5_root"] = str(VENDOR_DEFAULT)
     vendor = _resolve_vendor_root(merged)

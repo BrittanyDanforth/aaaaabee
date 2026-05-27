@@ -37,7 +37,9 @@ Parallel processes (optional, not required for detect):
 | Armor | `automatic_armor_change.py` | Auto E + armor UI clicks |
 | UI | `web_ui.py` (Gradio) | Edit INI, pick weights |
 
-ABA ships a **Logitech DLL loader** (`third_party/apexaimbot/logitech_mouse.py`) — copy `ghub_mouse.dll` via `scripts/ensure_logitech_driver.py`. Preset uses `mouse_backend: apexaimbot` (DLL if present, else Win32). Recoil tables / gun PNGs not ported.
+ABA ships **`aba_mouse.dll`** (in-repo C driver) via `mouse_backend: apexaimbot`; optional Logitech `ghub_mouse.dll` is user-supplied only. Advanced GUI exposes **pull_mode**, **mouse_backend**, recoil toggle, and sens sliders.
+
+**Recoil (subset):** `third_party/apexaimbot/recoil_controller.py` steps R-301 / R-99 / FLATLINE patterns while LMB is held. Modifier uses upstream `4 / sens * (1 / ads)` when `apexaimbot_auto_sens_modifier` is true (recoil only — PID is not scaled unless `apexaimbot_scale_pid_by_modifier`). Full `pressTheGun.py` subprocess + all weapons in `G.py` are not ported.
 
 ## `function/weights/` — every file (~120 MB total)
 
@@ -65,8 +67,11 @@ We do **not** commit the full 120 MB folder — only Apex weights + SHA-256 mani
 | `interface_img_gpt_plus` | `third_party/apexaimbot/detect.py` (same logic) |
 | `send_nearest_pos_to_mouse_ctrl` | `third_party/apexaimbot/nearest.py` |
 | `PID_PLUS_PLUS` | `third_party/apexaimbot/PID.py` |
-| `pull_mode: apexaimbot_pid` | Optional; else ABA `PullController` |
-| Recoil / armor / shake processes | Not ported |
+| `pull_mode: apexaimbot_pid` + `apex_pid_subtick_hz` | PID at detect rate + optional 120 Hz subticks (no double move) |
+| `prepare_apex_cfg` / `merge_app_config` | INI defaults merged before engine cache |
+| `reset_apexaimbot_pid` | Lock expiry, target switch, out-of-lock-box |
+| Recoil subprocess | In-process subset (3 guns); gun ID / armor / shake not ported |
+| `aba.py --self-check` YOLO | Requires torch; synthetic 416×416 forward pass |
 
 ## Verify bundle
 

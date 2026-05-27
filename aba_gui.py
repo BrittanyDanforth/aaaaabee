@@ -118,6 +118,12 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "yolo_direct_overlay": True,
         "yolo_pull_stale_grace_frames": 8,
         "apex_pid_subtick_hz": 120,
+        "apexaimbot_recoil_enabled": True,
+        "apexaimbot_recoil_weapon": "R-301",
+        "apexaimbot_auto_sens_modifier": True,
+        "apexaimbot_sens": 5,
+        "apexaimbot_ads_sens": 1,
+        "pull_mode": "apexaimbot_pid",
         "apexaimbot_pid_x_p": 0.36,
         "apexaimbot_pid_x_i": 0.032,
         "apexaimbot_pid_x_d": 0.01,
@@ -967,6 +973,7 @@ class AbaApplication:
             parent, "Limb stack weight", "limb_stack_score_weight",
             minimum=0.0, maximum=0.5,
         )
+        self._on_apex_controls_panel(parent)
 
     def _on_detection_mode_change(self) -> None:
         mode = self._detection_mode_var.get().strip().lower()
@@ -978,6 +985,64 @@ class AbaApplication:
             )
         except Exception as exc:
             self._error_var.set(f"Detection mode update: {exc}")
+
+    def _bind_apex_combobox(
+        self,
+        parent: tk.Frame,
+        label: str,
+        config_key: str,
+        values: tuple[str, ...],
+    ) -> None:
+        from tkinter import ttk
+
+        row = tk.Frame(parent, bg=UI_PANEL)
+        row.pack(fill=tk.X, pady=4)
+        tk.Label(row, text=label, bg=UI_PANEL, fg=UI_TEXT, width=14, anchor="w").pack(
+            side=tk.LEFT
+        )
+        current = str(self.config.get(config_key, values[0])).strip().lower()
+        if current not in values:
+            current = values[0]
+        var = tk.StringVar(value=current)
+        combo = ttk.Combobox(row, textvariable=var, values=values, state="readonly", width=16)
+        combo.pack(side=tk.LEFT)
+
+        def _apply(_e: object | None = None) -> None:
+            val = var.get().strip().lower()
+            if val not in values:
+                return
+            try:
+                self.config = self._controller.apply_config_patch(
+                    {config_key: val}, persist=False
+                )
+            except Exception as exc:
+                self._error_var.set(f"{config_key} update: {exc}")
+
+        combo.bind("<<ComboboxSelected>>", _apply)
+
+    def _on_apex_controls_panel(self, parent: tk.Frame) -> None:
+        self._section(parent, "ApexAimBot (YOLO + PID)")
+        self._bind_apex_combobox(
+            parent,
+            "Pull mode",
+            "pull_mode",
+            ("aba", "apexaimbot_pid"),
+        )
+        self._bind_apex_combobox(
+            parent,
+            "Mouse backend",
+            "mouse_backend",
+            ("auto", "apexaimbot", "win32_sendinput", "logitech_ghub", "pynput"),
+        )
+        self._toggle(parent, "Apex per-weapon recoil", "apexaimbot_recoil_enabled")
+        self._slider(
+            parent,
+            "Apex sens (INI)",
+            "apexaimbot_sens",
+            minimum=1.0,
+            maximum=10.0,
+            resolution=0.5,
+        )
 
     # === ADVANCED: Overlay ===
     def _build_overlay_adv_panel(self, parent: tk.Frame) -> None:

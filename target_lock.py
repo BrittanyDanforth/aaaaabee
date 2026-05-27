@@ -644,10 +644,22 @@ def apply_yolo_target_lock(
     *,
     cfg: dict[str, Any],
     on_lock_expired: Callable[[], None] | None = None,
+    on_new_target: Callable[[], None] | None = None,
 ) -> tuple[DetectionResult, bool]:
     """ApexAimBot-style: nearest detection each frame; short grace when infer misses."""
     lost_max = int(cfg.get("target_lost_frames_before_unlock", 18))
     if result.target is not None:
+        prev = state.locked_target
+        if prev is not None and on_new_target is not None:
+            import math
+
+            switch_px = float(cfg.get("yolo_switch_reset_pixels", 80.0))
+            dist = math.hypot(
+                result.target.centroid_x - prev.centroid_x,
+                result.target.centroid_y - prev.centroid_y,
+            )
+            if dist > switch_px:
+                on_new_target()
         state.locked_target = result.target
         state.target_lost_frames = 0
         state.switch_candidate = None
