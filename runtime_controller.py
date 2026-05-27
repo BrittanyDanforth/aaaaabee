@@ -111,10 +111,12 @@ class RuntimeController:
                 )
             )
             if yolo_touched:
+                from apexaimbot_bridge import reset_apexaimbot_cache
                 from yolo_detector import get_yolo_engine, reset_yolo_engine_cache
                 from yolo_assist import try_create_yolo_assist
 
                 reset_yolo_engine_cache()
+                reset_apexaimbot_cache()
                 det_mode = str(merged.get("detection_mode", "apex")).strip().lower()
                 live._yolo_engine = get_yolo_engine(merged)
                 live._yolo_assist = (

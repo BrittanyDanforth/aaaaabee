@@ -1,51 +1,38 @@
-# YOLO primary detection
+# YOLO primary detection (vendored ApexAimBot)
 
-When `detection_mode` is **`yolo`**, ABA skips OpenCV shape/red/motion masks and runs **YOLOv5-style** inference only (`yolo_detector.py`). CV fusion and `yolo_assist_enabled` are not used in this mode.
+ABA ships **1:1** ApexAimBot detection code under `third_party/apexaimbot/`:
 
-## Setup
+- `models/`, `utils/` — their YOLOv5 fork
+- `detect.py` — `interface_img_gpt_plus` + `send_nearest_pos_to_mouse_ctrl` from `main.py`
+- `PID.py` — `PID_PLUS_PLUS` from their repo
+- `engine.py` — `DetectMultiBackend` load (same as `_init_main`)
 
-1. Install PyTorch (see `requirements-yolo.txt`):
+`apexaimbot_bridge.py` wires this into `detector.find_best_target` when `detection_mode=yolo`.
 
-   ```bash
-   pip install -r requirements-yolo.txt
-   ```
+## Setup (Windows)
 
-2. Place weights (from [ApexAimBot](https://github.com/1bit-monster7/ApexAimBot) or your own train):
+1. `pip install -r requirements-yolo.txt`
+2. Copy weights from [ApexAimBot](https://github.com/1bit-monster7/ApexAimBot):
 
-   - **`.pt`**: set `yolo_weights_path` only (loads via `torch.hub` `ultralytics/yolov5`).
-   - **`.engine` / `.onnx`**: also set `yolo_yolov5_root` to a vendored `yolov5` tree (ApexAimBot ships one).
+   `function/weights/APEX416SFP32.engine` → `third_party/apexaimbot/weights/APEX416SFP32.engine`
 
-3. In `config.json` or GUI preset **ApexAimBot**:
+3. GUI preset **ApexAimBot** sets:
+   - `yolo_yolov5_root: third_party/apexaimbot`
+   - `yolo_weights_path: third_party/apexaimbot/weights/APEX416SFP32.engine`
+   - `yolo_aim_fraction: 0.2` (their `box_height * 0.2` aim offset)
+   - `pull_mode: apexaimbot_pid` (their PID + min/max step caps)
 
-   ```json
-   {
-     "detection_mode": "yolo",
-     "yolo_weights_path": "models/apex_yolo.pt",
-     "yolo_inference_size": 416,
-     "yolo_confidence_min": 0.5,
-     "yolo_iou_thres": 0.25,
-     "yolo_target_pick": "nearest",
-     "yolo_exclude_labels": ["teammate"]
-   }
-   ```
+4. `python3 aba.py --self-check`
 
-## ApexAimBot parity
+## Pull modes
 
-| ApexAimBot | ABA (`detection_mode=yolo`) |
-|------------|-----------------------------|
-| conf 0.5 | `yolo_confidence_min` |
-| IoU 0.25 | `yolo_iou_thres` |
-| 416 px | `yolo_inference_size` |
-| nearest to grab center | `yolo_target_pick: nearest` |
-| skip teammate class | `yolo_exclude_labels` |
-| aim upper body | `yolo_aim_fraction` (~0.36 chest) |
+| `pull_mode` | Behaviour |
+|-------------|-----------|
+| `aba` | Default `PullController` smoothing |
+| `apexaimbot_pid` | Their incremental PID on aim error (when ADS + lock box) |
 
-Pull/mouse still use ABA `PullController` — not Logitech PID from ApexAimBot.
+## Not vendored (by design)
 
-## Self-check
-
-`python3 aba.py --self-check` with `detection_mode=yolo` validates weights path and loads the engine when torch is installed (skips CV body dummy).
-
-## Legacy optional fusion
-
-`detection_mode=apex` + `yolo_assist_enabled=true` keeps the old CV-primary + YOLO boost path. Prefer **`yolo`** mode for full neural detection.
+- Logitech driver mouse — ABA uses `mouse_io` backends
+- Recoil tables / weapon ID from `G.py` — optional future port
+- Win32-only grab — ABA uses `mss` capture; detect uses center crop to 416×416 like their `grab_rect`

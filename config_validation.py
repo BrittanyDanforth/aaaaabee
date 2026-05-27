@@ -382,6 +382,22 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     else:
         cfg["yolo_exclude_labels"] = [str(x).strip().lower() for x in excl]
 
+    cfg["pull_mode"] = str(cfg.get("pull_mode", "aba")).strip().lower()
+    if cfg["pull_mode"] not in ("aba", "apexaimbot_pid"):
+        raise ConfigError("pull_mode must be aba or apexaimbot_pid")
+    cfg["yolo_grab_width"] = int(
+        _require_number(cfg, "yolo_grab_width", default=416.0, minimum=64, maximum=1920)
+    )
+    cfg["yolo_grab_height"] = int(
+        _require_number(cfg, "yolo_grab_height", default=416.0, minimum=64, maximum=1920)
+    )
+    if not cfg.get("yolo_yolov5_root"):
+        from pathlib import Path
+
+        vend = Path(__file__).resolve().parent / "third_party" / "apexaimbot"
+        if vend.is_dir():
+            cfg["yolo_yolov5_root"] = str(vend)
+
     if mode == "yolo":
         wp = str(cfg.get("yolo_weights_path", "") or "").strip()
         if not wp:

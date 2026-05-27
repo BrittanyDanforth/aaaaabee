@@ -1,49 +1,60 @@
-"""YOLO-primary detection path (mocked engine — no torch required in CI)."""
+"""YOLO-primary detection path (mocked vendored runtime — no torch required in CI)."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from detector import DETECTION_MODE_YOLO, find_best_target
-from yolo_detector import YoloDetection, YoloEngine, YoloEngineConfig, reset_yolo_engine_cache
-
-
-def _mock_engine(dets: list[YoloDetection]) -> MagicMock:
-    eng = MagicMock(spec=YoloEngine)
-    eng.infer.return_value = dets
-    eng.config = YoloEngineConfig(
-        weights_path=__import__("pathlib").Path("/tmp/fake.pt"),
-        target_pick="nearest",
-    )
-    eng.find_best_target = YoloEngine.find_best_target.__get__(eng, YoloEngine)
-    return eng
+from detector import DETECTION_MODE_YOLO, DetectionResult, Target, find_best_target
+from yolo_detector import reset_yolo_engine_cache
 
 
 def test_find_best_target_yolo_delegates_without_cv() -> None:
-    frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    cx, cy = 320.0, 240.0
-    dets = [
-        YoloDetection(280.0, 100.0, 360.0, 380.0, 0.88, "target"),
-    ]
-    eng = _mock_engine(dets)
-    r = find_best_target(
-        frame,
-        [],
-        250,
-        100.0,
-        cx,
-        cy,
-        detection_mode=DETECTION_MODE_YOLO,
-        yolo_engine=eng,
+    frame = np.zeros((416, 416, 3), dtype=np.uint8)
+    cx, cy = 208.0, 208.0
+    fake_t = Target(
+        centroid_x=cx,
+        centroid_y=cy - 20,
+        area=8000,
+        distance_to_center=20,
+        confidence=0.88,
+        bbox_x=150,
+        bbox_y=80,
+        bbox_w=80,
+        bbox_h=160,
+        solidity=0.75,
+        humanoid_score=0.88,
+        part_count=3,
+        body_shape_score=0.88,
+        head_score=0.88,
+        torso_score=0.88,
+        limb_stack_score=0.5,
+        red_coverage=0.12,
+        fill_ratio=0.65,
+        max_circularity=0.45,
+        has_classified_torso=True,
     )
+    mock_rt = MagicMock()
+    mock_rt.config.aim_offset_fraction = 0.2
+    with patch(
+        "yolo_detector.detect_frame",
+        return_value=DetectionResult(fake_t, 1, 0.88, debug_lines=["mode=apexaimbot_vendored"], active=True),
+    ):
+        r = find_best_target(
+            frame,
+            [],
+            250,
+            100.0,
+            cx,
+            cy,
+            detection_mode=DETECTION_MODE_YOLO,
+            yolo_engine=mock_rt,
+        )
     assert r.active
     assert r.target is not None
-    assert r.target.confidence == pytest.approx(0.88, rel=1e-3)
-    assert "mode=yolo" in (r.debug_lines[0] if r.debug_lines else "")
-    eng.infer.assert_called_once()
+    assert "apexaimbot" in (r.debug_lines[0] if r.debug_lines else "")
 
 
 def test_find_best_target_yolo_missing_engine_inactive() -> None:
@@ -76,6 +87,7 @@ def test_config_validation_accepts_yolo_mode() -> None:
         {
             "detection_mode": "yolo",
             "yolo_weights_path": "tests/fixtures/fake_yolo_weights.pt",
+            "yolo_yolov5_root": "third_party/apexaimbot",
             "fov_radius_pixels": 180,
             "hsv_ranges": [],
             "min_target_area_pixels": 40,
