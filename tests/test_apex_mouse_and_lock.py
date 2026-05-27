@@ -2,18 +2,32 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from apexaimbot_bridge import ApexAimBotRuntime, pid_mouse_delta
 from detector import DetectionResult, Target
 from mouse_io import create_mouse_backend
 from target_lock import TargetLockState, apply_yolo_target_lock
-from third_party.apexaimbot.logitech_mouse import resolve_ghub_dll_dir
+from third_party.apexaimbot.apex_mouse_dll import _resolve_dll_path
+
+REPO = Path(__file__).resolve().parents[1]
+ABA_DLL = REPO / "third_party" / "apexaimbot" / "driver" / "aba_mouse.dll"
 
 
-def test_resolve_ghub_dll_missing_on_linux() -> None:
-    # CI has no bundled DLL
-    assert resolve_ghub_dll_dir() is None or True
+def test_aba_mouse_dll_bundled_in_repo() -> None:
+    assert ABA_DLL.is_file(), "commit aba_mouse.dll or run build_aba_mouse_dll.sh"
+    assert ABA_DLL.stat().st_size > 1000
+
+
+def test_resolve_prefers_aba_mouse() -> None:
+    if not ABA_DLL.is_file():
+        return
+    r = _resolve_dll_path()
+    assert r is not None
+    path, name = r
+    assert name == "aba_mouse.dll"
+    assert path.name == "aba_mouse.dll"
 
 
 def test_apexaimbot_mouse_backend_on_linux() -> None:
@@ -46,7 +60,7 @@ def test_pid_mouse_modifier_scales_output() -> None:
 
 def test_create_mouse_backend_logitech_requires_dll() -> None:
     with patch(
-        "third_party.apexaimbot.logitech_mouse.get_logitech_driver",
+        "third_party.apexaimbot.apex_mouse_dll.get_apex_mouse_dll_driver",
         return_value=None,
     ):
         try:

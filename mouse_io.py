@@ -106,17 +106,21 @@ class _LogitechGhubMouseBackend:
     """ApexAimBot ghub_mouse.dll — user-supplied, Windows-only."""
 
     def __init__(self, *, required: bool = True) -> None:
-        from third_party.apexaimbot.logitech_mouse import get_logitech_driver
+        from third_party.apexaimbot.apex_mouse_dll import get_apex_mouse_dll_driver
 
-        self._drv = get_logitech_driver()
+        self._drv = get_apex_mouse_dll_driver()
         if self._drv is None:
             if required:
                 raise RuntimeError(
-                    "logitech_ghub backend requires ghub_mouse.dll — see "
-                    "third_party/apexaimbot/driver/README.md"
+                    "logitech_ghub backend requires aba_mouse.dll — run "
+                    "scripts\\build_aba_mouse_dll.bat"
                 )
-            raise RuntimeError("logitech driver missing")
-        self.name = "logitech_ghub"
+            raise RuntimeError("mouse DLL missing")
+        self.name = (
+            "aba_mouse_dll"
+            if self._drv.dll_name.lower() == "aba_mouse.dll"
+            else "logitech_ghub"
+        )
 
     def move_relative(self, dx: int, dy: int) -> None:
         self._drv.move_relative(dx, dy)
@@ -128,15 +132,15 @@ class _ApexAimBotMouseBackend:
     def __init__(self) -> None:
         if sys.platform == "win32":
             try:
-                from third_party.apexaimbot.logitech_mouse import get_logitech_driver
+                from third_party.apexaimbot.apex_mouse_dll import get_apex_mouse_dll_driver
 
-                drv = get_logitech_driver()
+                drv = get_apex_mouse_dll_driver()
                 if drv is not None:
-                    self._inner: MouseBackend = _LogitechGhubMouseBackend(required=True)
-                    self.name = "logitech_ghub"
+                    self._inner = _LogitechGhubMouseBackend(required=True)
+                    self.name = self._inner.name
                     return
             except Exception as exc:
-                logger.info("ApexAimBot mouse: Logitech DLL skipped (%s)", exc)
+                logger.info("ApexAimBot mouse: DLL skipped (%s)", exc)
             self._inner = _Win32MouseBackend()
             self.name = "win32_sendinput"
             return

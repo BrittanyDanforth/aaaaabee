@@ -197,8 +197,12 @@ if errorlevel 1 (
 )
 
 echo.
-echo Optional: Logitech G HUB mouse DLL (copies from ApexAimBot if present)...
-"%PY%" scripts\ensure_logitech_driver.py
+echo Verifying aba_mouse.dll (open-source, built from C — not downloaded)...
+"%PY%" scripts\ensure_aba_mouse_dll.py
+if errorlevel 1 (
+  echo Building aba_mouse.dll...
+  call scripts\build_aba_mouse_dll.bat
+)
 
 echo.
 echo Running self-check...

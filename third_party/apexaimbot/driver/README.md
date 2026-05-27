@@ -1,22 +1,34 @@
-# Logitech G HUB mouse DLL (optional)
+# Mouse DLL — `aba_mouse.dll` (safe, built from source)
 
-ApexAimBot moves the cursor through **`ghub_mouse.dll`** (Logitech virtual HID), not generic `SendInput`.
+## Do NOT download random `ghub_mouse.dll` files
 
-ABA **cannot build or redistribute** this DLL — it is proprietary and tied to a specific G HUB version.
+Cheat repos often ship **malware disguised as mouse DLLs**. ABA does **not** use those.
 
-## Install (Windows)
+We ship **`aba_mouse.dll`**: open-source, built from:
 
-1. Clone [ApexAimBot](https://github.com/1bit-monster7/ApexAimBot) or use your existing copy.
-2. Copy from upstream `function/` into this folder:
-   - `ghub_mouse.dll`
-   - `logitech.driver.dll` (if present)
-3. Or run:
+`third_party/aba_mouse_driver/aba_mouse.c`
+
+Uses only Windows **SendInput** (same effect as our Python `win32_sendinput` backend, exposed as a DLL for Apex API compatibility).
+
+## SHA-256 (verify after rebuild)
+
+| File | SHA-256 |
+|------|---------|
+| `aba_mouse.dll` | `4f9c8d6e5b7de1a0d9eb2bebea92352e43ced56812758727fbfc05a34df35992` |
+
+If you rebuild on Windows, run `certutil -hashfile aba_mouse.dll SHA256` and compare.
+
+## Rebuild (optional)
 
 ```bat
-python scripts\ensure_logitech_driver.py
+scripts\build_aba_mouse_dll.bat
 ```
 
-(set `APEXAIMBOT_SRC` to your ApexAimBot repo root)
+Or Linux cross-compile:
+
+```bash
+./scripts/build_aba_mouse_dll.sh
+```
 
 ## Config
 
@@ -24,17 +36,8 @@ python scripts\ensure_logitech_driver.py
 "mouse_backend": "apexaimbot"
 ```
 
-Tries Logitech DLL first, then **Win32 SendInput** (still good on Windows without G HUB).
+Loads `aba_mouse.dll` from this folder first. Optional legacy `ghub_mouse.dll` (user-supplied only, not recommended).
 
-Use `"logitech_ghub"` to require the DLL (fail if missing).
+## No download step
 
-## vs Win32 SendInput
-
-| Backend | Needs G HUB | Typical use |
-|---------|-------------|-------------|
-| `apexaimbot` | Optional | **Recommended** on Windows for Apex preset |
-| `logitech_ghub` | Yes | 1:1 upstream injection path |
-| `win32_sendinput` | No | Default `auto` on Windows |
-| `pynput` | No | Linux dev / fallback |
-
-Ban risk is the same for all synthetic input paths — see `ban_safety.py`.
+The DLL is **in the repo** or **built locally** from C source — never fetched from the internet by ABA.
