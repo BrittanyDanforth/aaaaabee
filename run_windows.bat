@@ -1,7 +1,15 @@
 @echo off
+REM Explorer / "Run as administrator" uses cmd /c - stay open on errors.
+REM NOTE: Paths with parentheses e.g. "folder (1)" break IF ( ) blocks - use GOTO only.
+if /I "%~1"=="_aba_run" goto :AbaMain
+cd /d "%~dp0"
+cmd /k call "%~f0" _aba_run %*
+exit /b 0
+
+:AbaMain
+shift
 setlocal EnableExtensions EnableDelayedExpansion
 
-REM Always run from this script's folder (Explorer double-click or cmd).
 cd /d "%~dp0"
 set "ROOT=%CD%"
 set "LOGDIR=%ROOT%\logs"
@@ -13,18 +21,28 @@ set "DEPS_OK=%VENV%\.deps_ok"
 set "EXITCODE=1"
 
 if not exist "%LOGDIR%" mkdir "%LOGDIR%" 2>nul
-if not exist "%LOGDIR%" (
-  echo ERROR: Cannot create folder: %LOGDIR%
-  echo Install path may be read-only or blocked.
-  pause
-  exit /b 1
+
+net session >nul 2>&1
+if errorlevel 1 goto :AfterAdmin
+set "ABA_IS_ADMIN=1"
+set "HWID_NO_ELEVATE=1"
+for /f "skip=2 tokens=1,*" %%A in ('reg query "HKCU\Environment" /v Path 2^>nul') do (
+  if not "%%B"=="" set "PATH=%%B;!PATH!"
 )
+:AfterAdmin
+
+if exist "%LOGDIR%" goto :LogdirOk
+echo ERROR: Cannot create folder: %LOGDIR%
+echo Install path may be read-only or blocked.
+echo Tip: avoid parentheses in the folder path, e.g. move out of "Downloads\... (1)".
+pause
+exit /b 1
+:LogdirOk
 
 call :Log "=== ABA setup started ==="
 call :Log "Root folder: %ROOT%"
+if defined ABA_IS_ADMIN call :Log "Running elevated - merged HKCU Path for Python discovery"
 
-REM --- HWID pre-step (separate tool; vendored at .\HWIDTool inside this repo,
-REM     legacy layout had it at ..\HWIDTool as a sibling folder — check both). ---
 set "HWID_BAT=%ROOT%\HWIDTool\run_hwid.bat"
 if not exist "%HWID_BAT%" set "HWID_BAT=%ROOT%\..\HWIDTool\run_hwid.bat"
 if /I "%HWID_SKIP%"=="1" goto :HwidSkipped
@@ -33,10 +51,13 @@ call :Log "Running HWID pre-step: %HWID_BAT%"
 echo.
 echo Running HWID pre-step - Administrator may be required...
 set "HWID_QUIET=1"
-call "%HWID_BAT%"
+set "HWID_ARG="
+if defined ABA_IS_ADMIN set "HWID_ARG=ELEVATED"
+call "%HWID_BAT%" !HWID_ARG!
+set "HWID_ERR=!ERRORLEVEL!"
 set "HWID_QUIET="
-if errorlevel 2 goto :HwidVerifyFail
-if errorlevel 1 goto :HwidFail
+if "!HWID_ERR!"=="2" goto :HwidVerifyFail
+if "!HWID_ERR!" GEQ "1" goto :HwidFail
 call :Log "HWID pre-step OK"
 goto :HwidDone
 
@@ -46,7 +67,7 @@ echo Skipping HWID pre-step - HWID_SKIP=1.
 goto :HwidDone
 
 :HwidMissing
-call :Log "HWID pre-step script not found at %HWID_BAT% - continuing"
+call :Log "HWID pre-step script not found - continuing"
 echo Note: HWIDTool\run_hwid.bat not found - set HWID_SKIP=1 to continue without it.
 goto :HwidDone
 
@@ -67,98 +88,88 @@ echo ========================================
 echo   Folder: %ROOT%
 echo   Log:    %LOGFILE%
 echo   Default: apex_style_live_safe (real mouse + hooks after GUI ban ack).
-echo   BAN RISK on live EAC/BattlEye/Vanguard — offline/private only.
+echo   BAN RISK on live EAC/BattlEye/Vanguard - offline/private only.
 echo   No injection into game process.
 echo.
 
-if exist "%PY%" goto :HaveVenv
+call :VerifyVenv
+if not errorlevel 1 goto :HaveVenv
 
-REM --- Find Python 3.10+ (py -3, then python, then python3) ---
 set "PY_BOOT="
 set "PY_BOOT_DISPLAY="
 
 py -3 -c "import sys; raise SystemExit(0 if sys.version_info>=(3,10) else 1)" >nul 2>&1
-if not errorlevel 1 (
-  set "PY_BOOT=py -3"
-  set "PY_BOOT_DISPLAY=py -3"
-  goto :FoundPython
-)
-
+if not errorlevel 1 goto :UsePyLauncher
 python -c "import sys; raise SystemExit(0 if sys.version_info>=(3,10) else 1)" >nul 2>&1
-if not errorlevel 1 (
-  set "PY_BOOT=python"
-  set "PY_BOOT_DISPLAY=python"
-  goto :FoundPython
-)
-
+if not errorlevel 1 goto :UsePython
 python3 -c "import sys; raise SystemExit(0 if sys.version_info>=(3,10) else 1)" >nul 2>&1
-if not errorlevel 1 (
-  set "PY_BOOT=python3"
-  set "PY_BOOT_DISPLAY=python3"
-  goto :FoundPython
-)
+if not errorlevel 1 goto :UsePython3
 
 set "FAILMSG=Python 3.10+ not found. Install from https://www.python.org/ and enable Add Python to PATH, or install the Python Launcher (py). Then run: python setup_doctor.py"
 goto :SetupFail
+
+:UsePyLauncher
+set "PY_BOOT=py -3"
+set "PY_BOOT_DISPLAY=py -3"
+goto :FoundPython
+
+:UsePython
+set "PY_BOOT=python"
+set "PY_BOOT_DISPLAY=python"
+goto :FoundPython
+
+:UsePython3
+set "PY_BOOT=python3"
+set "PY_BOOT_DISPLAY=python3"
+goto :FoundPython
 
 :FoundPython
 call :Log "Using Python: !PY_BOOT_DISPLAY!"
 echo Found Python: !PY_BOOT_DISPLAY!
 !PY_BOOT! --version
-if errorlevel 1 (
-  set "FAILMSG=Python !PY_BOOT_DISPLAY! failed --version check."
-  goto :SetupFail
-)
+if errorlevel 1 goto :PyVersionFail
 !PY_BOOT! --version >> "%LOGFILE%" 2>&1
 
 call :Log "Creating virtual environment..."
 echo Creating virtual environment at:
 echo   "%VENV%"
-!PY_BOOT! -m venv "%VENV%"
-if errorlevel 1 (
-  set "FAILMSG=Failed to create .venv with !PY_BOOT_DISPLAY!. Run setup_doctor.py for details."
-  goto :SetupFail
-)
-
-if not exist "%PY%" (
-  set "FAILMSG=Missing after venv create: %PY%"
-  goto :SetupFail
-)
-if not exist "%PIP%" (
-  set "FAILMSG=Missing after venv create: %PIP%"
-  goto :SetupFail
-)
+set "ENSURE_VENV=%ROOT%\scripts\ensure_venv.py"
+if not exist "%ENSURE_VENV%" goto :VenvBatchFallback
+!PY_BOOT! "%ENSURE_VENV%" "%ROOT%"
+if errorlevel 1 goto :VenvCreateFail
+call :VerifyVenv
+if errorlevel 1 goto :VenvCreateFail
 call :Log "Virtual environment OK."
 echo Virtual environment created.
+goto :HaveVenv
+
+:VenvBatchFallback
+if exist "%VENV%" rmdir /s /q "%VENV%" 2>nul
+!PY_BOOT! -m venv "%VENV%"
+if errorlevel 1 goto :VenvCreateFail
+call :VerifyVenv
+if errorlevel 1 goto :VenvCreateFail
+call :Log "Virtual environment OK."
+echo Virtual environment created.
+goto :HaveVenv
 
 :HaveVenv
-if not exist "%PY%" (
-  set "FAILMSG=Missing %PY% — delete the .venv folder and run this script again."
-  goto :SetupFail
-)
-if not exist "%PIP%" (
-  set "FAILMSG=Missing %PIP% — delete the .venv folder and run this script again."
-  goto :SetupFail
-)
+call :VerifyVenv
+if errorlevel 1 goto :VenvBroken
 
 call :Log "Venv Python: %PY%"
 echo Using venv Python:
 echo   "%PY%"
 "%PY%" --version
-if errorlevel 1 (
-  set "FAILMSG=Venv Python failed: %PY%"
-  goto :SetupFail
-)
+if errorlevel 1 goto :VenvRunFail
 "%PY%" --version >> "%LOGFILE%" 2>&1
 
 if not exist "%DEPS_OK%" goto :DoInstall
 
-REM Don't trust the marker alone — smoke-test that the real imports load.
-REM Catches the case where requirements.txt grew new entries between runs.
 "%PY%" -c "import numpy, cv2, mss, psutil, pynput" 1>nul 2>nul
 if not errorlevel 1 goto :DepsDone
-call :Log "DEPS_OK marker present but imports failed — reinstalling."
-echo Dependency check failed — reinstalling missing packages...
+call :Log "DEPS_OK marker present but imports failed - reinstalling."
+echo Dependency check failed - reinstalling missing packages...
 del "%DEPS_OK%" 1>nul 2>nul
 
 :DoInstall
@@ -166,15 +177,9 @@ call :Log "Installing dependencies..."
 echo Installing dependencies (PyPI only; delete .deps_ok to reinstall)...
 set "PIP_NO_CACHE_DIR=1"
 "%PY%" -m pip install --upgrade pip
-if errorlevel 1 (
-  set "FAILMSG=pip upgrade failed."
-  goto :SetupFail
-)
+if errorlevel 1 goto :PipUpgradeFail
 "%PY%" -m pip install -r "%ROOT%\requirements.txt"
-if errorlevel 1 (
-  set "FAILMSG=pip install -r requirements.txt failed."
-  goto :SetupFail
-)
+if errorlevel 1 goto :PipInstallFail
 echo ok>"%DEPS_OK%"
 call :Log "Dependencies installed."
 echo Dependencies installed.
@@ -183,24 +188,18 @@ echo Dependencies installed.
 echo.
 echo Running setup doctor...
 "%PY%" setup_doctor.py --require-venv
-if errorlevel 1 (
-  set "FAILMSG=Setup doctor found problems. See output above."
-  goto :SetupFail
-)
+if errorlevel 1 goto :DoctorFail
 
 echo.
 echo Running self-check...
 call :Log "Self-check starting"
 "%PY%" aba.py --self-check
-if errorlevel 1 (
-  set "FAILMSG=Self-check failed. See logs\aba_selfcheck.log"
-  goto :SetupFail
-)
+if errorlevel 1 goto :SelfCheckFail
 
 call :Log "Self-check passed"
 echo.
 echo Self-check passed. Launching ABA UI...
-echo STATUS can show r5apex.exe presence — do NOT use live assist online.
+echo STATUS can show r5apex.exe presence - do NOT use live assist online.
 call :Log "Launching aba.py"
 "%PY%" aba.py
 set "EXITCODE=!ERRORLEVEL!"
@@ -208,7 +207,39 @@ call :Log "aba.py exited with code !EXITCODE!"
 echo.
 echo ABA closed (exit !EXITCODE!). Log: %LOGFILE%
 pause
-endlocal & exit /b %EXITCODE%
+endlocal & exit /b !EXITCODE!
+
+:PyVersionFail
+set "FAILMSG=Python !PY_BOOT_DISPLAY! failed --version check."
+goto :SetupFail
+
+:VenvCreateFail
+set "FAILMSG=Failed to create .venv with !PY_BOOT_DISPLAY!. Delete the .venv folder, move the project to a shorter path (e.g. C:\OverlayAssist), then run this script again."
+goto :SetupFail
+
+:VenvBroken
+set "FAILMSG=Broken .venv at %VENV% - delete the .venv folder or move the project to C:\OverlayAssist (long Downloads paths often break venv), then run run_windows.bat again."
+goto :SetupFail
+
+:VenvRunFail
+set "FAILMSG=Venv Python failed: %PY%"
+goto :SetupFail
+
+:PipUpgradeFail
+set "FAILMSG=pip upgrade failed."
+goto :SetupFail
+
+:PipInstallFail
+set "FAILMSG=pip install -r requirements.txt failed."
+goto :SetupFail
+
+:DoctorFail
+set "FAILMSG=Setup doctor found problems. See output above."
+goto :SetupFail
+
+:SelfCheckFail
+set "FAILMSG=Self-check failed. See logs\aba_selfcheck.log"
+goto :SetupFail
 
 :SetupFail
 if not defined FAILMSG set "FAILMSG=Unknown setup error"
@@ -222,6 +253,13 @@ echo Run: cd /d "%ROOT%"
 echo      python setup_doctor.py
 pause
 endlocal & exit /b 1
+
+:VerifyVenv
+if not exist "%PY%" exit /b 1
+if not exist "%PIP%" exit /b 1
+"%PY%" -c "import sys" 1>nul 2>nul
+if errorlevel 1 exit /b 1
+exit /b 0
 
 :Log
 set "LOGMSG=%~1"

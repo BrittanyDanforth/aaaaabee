@@ -17,6 +17,12 @@ run_windows.bat
 
 Failures **pause once** with a clear message. Log: `logs\aba_setup.log`
 
+**Run as administrator:** the script merges your user `PATH` (so `py` / `python` work), skips redundant HWID UAC popups, and uses `cmd /k` so the window stays open if setup errors before `pause`.
+
+**Folder path has `(1)` or other parentheses** (common in `Downloads\... (1)\...`): that is supported. If you still see `was unexpected at this time`, move the repo to a path without parentheses (e.g. `C:\OverlayAssist`).
+
+**Missing `.venv\Scripts\python.exe` after "Virtual environment created"**: delete the `.venv` folder and run `run_windows.bat` again (the script auto-removes broken venvs). If it still fails, the path is probably too long — move the whole folder to `C:\OverlayAssist` and run from there.
+
 ### If setup fails
 
 ```bat
