@@ -37,6 +37,7 @@ from detector import (
 from target_lock import (
     TargetLockState,
     apply_target_lock,
+    apply_yolo_target_lock,
     detection_sticky_context,
     lock_target_is_plausible,
     locked_target_may_refresh_motion_memory,
@@ -1062,16 +1063,24 @@ class AssistRuntime:
                 self._aim_tracker.soft_reset()
 
             fh, fw = frame_bgr.shape[0], frame_bgr.shape[1]
-            result, _is_stale = apply_target_lock(
-                self._target_lock,
-                result,
-                center_y=center_y,
-                cfg=cfg,
-                on_lock_expired=_on_lock_expired,
-                fov_cx=center_x,
-                fov_cy=center_y,
-                frame_size=(fw, fh),
-            )
+            if cfg_mode == "yolo" and bool(cfg.get("yolo_apex_nearest_lock", True)):
+                result, _is_stale = apply_yolo_target_lock(
+                    self._target_lock,
+                    result,
+                    cfg=cfg,
+                    on_lock_expired=_on_lock_expired,
+                )
+            else:
+                result, _is_stale = apply_target_lock(
+                    self._target_lock,
+                    result,
+                    center_y=center_y,
+                    cfg=cfg,
+                    on_lock_expired=_on_lock_expired,
+                    fov_cx=center_x,
+                    fov_cy=center_y,
+                    frame_size=(fw, fh),
+                )
             locked = self._target_lock.locked_target
             if (
                 locked is not None
@@ -1381,12 +1390,18 @@ class AssistRuntime:
                     ads_for_assist = ads_live if self._live else (self._force_detect or ads_live)
                     self._sync_ads_assist_state(ads_for_assist)
 
+                    det_mode_loop = str(cfg.get("detection_mode", "apex")).strip().lower()
+                    pull_mode_loop = str(cfg.get("pull_mode", "aba")).strip().lower()
+                    apex_pid_loop = (
+                        pull_mode_loop == "apexaimbot_pid" and det_mode_loop == "yolo"
+                    )
+
                     user_fov = effective_fov_radius(cfg, ads_active=ads_for_assist)
                     overlay_fov = effective_overlay_fov_radius(cfg)
                     detect_fov = effective_detection_fov_radius(
                         cfg, ads_active=ads_for_assist
                     )
-                    if bool(cfg.get("unified_fov", True)):
+                    if bool(cfg.get("unified_fov", True)) and det_mode_loop != "yolo":
                         detect_fov = user_fov
                     ring_inner = float(overlay_fov) * 0.96
                     cfg["_runtime_fov"] = user_fov
@@ -1441,11 +1456,6 @@ class AssistRuntime:
                     detect_ms = 0.0
 
                     detection_fresh = False
-                    det_mode_loop = str(cfg.get("detection_mode", "apex")).strip().lower()
-                    pull_mode_loop = str(cfg.get("pull_mode", "aba")).strip().lower()
-                    apex_pid_loop = (
-                        pull_mode_loop == "apexaimbot_pid" and det_mode_loop == "yolo"
-                    )
                     with self._lock:
                         firing_for_detect = self._is_firing
                     detect_assist = ads_for_assist or (
@@ -1517,16 +1527,21 @@ class AssistRuntime:
                     with self._lock:
                         firing_now = self._is_firing
                     fh, fw = frame_bgr.shape[0], frame_bgr.shape[1]
-                    show_for_overlay = overlay_may_show_target(
-                        target,
-                        detection_fresh=detection_fresh,
-                        center_y=frame_cy,
-                        lock_state=self._target_lock,
-                        frame_w=fw,
-                        frame_h=fh,
-                        fov_cx=frame_cx,
-                        fov_cy=frame_cy,
-                    )
+                    if det_mode_loop == "yolo":
+                        show_for_overlay = bool(
+                            detection_fresh and target is not None
+                        )
+                    else:
+                        show_for_overlay = overlay_may_show_target(
+                            target,
+                            detection_fresh=detection_fresh,
+                            center_y=frame_cy,
+                            lock_state=self._target_lock,
+                            frame_w=fw,
+                            frame_h=fh,
+                            fov_cx=frame_cx,
+                            fov_cy=frame_cy,
+                        )
                     may_assist_pull = may_assist_pull_target(
                         target,
                         detection_fresh=detection_fresh,

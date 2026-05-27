@@ -37,7 +37,7 @@ Parallel processes (optional, not required for detect):
 | Armor | `automatic_armor_change.py` | Auto E + armor UI clicks |
 | UI | `web_ui.py` (Gradio) | Edit INI, pick weights |
 
-ABA does **not** ship Logitech `ghub_mouse.dll`, recoil tables, or gun PNGs unless we add them later.
+ABA ships a **Logitech DLL loader** (`third_party/apexaimbot/logitech_mouse.py`) — copy `ghub_mouse.dll` via `scripts/ensure_logitech_driver.py`. Preset uses `mouse_backend: apexaimbot` (DLL if present, else Win32). Recoil tables / gun PNGs not ported.
 
 ## `function/weights/` — every file (~120 MB total)
 

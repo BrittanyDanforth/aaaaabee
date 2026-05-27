@@ -197,6 +197,10 @@ if errorlevel 1 (
 )
 
 echo.
+echo Optional: Logitech G HUB mouse DLL (copies from ApexAimBot if present)...
+"%PY%" scripts\ensure_logitech_driver.py
+
+echo.
 echo Running self-check...
 call :Log "Self-check starting"
 "%PY%" aba.py --self-check

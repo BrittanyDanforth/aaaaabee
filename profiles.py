@@ -307,6 +307,17 @@ def effective_overlay_fov_radius(
     return effective_fov_radius(config, ads_active=ads_active)
 
 
+def _is_yolo_mode(config: dict[str, Any]) -> bool:
+    return str(config.get("detection_mode", "apex")).strip().lower() == "yolo"
+
+
+def effective_yolo_grab_half(config: dict[str, Any]) -> int:
+    """Half-width of Apex 416×416 grab in pixels."""
+    gw = int(config.get("yolo_grab_width", config.get("yolo_inference_size", 416)))
+    gh = int(config.get("yolo_grab_height", config.get("yolo_inference_size", 416)))
+    return max(80, max(gw, gh) // 2)
+
+
 def effective_detection_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
     """
     Detection + pull FOV radius.
@@ -318,6 +329,8 @@ def effective_detection_fov_radius(config: dict[str, Any], *, ads_active: bool) 
     Legacy split mode (``unified_fov=False``): adds ``detection_fov_margin_pixels``
     or ``detection_fov_margin_scale`` on top of the display radius.
     """
+    if _is_yolo_mode(config):
+        return effective_yolo_grab_half(config)
     core = effective_fov_radius(config, ads_active=ads_active)
     if bool(config.get("unified_fov", True)):
         return min(400, max(80, core))
@@ -329,7 +342,10 @@ def effective_detection_fov_radius(config: dict[str, Any], *, ads_active: bool) 
 
 def effective_capture_fov_radius(config: dict[str, Any], *, ads_active: bool) -> int:
     """Capture crop must cover detection FOV + padding."""
-    detect = effective_detection_fov_radius(config, ads_active=ads_active)
+    if _is_yolo_mode(config):
+        detect = effective_yolo_grab_half(config)
+    else:
+        detect = effective_detection_fov_radius(config, ads_active=ads_active)
     extra = int(config.get("capture_extra_pixels", 8))
     return detect + extra
 

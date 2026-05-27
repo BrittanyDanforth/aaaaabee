@@ -623,6 +623,42 @@ def detection_sticky_context(
     return sticky, currently_locked, lost_max
 
 
+def apply_yolo_target_lock(
+    state: TargetLockState,
+    result: DetectionResult,
+    *,
+    cfg: dict[str, Any],
+    on_lock_expired: Callable[[], None] | None = None,
+) -> tuple[DetectionResult, bool]:
+    """ApexAimBot-style: nearest detection each frame; short grace when infer misses."""
+    lost_max = int(cfg.get("target_lost_frames_before_unlock", 18))
+    if result.target is not None:
+        state.locked_target = result.target
+        state.target_lost_frames = 0
+        state.switch_candidate = None
+        state.switch_frames = 0
+        state.pool_hold_streak = 0
+        state.overlay_confirm_frames = 999
+        return result, False
+    state.target_lost_frames += 1
+    locked = state.locked_target
+    if locked is not None and state.target_lost_frames <= lost_max:
+        return (
+            DetectionResult(
+                locked,
+                result.candidates,
+                locked.confidence,
+                debug_lines=(result.debug_lines or []) + ["yolo_grace"],
+                active=True,
+            ),
+            True,
+        )
+    state.reset()
+    if on_lock_expired is not None:
+        on_lock_expired()
+    return DetectionResult(None, result.candidates, 0.0), False
+
+
 def apply_target_lock(
     state: TargetLockState,
     result: DetectionResult,

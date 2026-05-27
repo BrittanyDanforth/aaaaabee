@@ -229,8 +229,19 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         raise ConfigError("magnetism_radius_pixels cannot exceed fov_radius_pixels")
 
     mouse_backend = str(cfg.get("mouse_backend", "auto")).lower()
-    if mouse_backend not in ("auto", "pynput", "win32_sendinput", "recording"):
-        raise ConfigError("mouse_backend must be auto, pynput, win32_sendinput, or recording")
+    allowed_mouse = (
+        "auto",
+        "pynput",
+        "win32_sendinput",
+        "recording",
+        "logitech_ghub",
+        "apexaimbot",
+        "apex",
+    )
+    if mouse_backend not in allowed_mouse:
+        raise ConfigError(
+            "mouse_backend must be one of: " + ", ".join(allowed_mouse)
+        )
     cfg["mouse_backend"] = mouse_backend
 
     ads_mode = str(cfg.get("ads_input_mode", "both")).lower()
@@ -373,6 +384,10 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         _require_number(cfg, "yolo_max_det", default=3.0, minimum=1, maximum=100)
     )
     cfg["yolo_use_fp16"] = bool(cfg.get("yolo_use_fp16", False))
+    cfg["yolo_apex_nearest_lock"] = bool(cfg.get("yolo_apex_nearest_lock", True))
+    cfg["apexaimbot_mouse_modifier"] = _require_number(
+        cfg, "apexaimbot_mouse_modifier", default=0.8, minimum=0.05, maximum=4.0
+    )
     cfg["yolo_aim_fraction"] = _require_number(
         cfg, "yolo_aim_fraction", default=0.38, minimum=0.1, maximum=0.9
     )

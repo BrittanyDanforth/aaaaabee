@@ -26,6 +26,7 @@ class ApexAimBotRuntime:
     config: Any
     pid_x: Any
     pid_y: Any
+    mouse_modifier: float = 1.0
 
     @classmethod
     def from_app_config(cls, cfg: dict[str, Any]) -> ApexAimBotRuntime:
@@ -43,11 +44,13 @@ class ApexAimBotRuntime:
         py = float(cfg.get("pid_y_p", cfg.get("apexaimbot_pid_y_p", 0.2)))
         iy = float(cfg.get("pid_y_i", cfg.get("apexaimbot_pid_y_i", 0.0)))
         dy = float(cfg.get("pid_y_d", cfg.get("apexaimbot_pid_y_d", 0.0)))
+        mod = float(cfg.get("apexaimbot_mouse_modifier", 0.8))
         return cls(
             model=model,
             config=acfg,
             pid_x=PID_PLUS_PLUS(0, px, ix, dx),
             pid_y=PID_PLUS_PLUS(0, py, iy, dy),
+            mouse_modifier=max(0.05, min(4.0, mod)),
         )
 
 
@@ -97,17 +100,35 @@ def _cache_key(cfg: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _load_runtime(cfg: dict[str, Any]) -> ApexAimBotRuntime:
+    return ApexAimBotRuntime.from_app_config(cfg)
+
+
 def get_apexaimbot_runtime(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:
     global _engine_cache
     if str(cfg.get("detection_mode", "apex")).strip().lower() != "yolo":
         return None
     key = _cache_key(cfg)
     if _engine_cache is None or _engine_cache[0] != key:
+        rt: ApexAimBotRuntime | None = None
         try:
-            _engine_cache = (key, ApexAimBotRuntime.from_app_config(cfg))
+            rt = _load_runtime(cfg)
         except Exception as exc:
-            logger.error("ApexAimBot runtime load failed: %s", exc)
-            _engine_cache = (key, None)
+            wpath = str(cfg.get("yolo_weights_path", "") or "")
+            if wpath.lower().endswith(".engine"):
+                logger.warning(
+                    "TensorRT engine load failed (%s); trying APEX22W.pt", exc
+                )
+                fb = dict(cfg)
+                fb["yolo_weights_path"] = "third_party/apexaimbot/weights/APEX22W.pt"
+                try:
+                    rt = _load_runtime(fb)
+                    logger.info("ApexAimBot using PyTorch fallback APEX22W.pt")
+                except Exception as exc2:
+                    logger.error("ApexAimBot PT fallback failed: %s", exc2)
+            else:
+                logger.error("ApexAimBot runtime load failed: %s", exc)
+        _engine_cache = (key, rt)
     return _engine_cache[1]
 
 
@@ -215,7 +236,8 @@ def pid_mouse_delta(
     step = rt.config.min_step if hip_fire else rt.config.max_step
     pid_x = int(rt.pid_x.getMove(error_x, step))
     pid_y = int(rt.pid_y.getMove(error_y))
-    return pid_x, pid_y
+    mod = float(rt.mouse_modifier)
+    return int(round(pid_x * mod)), int(round(pid_y * mod))
 
 
 def in_lock_box(

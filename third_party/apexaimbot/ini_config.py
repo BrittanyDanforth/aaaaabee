@@ -54,6 +54,7 @@ def merge_app_config(cfg: dict[str, Any]) -> dict[str, Any]:
         "apexaimbot_pid_y_d": "pid_y_d",
         "apexaimbot_min_step": "min_step",
         "apexaimbot_max_step": "max_step",
+        "apexaimbot_mouse_modifier": "modifier_value",
     }
     for aba_key, ini_key in mapping.items():
         if aba_key not in out or out[aba_key] in ("", None):

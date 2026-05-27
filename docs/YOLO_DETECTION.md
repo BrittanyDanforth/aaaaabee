@@ -32,6 +32,6 @@ ABA ships **1:1** ApexAimBot detection code under `third_party/apexaimbot/`:
 
 ## Not vendored (by design)
 
-- Logitech driver mouse — ABA uses `mouse_io` backends
+- Mouse: preset uses `mouse_backend: apexaimbot` (Logitech DLL if present, else Win32). See `third_party/apexaimbot/driver/README.md`
 - Recoil tables / weapon ID from `G.py` — optional future port
 - Win32-only grab — ABA uses `mss` capture; detect uses center crop to 416×416 like their `grab_rect`
