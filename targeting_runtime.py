@@ -308,7 +308,9 @@ class TargetingRuntime:
         motion: TargetMotion | None
         observe_called = False
         if is_stale:
-            motion = self.tracker._last
+            motion = self._last_yolo_motion if hasattr(self, "_last_yolo_motion") else None
+            if motion is None:
+                motion = self.tracker._last
             if motion is None:
                 return AimState(
                     aim_x=cx,
@@ -333,6 +335,7 @@ class TargetingRuntime:
                     overlay_x=t.centroid_x,
                     overlay_y=t.centroid_y,
                 )
+                self._last_yolo_motion = motion
                 self._last_observe_bbox = (t.bbox_x, t.bbox_y, t.bbox_w, t.bbox_h)
             else:
                 self._observe_target_calls += 1
