@@ -80,6 +80,15 @@ def test_yolo_mode_in_valid_detection_modes() -> None:
     assert "yolo" in _VALID_DETECTION_MODES
 
 
+def test_legacy_yolo_aliases_are_real_types() -> None:
+    from detector import DetectionResult
+    from third_party.apexaimbot.engine import ApexAimBotDetectConfig
+    from yolo_detector import YoloDetection, YoloEngineConfig
+
+    assert YoloDetection is DetectionResult
+    assert YoloEngineConfig is ApexAimBotDetectConfig
+
+
 def test_config_validation_accepts_yolo_mode() -> None:
     from config_validation import validate_config
 

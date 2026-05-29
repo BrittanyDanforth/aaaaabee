@@ -29,10 +29,11 @@ def test_send_nearest_matches_apexaimbot_math(vendor_detect) -> None:
         box_list, grab_width=416, grab_height=416
     )
     assert out is not None
-    pos, bw, bh = out
+    pos, bw, bh, conf = out
     assert pos == pytest.approx((0.0, 0.0), abs=1e-6)
     assert bw == pytest.approx(416 * 0.2, rel=1e-3)
     assert bh == pytest.approx(416 * 0.4, rel=1e-3)
+    assert conf == pytest.approx(0.88, rel=1e-3)
 
 
 def test_vendor_tree_present() -> None:

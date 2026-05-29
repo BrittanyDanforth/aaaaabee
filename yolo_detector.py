@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from apexaimbot_bridge import ApexAimBotRuntime
+from detector import DetectionResult
+from third_party.apexaimbot.engine import ApexAimBotDetectConfig
 from yolo_targeting import (
     find_best_yolo_target,
     get_yolo_engine,
@@ -12,10 +14,10 @@ from yolo_targeting import (
     reset_yolo_engine_cache,
 )
 
-# Back-compat aliases for tests / legacy imports
-YoloDetection = None
+# Back-compat aliases for tests / legacy imports.
+YoloDetection = DetectionResult
 YoloEngine = ApexAimBotRuntime
-YoloEngineConfig = None
+YoloEngineConfig = ApexAimBotDetectConfig
 
 
 def try_create_yolo_engine(cfg: dict[str, Any]) -> ApexAimBotRuntime | None:

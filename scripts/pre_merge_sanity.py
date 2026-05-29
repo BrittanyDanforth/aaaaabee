@@ -27,6 +27,7 @@ FOCUSED_TESTS = [
     "tests/test_apex_lock_and_nearest.py",
     "tests/test_yolo_cv_bypass.py",
     "tests/test_yolo_detector.py",
+    "tests/test_yolo_real_apex_images.py",
     "tests/test_overlay_runtime_gates.py",
     "tests/test_yolo_cv_lock_frame_size.py",
     "tests/test_gui_preset_cv_unwind.py",
