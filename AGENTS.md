@@ -67,7 +67,7 @@ The GUI (`aba_gui.py`) uses Basic/Advanced mode split:
 - **Debug**: Overlay, verbose logging, pull trace, debug frame save
 - Advanced tabs (hidden by default): Aim prediction, Body scoring weights, Overlay internals
 
-**Presets**: Stable, Responsive, Strong, Debug — apply via buttons on the Basic tab.
+**Presets**: Stable, Responsive, ApexAimBot, Tracking, Strong, Debug — apply via buttons on the Basic tab.
 
 **Overlay dot FPS**: `overlay_fps` (default 90) controls Tk redraw; `capture_fps` (60 on live trace) controls how often dot coordinates update. Frame drag: `_advance_overlay_follow` on chest-clamped aim (not deadband 2px cap); FOV uses `min(detect,display)*0.96`; `overlay_dot_smooth_alpha` tunes both capture follow (`configure_overlay_dot_alpha`) and Tk glide (`set_dot_glide_alpha`). After ring clamp, `sync_overlay_follow_frame` keeps follow state aligned. Pull uses ring-clamped `frame_overlay` (same as dot). **Ring + white crosshair (+)** share `_cx/_cy` via `set_fov_center(center_x, center_y)` each frame (`crosshair_offset_*`); dot glides from that center on first show.
 

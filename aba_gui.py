@@ -1063,9 +1063,8 @@ class AbaApplication:
     # === ADVANCED: Detector ===
     def _build_detector_adv_panel(self, parent: tk.Frame) -> None:
         # R2 (audit): expose the detection_mode selection in the GUI so
-        # users can switch between apex / shape / hsv / hybrid without
-        # hand-editing config.json. Defaults to "apex" — the only mode
-        # the audit fixes specifically validate.
+        # users can switch between YOLO and CV modes without hand-editing
+        # config.json. The shipped profile defaults to YOLO/ApexAimBot.
         self._section(parent, "Detection mode")
         current = str(self.config.get("detection_mode", "apex")).lower()
         if current not in {"apex", "shape", "hsv", "hybrid", "yolo"}:
@@ -1091,8 +1090,8 @@ class AbaApplication:
         )
         tk.Label(
             parent,
-            text="apex = red outline + shape/chroma/motion (default).\n"
-                 "yolo = YOLOv5 primary detect (set yolo_weights_path; pip install -r requirements-yolo.txt).\n"
+            text="yolo = shipped ApexAimBot primary detect (requires requirements-yolo.txt).\n"
+                 "apex = red outline + shape/chroma/motion CV fallback.\n"
                  "shape/hsv/hybrid = legacy CV modes.",
             bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
         ).pack(anchor="w", pady=(0, 8))

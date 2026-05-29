@@ -6,7 +6,7 @@
 
 “No injection” and “external only” do **not** make this safe. Anti-cheat detects:
 
-| Profile | `apex_style_dry_run` (default) | `owned_dev_live` + explicit `allow_live_mouse: true` |
+| Profile | `apex_style_dry_run` | `apexaimbot` / `owned_dev_live` + explicit `allow_live_mouse: true` |
 | Behavior | Default when `allow_live_mouse: false` | When `allow_live_mouse: true` |
 | 30 FPS dry-run cap | Mask/detection **sanity check only** — not fast-tracking gameplay proof | Use `apex_style_perf_test` + `aba.py --benchmark` for timing |
 |----------|----------------------------------------|-------------------------------|
@@ -18,14 +18,16 @@
 
 **Apex Legends uses EAC on live clients.** Firing range with `r5apex.exe` online is still EAC unless you use a special offline build.
 
-### Safe defaults (`config.json`)
+### Shipped default (`config.json`)
 
 ```json
 "offline_dev_mode": true,
-"allow_live_mouse": false
+"profile": "apexaimbot",
+"allow_live_mouse": true
 ```
 
-- **Dry-run:** capture + detection telemetry in UI; **no** OS mouse movement; **no** global hooks.
+- **Shipped ApexAimBot:** YOLO + Apex PID, with GUI ban acknowledgment before live assist starts.
+- **Dry-run option:** set `"profile": "apex_style_dry_run"` and `"allow_live_mouse": false` for capture + detection telemetry only; **no** OS mouse movement; **no** global hooks.
 - **Live assist:** set `"allow_live_mouse": true` only for offline/private builds **without** anti-cheat. GUI requires ban acknowledgment. Config blocks `allow_live_mouse` + `r5apex.exe` together.
 
 ---
@@ -41,7 +43,7 @@
 - No DLL injection, hooks **into the game process**, or memory reads
 - No registry / startup persistence
 - No admin in `run_windows.bat`
-- No hidden downloads (pip from `requirements.txt` only)
+- No hidden downloads (pip from `requirements.txt` / `requirements-yolo.txt` only)
 
 ## What ABA still does (ban-relevant)
 
@@ -71,7 +73,7 @@ Earlier `run_windows.bat` failures were caused by unquoted `:Log` (only first wo
 
 - **Start ABA** — `RuntimeController` → `AssistRuntime` (dry-run or live per config)
 - **Stop ABA** — stop flag, ADS clear, mouse gated off, join up to 8s
-- **F8** — kill switch **only when `allow_live_mouse: true`** (inactive in default dry-run)
+- **F8** — kill switch **only when `allow_live_mouse: true`**
 - **Target closed** — pause pull/mouse when `pause_on_target_closed: true`
 - **`max_pull_speed_pixels_per_frame`** capped at 80
 

@@ -10,7 +10,7 @@ pub const VERIFY_REPORT_FILE: &str = "hwid_verify_report.txt";
 /// Printed after HWID success — no ABA mode terminology (live/dry-run are ABA-only).
 pub const ABA_NEXT_STEP_LINES: &[&str] = &[
     "── Next: ABA (separate app) ──",
-    "  cd ..\\OverlayAssist",
+    "  cd ..",
     "  run_windows.bat",
     "  (or: .venv\\Scripts\\python.exe aba.py)",
     "  GUI requires ban acknowledgment on first Start.",

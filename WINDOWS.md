@@ -20,7 +20,7 @@ Failures **pause once** with a clear message. Log: `logs\aba_setup.log`
 ### If setup fails
 
 ```bat
-cd path\to\OverlayAssist
+cd path\to\aaaaabee
 python setup_doctor.py
 ```
 
@@ -33,10 +33,11 @@ Or after venv exists:
 ## Manual
 
 ```powershell
-cd OverlayAssist
+cd path\to\aaaaabee
 py -3.10 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+pip install -r requirements-yolo.txt
 python aba.py --self-check
 python aba.py
 ```
@@ -83,9 +84,9 @@ Check the **tkinter_gui** line.
 
 | Key | Recommendation |
 |-----|----------------|
-| `profile` | `apex_style_dry_run` |
-| `mouse_backend` | `auto` → Win32 on Windows |
-| `allow_live_mouse` | **`false`** default (dry-run). **`true`** = live assist — **will ban** on live EAC |
+| `profile` | `apexaimbot` shipped default (YOLO + Apex PID); use `apex_style_dry_run` for no-mouse dry-run |
+| `mouse_backend` | `apexaimbot` profile → bundled mouse DLL if present, otherwise Win32 fallback |
+| `allow_live_mouse` | Shipped default is **`true`** for offline/private builds after GUI ban acknowledgment. Set **`false`** for dry-run. |
 | `ads_input_mode` | Used only if `allow_live_mouse: true`; `both` adds global RMB poll |
 | `monitor_index` | `1` = primary |
 | `capture_fov_crop` | `true` |

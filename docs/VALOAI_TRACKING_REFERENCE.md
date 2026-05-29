@@ -68,4 +68,4 @@ When YOLO agrees with a CV candidate (IoU ≥ `yolo_fusion_min_iou`), that candi
 
 ## Safety
 
-Both projects are external screen assist only. Live EAC/BattlEye/Vanguard risk remains. ABA defaults to dry-run; valoai has no equivalent gate — treat valoai as **reference only** for detection ideas, not as a drop-in runtime.
+Both projects are external screen assist only. Live EAC/BattlEye/Vanguard risk remains. ABA ships with a GUI ban acknowledgment and can be switched to `apex_style_dry_run` for no-mouse testing; valoai has no equivalent gate — treat valoai as **reference only** for detection ideas, not as a drop-in runtime.

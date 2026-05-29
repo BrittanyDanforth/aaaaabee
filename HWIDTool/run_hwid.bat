@@ -4,7 +4,8 @@ setlocal EnableExtensions EnableDelayedExpansion
 REM HWID pre-step - use Run_As_Admin.bat if Admin PowerShell still fails
 cd /d "%~dp0"
 set "ROOT=%CD%"
-set "ABA_ROOT=%ROOT%\..\OverlayAssist"
+set "ABA_ROOT=%ROOT%\.."
+if not exist "%ABA_ROOT%\run_windows.bat" set "ABA_ROOT=%ROOT%\..\OverlayAssist"
 set "LOGDIR=%ROOT%\logs"
 set "LOGFILE=%LOGDIR%\hwid_setup.log"
 set "MARKER=%LOGDIR%\hwid_step.ok"
@@ -19,6 +20,9 @@ goto :Main
 
 :MaybeElevate
 if /I not "%HWID_NO_ELEVATE%"=="1" call :TryElevate
+if "!HWID_ELEVATED_CHILD_RAN!"=="1" (
+  endlocal & exit /b !HWID_ELEVATED_CHILD_EXIT!
+)
 goto :Main
 
 :TryElevate
@@ -36,9 +40,10 @@ echo.
 echo This window is NOT Administrator.
 echo Opening UAC prompt - click Yes...
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c \"\"\"%~f0\"\" ELEVATED\"' -Verb RunAs -WorkingDirectory '%ROOT%' -Wait"
-set "ELEV_ERR=!ERRORLEVEL!"
-exit /b !ELEV_ERR!
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c \"\"\"%~f0\"\" ELEVATED\"' -Verb RunAs -WorkingDirectory '%ROOT%' -Wait -PassThru; exit $p.ExitCode"
+set "HWID_ELEVATED_CHILD_EXIT=!ERRORLEVEL!"
+set "HWID_ELEVATED_CHILD_RAN=1"
+exit /b 0
 
 :Main
 if not exist "%LOGDIR%" mkdir "%LOGDIR%" 2>nul

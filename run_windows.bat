@@ -154,8 +154,8 @@ if errorlevel 1 (
 if not exist "%DEPS_OK%" goto :DoInstall
 
 REM Don't trust the marker alone — smoke-test that the real imports load.
-REM Catches the case where requirements.txt grew new entries between runs.
-"%PY%" -c "import numpy, cv2, mss, psutil, pynput" 1>nul 2>nul
+REM Catches the case where requirements*.txt grew new entries between runs.
+"%PY%" -c "import numpy, cv2, mss, psutil, pynput, torch, torchvision, pandas, yaml, tqdm, requests, matplotlib, scipy, seaborn, IPython" 1>nul 2>nul
 if not errorlevel 1 goto :DepsDone
 call :Log "DEPS_OK marker present but imports failed — reinstalling."
 echo Dependency check failed — reinstalling missing packages...
@@ -175,6 +175,11 @@ if errorlevel 1 (
   set "FAILMSG=pip install -r requirements.txt failed."
   goto :SetupFail
 )
+"%PY%" -m pip install -r "%ROOT%\requirements-yolo.txt"
+if errorlevel 1 (
+  set "FAILMSG=pip install -r requirements-yolo.txt failed."
+  goto :SetupFail
+)
 echo ok>"%DEPS_OK%"
 call :Log "Dependencies installed."
 echo Dependencies installed.
@@ -192,7 +197,7 @@ echo.
 echo Verifying ApexAimBot bundle (weights + vendor tree)...
 "%PY%" scripts\ensure_apexaimbot_bundle.py
 if errorlevel 1 (
-  set "FAILMSG=ApexAimBot bundle incomplete. Run: python scripts\ensure_apexaimbot_bundle.py
+  set "FAILMSG=ApexAimBot bundle incomplete. Run: python scripts\ensure_apexaimbot_bundle.py"
   goto :SetupFail
 )
 
