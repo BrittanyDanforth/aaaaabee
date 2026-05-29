@@ -27,6 +27,7 @@ FOCUSED_TESTS = [
     "tests/test_apex_lock_and_nearest.py",
     "tests/test_apexaimbot_pid.py",
     "tests/test_yolo_cv_bypass.py",
+    "tests/test_yolo_overlay_motion.py",
     "tests/test_yolo_detector.py",
     "tests/test_yolo_real_apex_images.py",
     "tests/test_pull_mouse_gate.py",

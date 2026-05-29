@@ -151,7 +151,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "mouse_backend": "apexaimbot",
         "apexaimbot_mouse_modifier": 0.8,
         "yolo_use_fp16": True,
-        "yolo_skip_motion_smooth": True,
+        "yolo_skip_motion_smooth": False,
         "yolo_fixed_square_capture": True,
         "yolo_direct_overlay": True,
         "yolo_pull_stale_grace_frames": 12,

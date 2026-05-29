@@ -387,7 +387,7 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     )
     cfg["yolo_use_fp16"] = bool(cfg.get("yolo_use_fp16", True))
     cfg["yolo_apex_nearest_lock"] = bool(cfg.get("yolo_apex_nearest_lock", True))
-    cfg["yolo_skip_motion_smooth"] = bool(cfg.get("yolo_skip_motion_smooth", True))
+    cfg["yolo_skip_motion_smooth"] = bool(cfg.get("yolo_skip_motion_smooth", False))
     cfg["yolo_fixed_square_capture"] = bool(
         cfg.get("yolo_fixed_square_capture", True)
     )

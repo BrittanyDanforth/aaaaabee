@@ -326,7 +326,7 @@ class TargetingRuntime:
                     observe_called=False,
                 )
         else:
-            if det_mode == "yolo" and bool(config.get("yolo_skip_motion_smooth", True)):
+            if det_mode == "yolo" and bool(config.get("yolo_skip_motion_smooth", False)):
                 motion = TargetMotion(
                     t.centroid_x,
                     t.centroid_y,
