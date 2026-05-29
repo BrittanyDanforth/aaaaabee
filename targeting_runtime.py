@@ -160,6 +160,7 @@ class TargetingRuntime:
             )
 
     def _apply_motion_config(self, config: dict[str, Any], cx: float, cy: float) -> None:
+        ads_active = bool(config.get("_ads_active", True))
         display_fov = float(
             effective_overlay_fov_radius(config, ads_active=ads_active)
         )
