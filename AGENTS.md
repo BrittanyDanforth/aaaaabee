@@ -14,7 +14,13 @@ ABA (OverlayAssist) is a Python desktop application for real-time aim-assist ove
 python3 -m pytest tests/ -v
 ```
 
-All 267 tests use synthetic frames and mocks — no display or game required.
+The full test suite is broad and includes CV/screenshot tuning regressions. For the Apex/YOLO stack, the current Cloud-ready pre-merge check is:
+
+```bash
+python3 scripts/pre_merge_sanity.py --pytest
+```
+
+That focused suite uses synthetic frames/mocks and does not require a display or game.
 
 ### Running the application
 
@@ -27,6 +33,12 @@ python3 aba.py --debug          # CLI + debug window
 
 On Cloud VMs (headless Linux), screen capture via `mss` will fail with `"drawable's visual not found"` — this is expected. Detection, motion, pull, and mouse-backend subsystems all work without a display.
 
+### YOLO primary detection (vendored ApexAimBot)
+
+When `detection_mode` is `yolo`, detection uses **`third_party/apexaimbot/`** (vendored YOLOv5 + bundled `APEX416SFP32.engine`). Requires `pip install -r requirements-yolo.txt` plus the vendored YOLOv5 helper imports used by the update script (`pandas`, `PyYAML`, `tqdm`, `requests`, `matplotlib`, `scipy`, `seaborn`, `IPython`). Verify weights: `python3 scripts/ensure_apexaimbot_weights.py`. Preset **ApexAimBot** sets `pull_mode: apexaimbot_pid`. Architecture/risks: `docs/APEX_STACK_RISKS.md`. Regression: `tests/test_apex_stack_regression.py`, `tests/test_mode_transition_integration.py`. Pre-merge: `python3 scripts/pre_merge_sanity.py --pytest`.
+
+On Cloud, `aba.py --self-check` validates the mocked YOLO pipeline and pull pipeline, then exits nonzero on expected headless `mss` monitor/capture failures. The optional real engine/PT load can also warn about missing vendored YOLO files such as `export.py`; treat the mocked pipeline and focused pytest suite as the Cloud validation path unless the vendored tree is updated.
+
 ### Detection inspection (no display needed)
 
 ```bash
@@ -34,9 +46,17 @@ python3 scripts/inspect_detection_frame.py           # shows cluster/body scorin
 python3 scripts/save_detection_artifacts.py --all-references  # writes proof JSON to artifacts/
 ```
 
-### Dependencies (beyond requirements.txt)
+### Full test suite vs focused suite
 
-`requirements.txt` lists `numpy` and `opencv-python-headless`. Additional runtime dependencies not in that file: `mss`, `pynput`, `psutil`. System packages needed for build: `python3-dev` (for evdev/pynput C extension), `python3-tk` (for tkinter overlay).
+The full `pytest tests/` run has ~36 pre-existing failures in CV tuning/screenshot regression tests (e.g. `test_real_apex_*`, `test_img*`, `test_long_ads_drift`, `test_runtime_wiring`). These are known and do not indicate environment issues. Always use the focused suite (`pre_merge_sanity.py --pytest`, 152 tests) as the Cloud validation gate.
+
+### Dependencies
+
+`requirements.txt` includes the Python runtime dependencies. System packages needed in the VM image: `python3-dev` (for evdev/pynput C extension builds) and `python3-tk` (for tkinter overlay smoke checks).
+
+### HWIDTool in Cloud
+
+`HWIDTool/.cargo/config.toml` targets `x86_64-pc-windows-msvc`. Linux Cloud agents can run `cargo check` after stable Rust and that target are installed, but the tool itself is Windows/admin-only and cannot be exercised end to end in Cloud.
 
 ### No linter config
 
@@ -51,7 +71,7 @@ The GUI (`aba_gui.py`) uses Basic/Advanced mode split:
 - **Debug**: Overlay, verbose logging, pull trace, debug frame save
 - Advanced tabs (hidden by default): Aim prediction, Body scoring weights, Overlay internals
 
-**Presets**: Stable, Responsive, Strong, Debug — apply via buttons on the Basic tab.
+**Presets**: Stable, Responsive, ApexAimBot, Tracking, Strong, Debug — apply via buttons on the Basic tab.
 
 **Overlay dot FPS**: `overlay_fps` (default 90) controls Tk redraw; `capture_fps` (60 on live trace) controls how often dot coordinates update. Frame drag: `_advance_overlay_follow` on chest-clamped aim (not deadband 2px cap); FOV uses `min(detect,display)*0.96`; `overlay_dot_smooth_alpha` tunes both capture follow (`configure_overlay_dot_alpha`) and Tk glide (`set_dot_glide_alpha`). After ring clamp, `sync_overlay_follow_frame` keeps follow state aligned. Pull uses ring-clamped `frame_overlay` (same as dot). **Ring + white crosshair (+)** share `_cx/_cy` via `set_fov_center(center_x, center_y)` each frame (`crosshair_offset_*`); dot glides from that center on first show.
 

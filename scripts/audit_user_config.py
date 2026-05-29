@@ -113,33 +113,17 @@ def main() -> int:
     ap.add_argument("--profile", "-p", help="built-in profile name")
     args = ap.parse_args()
     if args.config:
-        import json
-        from profiles import apply_profile
-        raw = json.loads(Path(args.config).read_text(encoding="utf-8"))
-        cfg = apply_profile(raw)
+        from config_pipeline import load_app_config
+
+        cfg = load_app_config(Path(args.config))
     elif args.profile:
-        from profiles import apply_profile
-        cfg = apply_profile({"profile": args.profile})
+        from config_pipeline import normalize_app_config
+
+        cfg = normalize_app_config({"profile": args.profile})
     else:
-        cfg = {
-            "max_pull_speed_pixels_per_frame": 18.0,
-            "pull_strength": 0.78,
-            "deadzone_pixels": 3,
-            "velocity_smoothing": 0.50,
-            "smoothing_curve": "ease_out",
-            "magnetism_radius_pixels": 80,
-            "magnetism_min_pull_scale": 0.70,
-            "fov_radius_pixels": 140,
-            "fov_edge_min_pull_scale": 0.65,
-            "prediction_enabled": True,
-            "prediction_lead_seconds": 0.055,
-            "prediction_max_pixels": 36,
-            "humanize_enabled": True,
-            "humanize_amplitude_pixels": 0.20,
-            "humanize_jerk_limit": 10.0,
-            "capture_fps": 30,
-            "mouse_gate_pull_budget_scale": 3.5,
-        }
+        from config_pipeline import normalize_app_config
+
+        cfg = normalize_app_config({"profile": "apex_style_dry_run"})
     fps = float(cfg.get("capture_fps", 30))
     r = simulate(cfg, fps)
     print(json.dumps(r, indent=2))

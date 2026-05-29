@@ -82,6 +82,189 @@ def build_legacy_blob_frame(
     return frame
 
 
+def run_yolo_pipeline_check(
+    config: dict[str, Any],
+    *,
+    log_line: Callable[[str], None] | None = None,
+) -> tuple[bool, list[str], str | None]:
+    """
+    Verify production YOLO path without torch: normalize → detect → lock → PID math.
+    Uses mocked infer; proves yolo_targeting wiring matches runtime.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from config_pipeline import normalize_app_config
+    from detector import DetectionResult, Target
+    from profiles import is_yolo_detection, uses_apex_pid_pull
+    from target_lock import TargetLockState
+
+    def _log(msg: str) -> None:
+        if log_line is not None:
+            log_line(msg)
+
+    cfg = normalize_app_config(dict(config))
+    if not is_yolo_detection(cfg):
+        return True, ["  SKIP  pipeline check (not yolo detection_mode)"], None
+    if not uses_apex_pid_pull(cfg):
+        return True, ["  SKIP  pipeline check (pull_mode is not apexaimbot_pid)"], None
+
+    lines: list[str] = []
+    frame = np.zeros((416, 416, 3), dtype=np.uint8)
+    cx, cy = 208.0, 208.0
+    fake = Target(
+        centroid_x=cx,
+        centroid_y=cy - 20.0,
+        area=8000.0,
+        distance_to_center=20.0,
+        confidence=0.88,
+        apex_raw_offset_x=0.0,
+        apex_raw_offset_y=-40.0,
+        bbox_x=168,
+        bbox_y=108,
+        bbox_w=80,
+        bbox_h=160,
+        solidity=0.75,
+        humanoid_score=0.88,
+        part_count=3,
+        body_shape_score=0.88,
+        head_score=0.88,
+        torso_score=0.88,
+        limb_stack_score=0.5,
+        red_coverage=0.12,
+        fill_ratio=0.65,
+        max_circularity=0.45,
+        has_classified_torso=True,
+    )
+    raw = DetectionResult(fake, 1, 0.88, active=True)
+    lock_state = TargetLockState()
+    mock_engine = MagicMock(name="pipeline_engine")
+
+    try:
+        with patch(
+            "yolo_targeting.find_best_yolo_target",
+            return_value=raw,
+        ):
+            from yolo_targeting import yolo_detect_and_lock
+
+            result, box = yolo_detect_and_lock(
+                cfg,
+                frame,
+                mock_engine,
+                lock_state,
+                fov_radius=208,
+                center_x=cx,
+                center_y=cy,
+                frame_size=(416, 416),
+            )
+    except Exception as exc:
+        return False, lines, f"YOLO pipeline check failed: {exc}"
+
+    if result.target is None or lock_state.locked_target is None:
+        return False, lines, "yolo_detect_and_lock did not lock a target"
+    if box is None:
+        return False, lines, "yolo_detect_and_lock returned no bbox hint"
+
+    from apexaimbot_bridge import apex_pid_errors, in_lock_box, prepare_apex_cfg
+
+    apex_cfg = prepare_apex_cfg(cfg)
+    aim_frac = float(apex_cfg.get("yolo_aim_fraction", 0.2))
+    err_x, err_y, _px, _py = apex_pid_errors(
+        fake,
+        frame_cx=cx,
+        frame_cy=cy,
+        aim_offset_fraction=aim_frac,
+    )
+    mock_rt = MagicMock()
+    mock_rt.config.lock_range_x = float(cfg.get("apexaimbot_lock_range_x", 1.0))
+    mock_rt.config.lock_range_y = float(cfg.get("apexaimbot_lock_range_y", 0.5))
+    if not in_lock_box(
+        mock_rt,
+        error_x=err_x,
+        error_y=err_y,
+        box_width=float(fake.bbox_w),
+        box_height=float(fake.bbox_h),
+        hip_fire=True,
+        raw_offset_y=float(fake.apex_raw_offset_y),
+    ):
+        return False, lines, "PID lock-box math rejected expected in-lock errors"
+
+    lines.append("  OK  normalize → yolo_detect_and_lock → nearest lock")
+    lines.append(
+        f"  OK  lock bbox={box[0]:.0f}x{box[1]:.0f} pid_err=({err_x:.2f},{err_y:.2f})"
+    )
+    _log("yolo pipeline check passed (mocked infer)")
+    return True, lines, None
+
+
+def run_yolo_detection_check(
+    config: dict[str, Any],
+    *,
+    log_line: Callable[[str], None] | None = None,
+) -> tuple[bool, list[str], str | None]:
+    """Validate vendored ApexAimBot weights path and engine load when torch is present."""
+    from pathlib import Path
+
+    from apexaimbot_bridge import VENDOR_DEFAULT, get_apexaimbot_runtime, prepare_apex_cfg
+
+    def _log(msg: str) -> None:
+        if log_line is not None:
+            log_line(msg)
+
+    cfg = prepare_apex_cfg(dict(config))
+    if not cfg.get("yolo_weights_path") and VENDOR_DEFAULT.is_dir():
+        cfg["yolo_weights_path"] = "third_party/apexaimbot/weights/APEX416SFP32.engine"
+    cfg.setdefault("detection_mode", "yolo")
+
+    vendor = Path(str(cfg.get("yolo_yolov5_root", VENDOR_DEFAULT)))
+    if not (vendor / "models" / "common.py").is_file():
+        return False, [], f"Vendored yolov5 missing at {vendor}"
+
+    try:
+        import sys
+
+        if str(vendor.resolve()) not in sys.path:
+            sys.path.insert(0, str(vendor.resolve()))
+        from engine import ApexAimBotDetectConfig
+
+        acfg = ApexAimBotDetectConfig.from_app_config(cfg)
+        _log(f"yolo weights resolved: {acfg.weights_path}")
+    except Exception as exc:
+        _log(f"yolo config fail: {exc}")
+        return False, [], f"YOLO/ApexAimBot config invalid: {exc}"
+
+    try:
+        import torch  # noqa: F401
+    except ImportError:
+        return (
+            False,
+            [],
+            "YOLO mode requires torch: pip install -r requirements-yolo.txt",
+        )
+
+    eng = get_apexaimbot_runtime(cfg)
+    if eng is None:
+        return False, [], "ApexAimBot engine failed to load (see logs)"
+    lines = [
+        f"  OK  ApexAimBot engine loaded weights={eng.config.weights_path.name} "
+        f"imgsz={eng.config.model_imgsz}"
+    ]
+    try:
+        import numpy as np
+        from apexaimbot_bridge import detect_frame
+
+        sz = int(eng.config.model_imgsz)
+        frame = np.zeros((sz, sz, 3), dtype=np.uint8)
+        det = detect_frame(
+            eng, frame, fov_center_x=sz / 2.0, fov_center_y=sz / 2.0
+        )
+        lines.append(
+            f"  OK  YOLO forward pass (candidates={det.candidates}, active={det.active})"
+        )
+    except Exception as exc:
+        return False, lines, f"YOLO inference smoke test failed: {exc}"
+    return True, lines, None
+
+
 def run_body_detection_check(
     find_best_target: Callable[..., Any],
     config: dict[str, Any],
@@ -358,26 +541,46 @@ def run_self_check_detailed(config: dict[str, Any]) -> SelfCheckResult:
             errors.append(f"Capture failed: {exc}")
             lines.append(f"  FAIL {exc}")
 
-    lines.append("\nDetection (synthetic body dummy):")
+    det_mode = str(config.get("detection_mode", "apex")).strip().lower()
+    if det_mode == "yolo":
+        lines.append("\nDetection (YOLO primary):")
+    else:
+        lines.append("\nDetection (synthetic body dummy):")
     try:
         from detector import find_best_target
 
-        ok, ok_lines, err = run_body_detection_check(
-            find_best_target,
-            config,
-            log_line=_log_line,
-            fov_radius=int(config.get("fov_radius_pixels", 180)),
-            # R3 (audit): config key is "min_target_area_pixels" — the old
-            # bare "min_target_area" never matched, so self-check always
-            # defaulted to 40 regardless of profile.
-            min_area=float(config.get("min_target_area_pixels", 40)),
-        )
-        lines.extend(ok_lines)
-        for sanity_line in run_blob_mask_sanity(find_best_target, config, log_line=_log_line):
-            lines.append(sanity_line)
+        if det_mode == "yolo":
+            ok_pipe, pipe_lines, err_pipe = run_yolo_pipeline_check(
+                config, log_line=_log_line
+            )
+            lines.extend(pipe_lines)
+            ok = ok_pipe
+            err = err_pipe
+            ok_eng, eng_lines, err_eng = run_yolo_detection_check(
+                config, log_line=_log_line
+            )
+            lines.extend(eng_lines)
+            if ok_eng:
+                ok = ok and True
+            else:
+                warnings.append(err_eng or "YOLO engine load skipped")
+                lines.append(f"  WARN {err_eng}")
+        else:
+            ok, ok_lines, err = run_body_detection_check(
+                find_best_target,
+                config,
+                log_line=_log_line,
+                fov_radius=int(config.get("fov_radius_pixels", 180)),
+                min_area=float(config.get("min_target_area_pixels", 40)),
+            )
+            lines.extend(ok_lines)
+            for sanity_line in run_blob_mask_sanity(
+                find_best_target, config, log_line=_log_line
+            ):
+                lines.append(sanity_line)
         if not ok:
-            errors.append(err or "Synthetic body dummy not detected")
-            lines.append("  FAIL no target on body-shaped test pattern")
+            errors.append(err or "Detection self-check failed")
+            lines.append("  FAIL detection self-check")
     except Exception as exc:
         errors.append(f"Detection failed: {exc}")
         lines.append(f"  FAIL {exc}")

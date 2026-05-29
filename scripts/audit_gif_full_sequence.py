@@ -30,6 +30,7 @@ sys.path.insert(0, str(REPO))
 
 import motion as motion_mod
 import profiles
+from config_pipeline import load_app_config
 from motion import TargetTracker
 from profiles import PROFILE_APEX_STYLE_LIVE_TRACE
 from target_lock import lock_target_is_plausible
@@ -46,6 +47,19 @@ CHEST_LO = motion_mod._body_y_lo_frac
 
 
 def _live_cfg() -> dict:
+    """Shipped YOLO/ApexAimBot config — same pipeline as production."""
+    cfg = load_app_config(REPO / "config.json")
+    cfg.update(
+        {
+            "_ads_active": True,
+            "new_lock_confirm_frames": 1,
+        }
+    )
+    return cfg
+
+
+def _live_cfg_cv() -> dict:
+    """Legacy CV (red-outline) config — kept for comparison runs."""
     cfg = copy.deepcopy(profiles.PROFILE_DEFAULTS[PROFILE_APEX_STYLE_LIVE_TRACE])
     cfg.update(
         {
@@ -70,29 +84,20 @@ def _frame_paths() -> list[Path]:
 
 
 def _draw_aim_dot(img: np.ndarray, x: float, y: float) -> None:
-    """Draw the final overlay aim dot in bright MAGENTA with a white halo
-    and an explicit 'AIM' label.
+    """Draw the YOLO aim marker: yellow crosshair with white halo and 'AIM' label.
 
-    Game red elements (dummy bodies, hazard-board Xs, score-panel icons)
-    saturate the red channel; using BGR=(255,0,255) with a white outline
-    keeps the overlay dot visually unambiguous in the proof PNGs.  This
-    is *only* the final selected-target marker — rejected candidates
-    never draw a marker (see _annotate_frame).
+    Yellow (BGR 0,255,255) is the standard YOLO detection marker color,
+    matching the crosshair style used in audit_yolo_real_apex.py.
     """
     ix, iy = int(round(x)), int(round(y))
-    cv2.circle(img, (ix, iy), 7, (255, 0, 255), -1)
-    cv2.circle(img, (ix, iy), 10, (255, 255, 255), 2)
-    cv2.line(img, (ix - 14, iy), (ix - 9, iy), (255, 0, 255), 1)
-    cv2.line(img, (ix + 9, iy), (ix + 14, iy), (255, 0, 255), 1)
-    cv2.line(img, (ix, iy - 14), (ix, iy - 9), (255, 0, 255), 1)
-    cv2.line(img, (ix, iy + 9), (ix, iy + 14), (255, 0, 255), 1)
+    cv2.drawMarker(img, (ix, iy), (0, 255, 255), cv2.MARKER_CROSS, 20, 2)
+    cv2.circle(img, (ix, iy), 12, (255, 255, 255), 1)
     cv2.putText(
-        img, "AIM", (ix + 12, iy - 10),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 0, 255), 1, cv2.LINE_AA,
+        img, "AIM", (ix + 14, iy - 10),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA,
     )
 
 
-# Backwards-compat alias used by other callers in this file.
 _draw_red_dot = _draw_aim_dot
 
 
@@ -145,13 +150,11 @@ def _annotate_frame(
     lost_frames: int,
     plausible: bool,
 ) -> np.ndarray:
-    """1:1 live overlay rules: dot only when plausible + fresh (aim.active)."""
+    """1:1 live overlay rules: dot when plausible + visible (fresh or stale within grace)."""
     vis = img.copy()
     _sky_line(vis, h)
     has_target = aim.target is not None
-    show_dot = plausible and aim.active
-    # Live overlay has no bbox — only draw box when dot would show (avoids
-    # misleading STALE rectangles on empty scenes, e.g. gif frame 61).
+    show_dot = plausible and (aim.active or aim.show_for_overlay)
     show_box = show_dot
     tag = "NO_TARGET"
     if has_target:
@@ -159,10 +162,10 @@ def _annotate_frame(
         if aim.is_stale:
             tag = "STALE" if plausible else "STALE_BAD"
         elif aim.active:
-            tag = "LIVE" if plausible else "LIVE_BAD"
+            tag = "YOLO" if plausible else "YOLO_BAD"
         else:
             tag = "LOCKED_LOST"
-        box_color = (0, 255, 0) if show_dot else (0, 120, 255)
+        box_color = (0, 220, 0) if show_dot else (0, 120, 255)
         if not plausible:
             box_color = (0, 80, 255)
         if aim.is_stale:
@@ -185,16 +188,12 @@ def _annotate_frame(
                 t.bbox_h,
             )
             bx, by, bw, bh = bb
+        conf = getattr(t, "confidence", 0.0) or 0.0
         dist = round(t.distance_to_center, 0)
+        label = f"{tag} d={dist:.0f} conf={conf:.2f} bb=({bx},{by},{bw}x{bh})"
         cv2.putText(
-            vis,
-            f"{tag} d={dist:.0f} bb=({bx},{by},{bw}x{bh})",
-            (8, 22),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.45,
-            (0, 0, 255),
-            1,
-            cv2.LINE_AA,
+            vis, label, (8, 22),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA,
         )
     if show_dot and aim.overlay_x is not None and aim.overlay_y is not None:
         _draw_red_dot(vis, aim.overlay_x, aim.overlay_y)
@@ -204,7 +203,7 @@ def _annotate_frame(
             (8, 40),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
-            (0, 0, 255),
+            (0, 255, 255),
             1,
             cv2.LINE_AA,
         )
@@ -315,7 +314,7 @@ def _write_proof_montage(
             t = np.vstack([t, pad])
         padded.append(t)
     montage = np.hstack(padded)
-    cv2.imwrite(str(out / "proof_montage.jpg"), montage, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    cv2.imwrite(str(out / "proof_montage.jpg"), montage)
 
 
 def run(
@@ -323,6 +322,7 @@ def run(
     save_every: int = 0,
     save_all: bool = False,
     max_violation_dumps: int = 24,
+    use_cv: bool = False,
 ) -> int:
     paths = _frame_paths()
     if not paths:
@@ -338,7 +338,9 @@ def run(
     if save_every > 0:
         frames_dir.mkdir(exist_ok=True)
 
-    cfg = _live_cfg()
+    cfg = _live_cfg_cv() if use_cv else _live_cfg()
+    det_label = "CV" if use_cv else "YOLO"
+    print(f"Detection mode: {det_label} ({cfg.get('detection_mode', 'apex')})")
     rt = TargetingRuntime()
     fps = 30.0
     dt = 1.0 / fps
@@ -365,16 +367,21 @@ def run(
 
         fov_cx = float(cfg["fov_center_x"])
         fov_cy = float(cfg["fov_center_y"])
+        is_yolo = str(cfg.get("detection_mode", "")).strip().lower() == "yolo"
         plausible = False
         if aim.target is not None:
-            plausible = lock_target_is_plausible(
-                aim.target,
-                center_y=fov_cy,
-                frame_w=w,
-                frame_h=h,
-                fov_cx=fov_cx,
-                fov_cy=fov_cy,
-            )
+            if is_yolo:
+                conf = getattr(aim.target, "confidence", 0.0) or 0.0
+                plausible = conf >= float(cfg.get("yolo_confidence_min", 0.5))
+            else:
+                plausible = lock_target_is_plausible(
+                    aim.target,
+                    center_y=fov_cy,
+                    frame_w=w,
+                    frame_h=h,
+                    fov_cx=fov_cx,
+                    fov_cy=fov_cy,
+                )
         row: dict = {
             "frame_idx": i,
             "file": fp.name,
@@ -425,8 +432,7 @@ def run(
                 row["overlay_in_body"] = in_body
 
                 sky_bbox_top = by < h * SKY_FRAC
-                # Chest/sky dot checks only on fresh frames (1:1 live overlay).
-                if aim.active:
+                if aim.active or aim.show_for_overlay:
                     sky_aim = oy < h * SKY_FRAC
                     soft_tol = max(4.0, bh * 0.06)
                     above_chest = oy > y_hi + soft_tol
@@ -600,6 +606,11 @@ def main() -> int:
         help="Write annotated PNG for every frame (gif_166_proof)",
     )
     p.add_argument("--extract", action="store_true", help="Extract all GIF frames first")
+    p.add_argument(
+        "--cv",
+        action="store_true",
+        help="Use legacy CV red-outline detection instead of YOLO",
+    )
     args = p.parse_args()
     if args.extract and GIF_PATH.exists():
         import subprocess
@@ -610,7 +621,7 @@ def main() -> int:
         )
         if r.returncode != 0:
             return 1
-    return run(save_every=args.save_every, save_all=args.save_all)
+    return run(save_every=args.save_every, save_all=args.save_all, use_cv=args.cv)
 
 
 if __name__ == "__main__":

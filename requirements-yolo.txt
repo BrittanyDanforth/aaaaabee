@@ -1,0 +1,13 @@
+# YOLO primary detection (detection_mode=yolo). Install on top of requirements.txt.
+# CPU wheels are default; for CUDA use https://pytorch.org/get-started/locally/
+torch>=2.0.0
+torchvision>=0.15.0
+# Vendored YOLOv5 helper imports used while loading/inferencing APEX416SFP32.engine/APEX22W.pt.
+pandas>=2.0.0
+PyYAML>=6.0.0
+tqdm>=4.0.0
+requests>=2.0.0
+matplotlib>=3.0.0
+scipy>=1.0.0
+seaborn>=0.12.0
+IPython>=8.0.0

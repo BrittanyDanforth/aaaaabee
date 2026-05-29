@@ -14,6 +14,109 @@ from process_presence import ProcessPresenceDebouncer
 
 logger = logging.getLogger("aba.controller")
 
+# Patch keys that trigger YOLO / Apex hot-reload handling in apply_config_patch.
+_YOLO_TOUCHED_KEYS = frozenset({
+    "detection_mode",
+    "yolo_weights_path",
+    "yolo_yolov5_root",
+    "yolo_inference_size",
+    "yolo_confidence_min",
+    "yolo_iou_thres",
+    "yolo_max_det",
+    "yolo_grab_width",
+    "yolo_grab_height",
+    "yolo_use_fp16",
+    "yolo_aim_fraction",
+    "yolo_device",
+    "pull_mode",
+    "apexaimbot_pid_x_p",
+    "apexaimbot_pid_x_i",
+    "apexaimbot_pid_x_d",
+    "apexaimbot_pid_y_p",
+    "apexaimbot_pid_y_i",
+    "apexaimbot_pid_y_d",
+    "apexaimbot_min_step",
+    "apexaimbot_max_step",
+    "apexaimbot_lock_range_x",
+    "apexaimbot_lock_range_y",
+    "apex_pid_subtick_hz",
+    "apexaimbot_recoil_enabled",
+    "apexaimbot_recoil_weapon",
+    "apexaimbot_sens",
+    "apexaimbot_ads_sens",
+    "apexaimbot_auto_sens_modifier",
+    "apexaimbot_recoil_modifier",
+    "apexaimbot_scale_pid_by_modifier",
+    "apexaimbot_mouse_modifier",
+    "yolo_switch_reset_pixels",
+})
+
+_MODE_SUBSYSTEM_KEYS = frozenset({
+    "detection_mode",
+    "pull_mode",
+    "detection_motion_assist",
+    "detection_motion_threshold",
+})
+
+_RECOIL_ONLY_KEYS = frozenset({
+    "apexaimbot_recoil_enabled",
+    "apexaimbot_recoil_weapon",
+    "apexaimbot_sens",
+    "apexaimbot_ads_sens",
+    "apexaimbot_auto_sens_modifier",
+    "apexaimbot_recoil_modifier",
+})
+
+# Keys that require a fresh vendored engine (cache key in apexaimbot_bridge).
+_YOLO_ENGINE_TUNE_KEYS = frozenset({
+    "yolo_weights_path",
+    "yolo_yolov5_root",
+    "yolo_inference_size",
+    "yolo_confidence_min",
+    "yolo_iou_thres",
+    "yolo_max_det",
+    "yolo_grab_width",
+    "yolo_grab_height",
+    "yolo_use_fp16",
+    "yolo_aim_fraction",
+    "yolo_device",
+    "apexaimbot_pid_x_p",
+    "apexaimbot_pid_x_i",
+    "apexaimbot_pid_x_d",
+    "apexaimbot_pid_y_p",
+    "apexaimbot_pid_y_i",
+    "apexaimbot_pid_y_d",
+    "apexaimbot_min_step",
+    "apexaimbot_max_step",
+    "apexaimbot_lock_range_x",
+    "apexaimbot_lock_range_y",
+    "apexaimbot_mouse_modifier",
+    "apexaimbot_recoil_modifier",
+    "apexaimbot_scale_pid_by_modifier",
+})
+
+
+def patch_touches_yolo(patch: dict[str, Any]) -> bool:
+    return any(k in patch for k in _YOLO_TOUCHED_KEYS)
+
+
+def should_reload_yolo_engine(
+    patch: dict[str, Any],
+    merged: dict[str, Any],
+    *,
+    full_replace: bool = False,
+) -> bool:
+    """True when live YOLO mode must reload the vendored engine from merged cfg."""
+    from profiles import is_yolo_detection
+
+    if not is_yolo_detection(merged):
+        return False
+    if full_replace:
+        return True
+    if any(k in patch for k in _YOLO_ENGINE_TUNE_KEYS):
+        return True
+    return False
+
 
 class RuntimeController:
     def __init__(self, config: dict[str, Any], config_path: Path) -> None:
@@ -42,31 +145,37 @@ class RuntimeController:
             self._config = cfg
         return cfg
 
-    def save_config(self, cfg: dict[str, Any] | None = None) -> None:
-        data = cfg if cfg is not None else self._config
-        with self._lock:
-            self._config = dict(data)
-        payload = {k: v for k, v in data.items() if not str(k).startswith("_")}
-        self.config_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        live = self._runtime
-        if live is not None and getattr(live, "running", False):
-            live.config = dict(data)
+    def _write_config_disk(self, cfg: dict[str, Any]) -> None:
+        self.config_path.write_text(
+            json.dumps(cfg, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
-    def apply_config_patch(self, patch: dict[str, Any], *, persist: bool = True) -> dict[str, Any]:
-        with self._lock:
-            merged = dict(self._config)
-            merged.update(patch)
-        try:
-            from config_validation import validate_config
-            from profiles import apply_profile
+    def save_config(self, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Persist + hot-apply (same subsystem refresh as slider patches)."""
+        data = dict(cfg if cfg is not None else self._config)
+        return self.apply_config_patch(data, persist=True, full_replace=True)
 
-            merged = validate_config(apply_profile(merged))
-        except Exception:
-            pass
+    def apply_config_patch(
+        self,
+        patch: dict[str, Any],
+        *,
+        persist: bool = True,
+        full_replace: bool = False,
+    ) -> dict[str, Any]:
+        with self._lock:
+            if full_replace:
+                merged = dict(patch)
+            else:
+                merged = dict(self._config)
+                merged.update(patch)
+        from config_pipeline import normalize_app_config
+
+        merged = normalize_app_config(merged)
         with self._lock:
             self._config = merged
         if persist:
-            self.save_config(merged)
+            self._write_config_disk(merged)
         live = self._runtime
         if live is not None and getattr(live, "running", False):
             live.config = merged
@@ -99,6 +208,44 @@ class RuntimeController:
                 live._detect_ctx.motion_threshold = int(
                     merged.get("detection_motion_threshold", 10)
                 )
+            if "mouse_backend" in patch and not live._dry:
+                from mouse_io import create_mouse_backend
+
+                live._mouse = create_mouse_backend(str(merged.get("mouse_backend", "auto")))
+            yolo_touched = patch_touches_yolo(patch)
+            if any(k in patch for k in _MODE_SUBSYSTEM_KEYS) and hasattr(
+                live, "sync_config_subsystems"
+            ):
+                live.sync_config_subsystems(merged)
+                if not live._dry and (
+                    "detection_mode" in patch or "pull_mode" in patch
+                ):
+                    from mouse_io import create_mouse_backend
+
+                    live._mouse = create_mouse_backend(
+                        str(merged.get("mouse_backend", "auto"))
+                    )
+            if "capture_fps" in patch or full_replace:
+                from profiles import effective_capture_fps
+
+                fps = effective_capture_fps(merged)
+                live._configured_fps = fps
+                if getattr(live, "_stats", None) is not None:
+                    live._stats.configured_fps = max(1, int(fps))
+            if yolo_touched:
+                from yolo_targeting import reload_yolo_engine
+
+                if should_reload_yolo_engine(patch, merged, full_replace=full_replace):
+                    live._yolo_engine = reload_yolo_engine(merged)
+                if hasattr(live, "_reset_apex_aim_state"):
+                    live._reset_apex_aim_state()
+            if any(k in patch for k in _RECOIL_ONLY_KEYS) and hasattr(
+                live, "_ensure_apex_recoil"
+            ):
+                from profiles import is_yolo_detection, uses_apex_pid_pull
+
+                if is_yolo_detection(merged) and uses_apex_pid_pull(merged):
+                    live._ensure_apex_recoil(merged)
             if hasattr(live, "_pull") and live._pull is not None:
                 live._pull.update_tuning(
                     pull_strength=float(merged.get("pull_strength", 0.82)),
@@ -159,7 +306,12 @@ class RuntimeController:
             ):
                 from profiles import effective_overlay_fov_radius
 
-                overlay_fov = int(effective_overlay_fov_radius(merged))
+                ads_active = False
+                if getattr(live, "_ads", None) is not None:
+                    ads_active = bool(live._ads.is_ads_active())
+                overlay_fov = int(
+                    effective_overlay_fov_radius(merged, ads_active=ads_active)
+                )
                 if getattr(live, "_overlay", None) is not None:
                     try:
                         import mss
@@ -194,15 +346,17 @@ class RuntimeController:
                         cy = mon["height"] / 2.0 + float(
                             merged.get("crosshair_offset_y", 0.0)
                         )
-                        from profiles import effective_fov_radius
+                        from profiles import effective_overlay_fov_radius
 
                         ads_active = False
                         if getattr(live, "_ads", None) is not None:
                             ads_active = bool(live._ads.is_ads_active())
                         fov_r = int(
-                            effective_fov_radius(merged, ads_active=ads_active)
+                            effective_overlay_fov_radius(
+                                merged, ads_active=ads_active
+                            )
                         )
-                        live._overlay.update_fov(fov_r, ads_active, cx, cy)
+                        live._overlay.update_fov(fov_r, False, cx, cy)
                         live._last_fov_radius = -1
                     except Exception:
                         logger.exception("hot-reload crosshair center failed")

@@ -66,7 +66,7 @@ echo   ABA - Apex reference external assist
 echo ========================================
 echo   Folder: %ROOT%
 echo   Log:    %LOGFILE%
-echo   Default: apex_style_live_safe (real mouse + hooks after GUI ban ack).
+echo   Default profile: apexaimbot (YOLO + PID + aba_mouse.dll after GUI ban ack).
 echo   BAN RISK on live EAC/BattlEye/Vanguard — offline/private only.
 echo   No injection into game process.
 echo.
@@ -154,8 +154,8 @@ if errorlevel 1 (
 if not exist "%DEPS_OK%" goto :DoInstall
 
 REM Don't trust the marker alone — smoke-test that the real imports load.
-REM Catches the case where requirements.txt grew new entries between runs.
-"%PY%" -c "import numpy, cv2, mss, psutil, pynput" 1>nul 2>nul
+REM Catches the case where requirements*.txt grew new entries between runs.
+"%PY%" -c "import numpy, cv2, mss, psutil, pynput, torch, torchvision, pandas, yaml, tqdm, requests, matplotlib, scipy, seaborn, IPython" 1>nul 2>nul
 if not errorlevel 1 goto :DepsDone
 call :Log "DEPS_OK marker present but imports failed — reinstalling."
 echo Dependency check failed — reinstalling missing packages...
@@ -175,6 +175,11 @@ if errorlevel 1 (
   set "FAILMSG=pip install -r requirements.txt failed."
   goto :SetupFail
 )
+"%PY%" -m pip install -r "%ROOT%\requirements-yolo.txt"
+if errorlevel 1 (
+  set "FAILMSG=pip install -r requirements-yolo.txt failed."
+  goto :SetupFail
+)
 echo ok>"%DEPS_OK%"
 call :Log "Dependencies installed."
 echo Dependencies installed.
@@ -186,6 +191,22 @@ echo Running setup doctor...
 if errorlevel 1 (
   set "FAILMSG=Setup doctor found problems. See output above."
   goto :SetupFail
+)
+
+echo.
+echo Verifying ApexAimBot bundle (weights + vendor tree)...
+"%PY%" scripts\ensure_apexaimbot_bundle.py
+if errorlevel 1 (
+  set "FAILMSG=ApexAimBot bundle incomplete. Run: python scripts\ensure_apexaimbot_bundle.py"
+  goto :SetupFail
+)
+
+echo.
+echo Verifying aba_mouse.dll (open-source, built from C — not downloaded)...
+"%PY%" scripts\ensure_aba_mouse_dll.py
+if errorlevel 1 (
+  echo Building aba_mouse.dll...
+  call scripts\build_aba_mouse_dll.bat
 )
 
 echo.

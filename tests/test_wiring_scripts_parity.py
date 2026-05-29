@@ -27,8 +27,9 @@ class WiringScriptsParityTests(unittest.TestCase):
 
     def test_save_config_syncs_live_runtime(self) -> None:
         text = (ROOT / "runtime_controller.py").read_text(encoding="utf-8")
-        block = text[text.find("def save_config") : text.find("def apply_config_patch")]
-        self.assertIn("live.config = dict(data)", block)
+        block = text[text.find("def apply_config_patch") : text.find("def set_benchmark_summary")]
+        self.assertIn("live.config = merged", block)
+        self.assertIn("_write_config_disk", text)
 
 
 if __name__ == "__main__":

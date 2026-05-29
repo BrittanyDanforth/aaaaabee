@@ -14,27 +14,27 @@ cd HWIDTool
 target\release\hwspoof.exe --verify-last
 ```
 
-## 2) ABA (default: live safe)
+## 2) ABA (default: ApexAimBot YOLO)
 
 ```bat
-cd OverlayAssist
+cd ..
 run_windows.bat
 ```
 
 Or if `.venv` already exists:
 
 ```bat
-cd OverlayAssist
+cd ..
 .venv\Scripts\python.exe aba.py
 ```
 
 | Setting | Default |
 |---------|---------|
-| Profile | `apex_style_live_safe` |
+| Profile | `apexaimbot` (YOLO + Apex PID) |
 | Mouse | **Real OS movement** when ADS + target (after ban acknowledgment) |
 | Hooks | **On** when running (RMB / F8 kill switch) |
 | Status when assisting | **ACTIVE LIVE** |
-| Capture | 30 FPS cap, pauses when game closed |
+| Capture | 60 FPS target, pauses when game closed |
 
 Dry-run only (no mouse): set `"profile": "apex_style_dry_run"` and `"allow_live_mouse": false` in `config.json`.
 

@@ -23,6 +23,8 @@ from debug_hud import launch_debug_hud
 from path_utils import APP_ROOT, LOGS_DIR, SELFCHECK_LOG, SETUP_LOG, open_logs_folder
 from perf_benchmark import run_perf_benchmark
 from process_presence import ProcessPresenceDebouncer
+from config_pipeline import LEAVE_YOLO_STACK_PATCH as CV_LEAVE_YOLO_PATCH
+from config_pipeline import merge_leave_yolo_stack
 from profiles import APEX_PROCESS_NAME, effective_capture_fps, normalize_profile_name
 from runtime_controller import RuntimeController
 from self_check import run_self_check_detailed
@@ -41,6 +43,25 @@ UI_SLIDER = "#ffffff"
 UI_ACTIVE_TAB = "#2e2e2e"
 UI_PRESET_BG = "#1a3a2a"
 UI_PRESET_FG = "#7dffb0"
+
+# Sliders that only affect CV / ABA pull — inert when YOLO + apexaimbot_pid.
+CV_ONLY_SLIDER_KEYS = frozenset({
+    "torso_aim_fraction",
+    "body_shape_min_score",
+    "aim_body_y_min_fraction",
+    "aim_body_y_max_fraction",
+    "detection_motion_threshold",
+    "velocity_smoothing",
+    "max_pull_speed_pixels_per_frame",
+    "deadzone_pixels",
+    "magnetism_radius_pixels",
+    "pull_strength",
+    "smoothing_tau_moving",
+    "smoothing_tau_still",
+    "head_score_weight",
+    "torso_score_weight",
+    "limb_stack_score_weight",
+})
 
 STATUS_COLORS = {
     AbaStatus.GAME_CLOSED: ("#2e2e2e", "#b0b0b0"),
@@ -84,6 +105,59 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
     # PHASE-5 AUDIT: "Tracking" preset sits between Responsive and Strong.
     # Looser body-shape gate + tighter smoothing + slightly higher pull
     # speed than Responsive, without arming Strong's recoil / jitter.
+    # ApexAimBot-style: YOLO primary detect + nearest pick (needs weights — see docs).
+    "ApexAimBot": {
+        "profile": "apexaimbot",
+        "pull_strength": 0.92,
+        "smoothing_tau_still": 0.028,
+        "smoothing_tau_moving": 0.012,
+        "velocity_smoothing": 0.36,
+        "max_pull_speed_pixels_per_frame": 28.0,
+        "torso_aim_fraction": 0.36,
+        "target_stickiness_pixels": 55,
+        "body_shape_min_score": 0.40,
+        "deadzone_pixels": 2,
+        "magnetism_radius_pixels": 72,
+        "target_selection_mode": "nearest",
+        "detection_mode": "yolo",
+        "pull_mode": "apexaimbot_pid",
+        "yolo_weights_path": "third_party/apexaimbot/weights/APEX22W.pt",
+        "yolo_yolov5_root": "third_party/apexaimbot",
+        "yolo_inference_size": 416,
+        "yolo_grab_width": 416,
+        "yolo_grab_height": 416,
+        "yolo_confidence_min": 0.55,
+        "yolo_iou_thres": 0.8,
+        "yolo_max_det": 5,
+        "yolo_aim_fraction": 0.2,
+        "yolo_exclude_labels": ["teammate"],
+        "yolo_device": "",
+        "yolo_apex_nearest_lock": True,
+        "mouse_backend": "apexaimbot",
+        "apexaimbot_mouse_modifier": 0.8,
+        "yolo_use_fp16": True,
+        "yolo_skip_motion_smooth": True,
+        "yolo_fixed_square_capture": True,
+        "yolo_direct_overlay": True,
+        "yolo_pull_stale_grace_frames": 12,
+        "yolo_switch_confirm_frames": 2,
+        "apex_pid_subtick_hz": 120,
+        "apexaimbot_recoil_enabled": True,
+        "apexaimbot_recoil_weapon": "R-301",
+        "apexaimbot_auto_sens_modifier": True,
+        "apexaimbot_sens": 5,
+        "apexaimbot_ads_sens": 1,
+        "apexaimbot_pid_x_p": 0.36,
+        "apexaimbot_pid_x_i": 0.032,
+        "apexaimbot_pid_x_d": 0.01,
+        "apexaimbot_pid_y_p": 0.2,
+        "apexaimbot_min_step": 10,
+        "apexaimbot_max_step": 6,
+        "prediction_vertical_cap_pixels": 4.0,
+        "recoil_compensation_enabled": False,
+        "jitter_enabled": False,
+        "pull_subtick_hz": 0,
+    },
     "Tracking": {
         "body_shape_min_score": 0.42,
         "target_stickiness_pixels": 70,
@@ -154,6 +228,7 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
 # the Apex red-enemy-outline cue with shape edges, saturation, and motion difference.
 DETECTION_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("apex", "Apex (default — auto-fuses red outline + shape + motion)"),
+    ("yolo", "YOLO (neural — requires yolo_weights_path + torch)"),
     ("shape", "Shape only (no colour cue)"),
     ("hybrid", "Hybrid (shape + HSV)"),
     ("hsv", "HSV only (legacy colour mask)"),
@@ -190,16 +265,18 @@ class _ConfigControl:
         self.key = key
         self.frame = tk.Frame(parent, bg=UI_PANEL)
         self.frame.pack(fill=tk.X, pady=3)
+        self._tip = tooltip
         lbl_text = label
         if tooltip:
             lbl_text = f"{label}  ({tooltip})"
-        tk.Label(self.frame, text=lbl_text, bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9)).pack(
-            anchor="w"
+        self._title_label = tk.Label(
+            self.frame, text=lbl_text, bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9)
         )
+        self._title_label.pack(anchor="w")
         inner = tk.Frame(self.frame, bg=UI_PANEL)
         inner.pack(fill=tk.X)
         self._var = tk.DoubleVar(value=default)
-        scale = tk.Scale(
+        self._scale = tk.Scale(
             inner,
             from_=minimum,
             to=maximum,
@@ -213,9 +290,9 @@ class _ConfigControl:
             highlightthickness=0,
             sliderrelief=tk.FLAT,
             showvalue=False,
-            command=lambda _v: on_change(key, self.value()),
+            command=lambda _v: on_change(self.key, self.value()),
         )
-        scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self._val_label = tk.Label(
             inner,
             text=str(default),
@@ -259,6 +336,8 @@ class AbaApplication:
         self._bool_vars: dict[str, tk.BooleanVar] = {}
         self._active_tab = "basic"
         self._advanced_mode = False
+        self._combo_vars: dict[str, tk.StringVar] = {}
+        self._combo_widgets: dict[str, tk.Widget] = {}
 
         self._root = tk.Tk()
         self._root.title("ABA")
@@ -561,11 +640,24 @@ class AbaApplication:
     def _on_slider_change(self, key: str, _value: float) -> None:
         if key in self._sliders:
             self._sliders[key]._val_label.config(text=str(self._sliders[key].value()))
-        patch = {key: self._sliders[key].value() for key in (key,)}
+        cfg_key = key
+        if key in ("torso_aim_fraction", "yolo_aim_fraction") and hasattr(
+            self, "_aim_height_ctrl"
+        ):
+            cfg_key = self._aim_height_config_key()
+            key = cfg_key
+        value = self._sliders[key].value()
+        patch = {cfg_key: value}
+        if cfg_key == "mouse_gate_stale_grace_frames" and self._is_yolo_pure_config():
+            patch["yolo_pull_stale_grace_frames"] = value
         try:
             self.config = self._controller.apply_config_patch(patch, persist=False)
         except Exception as exc:
             self._error_var.set(f"Config update: {exc}")
+            if key in self._sliders:
+                prev = float(self.config.get(cfg_key, self._sliders[key].value()))
+                self._sliders[key].set(prev)
+                self._sliders[key]._val_label.config(text=str(self._sliders[key].value()))
 
     def _on_bool_change(self, key: str) -> None:
         patch = {key: bool(self._bool_vars[key].get())}
@@ -608,7 +700,88 @@ class AbaApplication:
                 ctrl.set(float(self.config[key]))
         for key, var in self._bool_vars.items():
             var.set(bool(self.config.get(key, False)))
+        for key, var in self._combo_vars.items():
+            val = str(self.config.get(key, var.get())).strip().lower()
+            var.set(val)
+        if hasattr(self, "_detection_mode_var"):
+            self._detection_mode_var.set(
+                str(self.config.get("detection_mode", "apex")).strip().lower()
+            )
+        self._profile = normalize_profile_name(str(self.config.get("profile", self._profile)))
         self._update_fov_summary_label()
+        self._refresh_mode_sensitive_widgets()
+
+    @staticmethod
+    def _is_yolo_pure_config(cfg: dict[str, Any]) -> bool:
+        from profiles import is_yolo_detection, uses_apex_pid_pull
+
+        return is_yolo_detection(cfg) and uses_apex_pid_pull(cfg)
+
+    def _aim_height_config_key(self, cfg: dict[str, Any] | None = None) -> str:
+        cfg = cfg if cfg is not None else self.config
+        if self._is_yolo_pure_config(cfg):
+            return "yolo_aim_fraction"
+        return "torso_aim_fraction"
+
+    def _rewire_aim_height_slider(self) -> None:
+        if not hasattr(self, "_aim_height_ctrl"):
+            return
+        ctrl = self._aim_height_ctrl
+        new_key = self._aim_height_config_key()
+        old_key = getattr(self, "_aim_height_slider_key", "torso_aim_fraction")
+        yolo_pure = new_key == "yolo_aim_fraction"
+        if new_key != old_key:
+            self._sliders.pop(old_key, None)
+            self._sliders[new_key] = ctrl
+            ctrl.key = new_key
+            self._aim_height_slider_key = new_key
+        if new_key in self.config:
+            ctrl.set(float(self.config[new_key]))
+        try:
+            ctrl._scale.config(state=tk.NORMAL)
+            if yolo_pure:
+                ctrl._scale.config(from_=0.10, to=0.60, resolution=0.01)
+            else:
+                ctrl._scale.config(from_=0.32, to=0.52, resolution=0.01)
+        except tk.TclError:
+            pass
+        title = "Aim Height (YOLO)" if yolo_pure else "Aim Height (CV torso)"
+        tip = (
+            "Vertical aim point on the detected box (0.2 ≈ upper chest in ApexAimBot)."
+            if yolo_pure
+            else "where on body: 0.35=upper chest, 0.50=belly"
+        )
+        ctrl._tip = tip
+        lbl_text = f"{title}  ({tip})" if tip else title
+        ctrl._title_label.config(text=lbl_text)
+
+    def _refresh_mode_sensitive_widgets(self) -> None:
+        yolo_pure = self._is_yolo_pure_config(self.config)
+        self._rewire_aim_height_slider()
+        for key, ctrl in self._sliders.items():
+            if ctrl is getattr(self, "_aim_height_ctrl", None):
+                continue
+            if key in CV_ONLY_SLIDER_KEYS:
+                try:
+                    ctrl._scale.config(
+                        state=tk.DISABLED if yolo_pure else tk.NORMAL
+                    )
+                except tk.TclError:
+                    pass
+        for _key, combo in self._combo_widgets.items():
+            try:
+                combo.config(state="readonly")
+            except tk.TclError:
+                pass
+        if hasattr(self, "_yolo_mode_hint"):
+            self._yolo_mode_hint.config(
+                text=(
+                    "YOLO + Apex PID active — Body/Motion CV sliders are disabled. "
+                    "Basic Aim Height drives yolo_aim_fraction (not CV torso aim)."
+                    if yolo_pure
+                    else ""
+                )
+            )
 
     def _show_tab(self, tab_id: str) -> None:
         self._active_tab = tab_id
@@ -646,7 +819,7 @@ class AbaApplication:
     def _apply_preset(self, name: str) -> None:
         if name not in TUNING_PRESETS:
             return
-        preset = TUNING_PRESETS[name]
+        preset = merge_leave_yolo_stack(dict(TUNING_PRESETS[name]))
         try:
             self.config = self._controller.apply_config_patch(preset, persist=False)
             self._sync_controls_from_config()
@@ -657,6 +830,16 @@ class AbaApplication:
     # === BASIC TAB ===
     def _build_basic_panel(self, parent: tk.Frame) -> None:
         self._section(parent, "Quick controls")
+        self._yolo_mode_hint = tk.Label(
+            parent,
+            text="",
+            bg=UI_PANEL,
+            fg=UI_MUTED,
+            font=("Segoe UI", 9),
+            wraplength=520,
+            justify=tk.LEFT,
+        )
+        self._yolo_mode_hint.pack(anchor="w", pady=(0, 6))
 
         preset_row = tk.Frame(parent, bg=UI_PANEL)
         preset_row.pack(fill=tk.X, pady=(0, 8))
@@ -696,9 +879,13 @@ class AbaApplication:
             minimum=0.01, maximum=0.10, resolution=0.002,
             tooltip="how fast aim catches a strafing target",
         )
-        self._slider(
-            parent, "Aim Height", "torso_aim_fraction",
-            minimum=0.32, maximum=0.52,
+        self._aim_height_slider_key = self._aim_height_config_key()
+        self._aim_height_ctrl = self._slider(
+            parent,
+            "Aim Height (CV torso)",
+            self._aim_height_slider_key,
+            minimum=0.32,
+            maximum=0.52,
             tooltip="where on body: 0.35=upper chest, 0.50=belly",
         )
         self._slider(
@@ -831,7 +1018,6 @@ class AbaApplication:
             text="Live telemetry shows real values from the running pipeline below.",
             bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9),
         ).pack(anchor="w", pady=(0, 6))
-        self._toggle(parent, "Enable overlay (click-through)", "enable_overlay")
         self._toggle(parent, "Verbose logging", "verbose_logging")
         self._toggle(parent, "Pull trace log", "trace_pull")
         tk.Button(
@@ -881,12 +1067,11 @@ class AbaApplication:
     # === ADVANCED: Detector ===
     def _build_detector_adv_panel(self, parent: tk.Frame) -> None:
         # R2 (audit): expose the detection_mode selection in the GUI so
-        # users can switch between apex / shape / hsv / hybrid without
-        # hand-editing config.json. Defaults to "apex" — the only mode
-        # the audit fixes specifically validate.
+        # users can switch between YOLO and CV modes without hand-editing
+        # config.json. The shipped profile defaults to YOLO/ApexAimBot.
         self._section(parent, "Detection mode")
         current = str(self.config.get("detection_mode", "apex")).lower()
-        if current not in {"apex", "shape", "hsv", "hybrid"}:
+        if current not in {"apex", "shape", "hsv", "hybrid", "yolo"}:
             current = "apex"
         self._detection_mode_var = tk.StringVar(value=current)
         row = tk.Frame(parent, bg=UI_PANEL)
@@ -898,7 +1083,7 @@ class AbaApplication:
         combo = ttk.Combobox(
             row,
             textvariable=self._detection_mode_var,
-            values=("apex", "shape", "hsv", "hybrid"),
+            values=("apex", "yolo", "shape", "hsv", "hybrid"),
             state="readonly",
             width=12,
         )
@@ -909,8 +1094,9 @@ class AbaApplication:
         )
         tk.Label(
             parent,
-            text="apex = Apex enemy red outline + shape/chroma/motion fusion (default).\n"
-                 "shape/hsv/hybrid are legacy modes kept for back-compat only.",
+            text="yolo = shipped ApexAimBot primary detect (requires requirements-yolo.txt).\n"
+                 "apex = red outline + shape/chroma/motion CV fallback.\n"
+                 "shape/hsv/hybrid = legacy CV modes.",
             bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
         ).pack(anchor="w", pady=(0, 8))
 
@@ -921,17 +1107,91 @@ class AbaApplication:
             parent, "Limb stack weight", "limb_stack_score_weight",
             minimum=0.0, maximum=0.5,
         )
+        self._on_apex_controls_panel(parent)
 
     def _on_detection_mode_change(self) -> None:
         mode = self._detection_mode_var.get().strip().lower()
-        if mode not in {"apex", "shape", "hsv", "hybrid"}:
+        if mode not in {"apex", "shape", "hsv", "hybrid", "yolo"}:
             mode = "apex"
-        try:
-            self.config = self._controller.apply_config_patch(
-                {"detection_mode": mode}, persist=False
+        patch: dict[str, Any] = {"detection_mode": mode}
+        if mode == "yolo":
+            patch.update(
+                {
+                    "profile": "apexaimbot",
+                    "pull_mode": "apexaimbot_pid",
+                    "mouse_backend": "apexaimbot",
+                    "yolo_weights_path": "third_party/apexaimbot/weights/APEX416SFP32.engine",
+                    "yolo_yolov5_root": "third_party/apexaimbot",
+                }
             )
+        elif str(self.config.get("pull_mode", "")).strip().lower() == "apexaimbot_pid":
+            patch = merge_leave_yolo_stack(patch)
+        try:
+            self.config = self._controller.apply_config_patch(patch, persist=False)
+            self._sync_controls_from_config()
         except Exception as exc:
             self._error_var.set(f"Detection mode update: {exc}")
+
+    def _bind_apex_combobox(
+        self,
+        parent: tk.Frame,
+        label: str,
+        config_key: str,
+        values: tuple[str, ...],
+    ) -> None:
+        from tkinter import ttk
+
+        row = tk.Frame(parent, bg=UI_PANEL)
+        row.pack(fill=tk.X, pady=4)
+        tk.Label(row, text=label, bg=UI_PANEL, fg=UI_TEXT, width=14, anchor="w").pack(
+            side=tk.LEFT
+        )
+        current = str(self.config.get(config_key, values[0])).strip().lower()
+        if current not in values:
+            current = values[0]
+        var = tk.StringVar(value=current)
+        self._combo_vars[config_key] = var
+        combo = ttk.Combobox(row, textvariable=var, values=values, state="readonly", width=16)
+        combo.pack(side=tk.LEFT)
+        self._combo_widgets[config_key] = combo
+
+        def _apply(_e: object | None = None) -> None:
+            val = var.get().strip().lower()
+            if val not in values:
+                return
+            try:
+                self.config = self._controller.apply_config_patch(
+                    {config_key: val}, persist=False
+                )
+                self._sync_controls_from_config()
+            except Exception as exc:
+                self._error_var.set(f"{config_key} update: {exc}")
+
+        combo.bind("<<ComboboxSelected>>", _apply)
+
+    def _on_apex_controls_panel(self, parent: tk.Frame) -> None:
+        self._section(parent, "ApexAimBot (YOLO + PID)")
+        self._bind_apex_combobox(
+            parent,
+            "Pull mode",
+            "pull_mode",
+            ("aba", "apexaimbot_pid"),
+        )
+        self._bind_apex_combobox(
+            parent,
+            "Mouse backend",
+            "mouse_backend",
+            ("auto", "apex", "apexaimbot", "win32_sendinput", "logitech_ghub", "pynput"),
+        )
+        self._toggle(parent, "Apex per-weapon recoil", "apexaimbot_recoil_enabled")
+        self._slider(
+            parent,
+            "Apex sens (INI)",
+            "apexaimbot_sens",
+            minimum=1.0,
+            maximum=10.0,
+            resolution=0.5,
+        )
 
     # === ADVANCED: Overlay ===
     def _build_overlay_adv_panel(self, parent: tk.Frame) -> None:
@@ -1076,7 +1336,8 @@ class AbaApplication:
 
     def _on_save_settings(self) -> None:
         try:
-            self._controller.save_config(self.config)
+            self.config = self._controller.save_config(self.config)
+            self._sync_controls_from_config()
             self._detail_var.set(f"Saved {self.config_path.name}")
         except Exception as exc:
             self._error_var.set(f"Save failed: {exc}")
@@ -1121,8 +1382,8 @@ class AbaApplication:
         try:
             self.config["show_debug_window"] = False
             self.config["enable_overlay"] = bool(self.config.get("enable_overlay", False))
-            self._controller.save_config(self.config)
-            self.config = self._controller.reload_config()
+            self.config = self._controller.save_config(self.config)
+            self._sync_controls_from_config()
             self._configured_fps = effective_capture_fps(self.config)
             self._process_name = str(self.config.get("target_process_name", APEX_PROCESS_NAME))
             self._process_required = bool(self.config.get("target_process_required", False))

@@ -28,6 +28,36 @@ class CaptureRegion:
         }
 
 
+def build_square_capture_region(
+    monitor: dict[str, Any],
+    center_x: float,
+    center_y: float,
+    half_size: int,
+) -> CaptureRegion:
+    """Fixed square grab (e.g. Apex 416×416) centered on crosshair."""
+    mon_left = int(monitor["left"])
+    mon_top = int(monitor["top"])
+    mon_w = int(monitor["width"])
+    mon_h = int(monitor["height"])
+    half = max(40, int(half_size))
+    cx = mon_left + int(round(center_x))
+    cy = mon_top + int(round(center_y))
+    left = max(mon_left, cx - half)
+    top = max(mon_top, cy - half)
+    right = min(mon_left + mon_w, cx + half)
+    bottom = min(mon_top + mon_h, cy + half)
+    width = max(1, right - left)
+    height = max(1, bottom - top)
+    return CaptureRegion(
+        left=left,
+        top=top,
+        width=width,
+        height=height,
+        offset_x=float(left - mon_left),
+        offset_y=float(top - mon_top),
+    )
+
+
 def build_capture_region(
     monitor: dict[str, Any],
     center_x: float,

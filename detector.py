@@ -6,10 +6,17 @@ import logging
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Sequence
 
 import cv2
 import numpy as np
+
+from tracking_fusion import (
+    ExternalBox,
+    apply_external_box_fusion,
+    select_ranked_target,
+    summarize_boxes,
+)
 
 logger = logging.getLogger("targeting")
 
@@ -45,8 +52,15 @@ DETECTION_MODE_HYBRID = "hybrid"
 # Default "best-of-all-signals" mode tuned for Apex Legends. Fuses shape edges,
 # saturation, motion difference, and the Apex red-enemy-outline cue.
 DETECTION_MODE_APEX = "apex"
+DETECTION_MODE_YOLO = "yolo"
 _VALID_DETECTION_MODES = frozenset(
-    {DETECTION_MODE_SHAPE, DETECTION_MODE_HSV, DETECTION_MODE_HYBRID, DETECTION_MODE_APEX}
+    {
+        DETECTION_MODE_SHAPE,
+        DETECTION_MODE_HSV,
+        DETECTION_MODE_HYBRID,
+        DETECTION_MODE_APEX,
+        DETECTION_MODE_YOLO,
+    }
 )
 DETECTION_MODE_DEFAULT = DETECTION_MODE_APEX
 
@@ -266,6 +280,9 @@ class Target:
     max_circularity: float = 0.0
     has_classified_torso: bool = False
     reject_reason: str = RejectReason.OK.value
+    # YOLO / ApexAimBot: raw nearest offset from crosshair (before aim-height offset).
+    apex_raw_offset_x: float = 0.0
+    apex_raw_offset_y: float = 0.0
 
 
 @dataclass
@@ -4639,10 +4656,40 @@ def find_best_target(
     context: DetectionContext | None = None,
     currently_locked: bool = False,
     display_fov_radius: float | None = None,
+    target_selection_mode: str = "apex",
+    external_boxes: Sequence[ExternalBox] | None = None,
+    yolo_fusion_boost: float = 0.30,
+    yolo_fusion_min_iou: float = 0.28,
+    yolo_engine: Any | None = None,
+    ads_active: bool = False,
 ) -> DetectionResult:
     h, w = frame_bgr.shape[:2]
     cx = w / 2.0 if fov_center_x is None else fov_center_x
     cy = h / 2.0 if fov_center_y is None else fov_center_y
+
+    resolved_mode = (detection_mode or DETECTION_MODE_DEFAULT).strip().lower()
+    if resolved_mode == DETECTION_MODE_YOLO:
+        from yolo_targeting import detect_yolo_target
+
+        cfg_stub = {
+            "min_target_area_pixels": min_area,
+            "target_stickiness_pixels": stickiness_pixels,
+            "humanoid_min_height_pixels": min_height_px,
+            "yolo_confidence_min": min_confidence,
+            "_ads_active": ads_active,
+        }
+        return detect_yolo_target(
+            cfg_stub,
+            frame_bgr,
+            yolo_engine,
+            fov_radius=int(fov_radius),
+            center_x=cx,
+            center_y=cy,
+            sticky_target=sticky_target,
+            currently_locked=currently_locked,
+            debug=debug,
+        )
+
     # PERF: pre-compute HSV once and stash on the context so the mask
     # builders (build_hsv_mask / build_red_enemy_mask /
     # build_chroma_spread_mask) all share it.  Profiled at ~0.17 ms per
@@ -4657,10 +4704,6 @@ def find_best_target(
         if display_fov_radius is not None and display_fov_radius > 0
         else float(fov_radius) * 0.757
     )
-
-    resolved_mode = detection_mode
-    if resolved_mode is None:
-        resolved_mode = DETECTION_MODE_DEFAULT
 
     candidates, dbg = _collect_candidates(
         frame_bgr,
@@ -4928,6 +4971,24 @@ def find_best_target(
 
     pool_max_h = max(int(t.bbox_h) for t in candidates)
 
+    fusion_boosts: dict[int, float] = {}
+    if external_boxes:
+        fusion_boosts = apply_external_box_fusion(
+            candidates,
+            external_boxes,
+            fov_radius=float(fov_radius),
+            boost_scale=float(yolo_fusion_boost),
+            min_iou=float(yolo_fusion_min_iou),
+            min_box_conf=0.25,
+        )
+        if fusion_boosts:
+            dbg.append(
+                f"{summarize_boxes(external_boxes)} fusion_hits={len(fusion_boosts)}"
+            )
+
+    _body_min = float(body_shape_min_score or _MIN_BODY_SHAPE_ACCEPT)
+    _selection_mode = str(target_selection_mode or "apex").strip().lower()
+
     def _motion_overlap(t: Target) -> float:
         if context is None:
             return 0.0
@@ -4970,7 +5031,7 @@ def find_best_target(
             ):
                 high_frac = max(0.0, 0.40 - float(t.bbox_y) / float(h))
                 raw -= float(fov_radius) * high_frac * 2.8
-        return raw
+        return raw + fusion_boosts.get(id(t), 0.0)
 
     def finalize(t: Target) -> Target:
         raw = score_target(
@@ -5077,7 +5138,13 @@ def find_best_target(
                 pool = []
         if pool:
             sticky_best = max(pool, key=rank)
-            global_best = max(candidates, key=rank)
+            global_best = select_ranked_target(
+                candidates,
+                rank,
+                selection_mode=_selection_mode,
+                fov_radius=float(fov_radius),
+                body_shape_min=_body_min,
+            )
             closer_challengers = [
                 t
                 for t in candidates
@@ -5371,7 +5438,15 @@ def find_best_target(
                 active=hold_active,
             )
 
-    best = finalize(max(candidates, key=rank))
+    best = finalize(
+        select_ranked_target(
+            candidates,
+            rank,
+            selection_mode=_selection_mode,
+            fov_radius=float(fov_radius),
+            body_shape_min=_body_min,
+        )
+    )
     if target_is_background_clutter(best):
         dbg.append(
             f"free-max reject {RejectReason.BACKGROUND_CLUTTER.value} "
@@ -5433,20 +5508,21 @@ def draw_debug(
     # hardcoded ``DETECTION_MODE_SHAPE`` made the apex/hybrid masks
     # invisible in the debug viewer, misleading users debugging Apex
     # detection by showing only the shape channel.
-    dbg_mode = detection_mode if detection_mode is not None else DETECTION_MODE_SHAPE
-    mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=dbg_mode)
-    mask_fov = (
-        int(display_fov_radius)
-        if display_fov_radius is not None
-        else int(fov_radius)
-    )
-    fov = _build_fov_mask(h, w, cx_f, cy_f, mask_fov)
-    vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
-    mask = cv2.bitwise_and(mask, mask, mask=fov)
-    mask = cv2.bitwise_and(mask, mask, mask=vm)
-    tint = np.zeros_like(out)
-    tint[:, :] = (0, 255, 0)
-    out = np.where(mask[:, :, None] > 0, cv2.addWeighted(out, 0.5, tint, 0.5, 0), out)
+    dbg_mode = (detection_mode or DETECTION_MODE_SHAPE).strip().lower()
+    if dbg_mode != DETECTION_MODE_YOLO:
+        mask = build_detection_mask(frame_bgr, hsv_ranges, detection_mode=dbg_mode)
+        mask_fov = (
+            int(display_fov_radius)
+            if display_fov_radius is not None
+            else int(fov_radius)
+        )
+        fov = _build_fov_mask(h, w, cx_f, cy_f, mask_fov)
+        vm = _build_viewmodel_exclude_mask(h, w, exclude_bottom_frac)
+        mask = cv2.bitwise_and(mask, mask, mask=fov)
+        mask = cv2.bitwise_and(mask, mask, mask=vm)
+        tint = np.zeros_like(out)
+        tint[:, :] = (0, 255, 0)
+        out = np.where(mask[:, :, None] > 0, cv2.addWeighted(out, 0.5, tint, 0.5, 0), out)
 
     ring_r = int(display_fov_radius) if display_fov_radius is not None else int(fov_radius)
     cv2.circle(out, (cx, cy), ring_r, (0, 255, 0), 2)

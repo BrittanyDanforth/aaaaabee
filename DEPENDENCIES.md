@@ -1,6 +1,6 @@
 # ABA dependencies
 
-Installed by `run_windows.bat` from `requirements.txt` only (not `requirements-dev.txt`).
+Installed by `run_windows.bat` from `requirements.txt` and `requirements-yolo.txt` (not `requirements-dev.txt`).
 
 | Package | Version pin | Used in | Purpose |
 |---------|-------------|---------|---------|

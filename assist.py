@@ -8,21 +8,14 @@ import logging
 import sys
 from pathlib import Path
 
-from config_validation import ConfigError, validate_config
-from path_utils import resolve_config_path
-from profiles import apply_profile
+from config_pipeline import DEFAULT_CONFIG_PATH, load_app_config
+from config_validation import ConfigError
 
-CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
+CONFIG_PATH = DEFAULT_CONFIG_PATH
 
 
 def load_config(path: Path | str | None = None) -> dict:
-    resolved = resolve_config_path(path or CONFIG_PATH)
-    with resolved.open(encoding="utf-8") as f:
-        data = json.load(f)
-    for entry in data.get("hsv_ranges", []):
-        if isinstance(entry, dict):
-            entry.pop("comment", None)
-    return validate_config(apply_profile(data))
+    return load_app_config(path)
 
 
 def setup_logging(cfg: dict) -> None:

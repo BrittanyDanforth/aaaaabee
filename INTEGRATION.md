@@ -31,7 +31,9 @@ return runtime.run()
 
 | `self_check.py` | Replace if setup fails |
 | `assist.py` | **Keep yours** |
-| `targeting_runtime.py` | Optional (tests only; runtime uses `TargetTracker` directly) |
+| `targeting_runtime.py` | Test/script harness only — see `docs/TARGETING_RUNTIME_HARNESS.md` |
+| `targeting_shared.py` | Shared CV detect kwargs + ring clamp (runtime + harness) |
+| `config_pipeline.py` | `normalize_app_config`, `LEAVE_YOLO_STACK_PATCH`, stack reconcile |
 
 ## What changed in `runtime.py`
 

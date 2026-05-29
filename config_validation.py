@@ -76,8 +76,8 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
 
     cfg: dict[str, Any] = dict(raw)
     mode = str(cfg.get("detection_mode", "apex")).strip().lower()
-    if mode not in ("shape", "hsv", "hybrid", "apex"):
-        raise ConfigError("detection_mode must be apex, shape, hsv, or hybrid")
+    if mode not in ("shape", "hsv", "hybrid", "apex", "yolo"):
+        raise ConfigError("detection_mode must be apex, shape, hsv, hybrid, or yolo")
     cfg["detection_mode"] = mode
     if mode in ("hsv", "hybrid"):
         cfg["hsv_ranges"] = _validate_hsv_ranges(cfg.get("hsv_ranges"))
@@ -229,8 +229,19 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         raise ConfigError("magnetism_radius_pixels cannot exceed fov_radius_pixels")
 
     mouse_backend = str(cfg.get("mouse_backend", "auto")).lower()
-    if mouse_backend not in ("auto", "pynput", "win32_sendinput", "recording"):
-        raise ConfigError("mouse_backend must be auto, pynput, win32_sendinput, or recording")
+    allowed_mouse = (
+        "auto",
+        "pynput",
+        "win32_sendinput",
+        "recording",
+        "logitech_ghub",
+        "apexaimbot",
+        "apex",
+    )
+    if mouse_backend not in allowed_mouse:
+        raise ConfigError(
+            "mouse_backend must be one of: " + ", ".join(allowed_mouse)
+        )
     cfg["mouse_backend"] = mouse_backend
 
     ads_mode = str(cfg.get("ads_input_mode", "both")).lower()
@@ -336,5 +347,142 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
         from path_utils import resolve_log_path
 
         cfg["log_file"] = resolve_log_path(cfg["log_file"])
+
+    sel = str(cfg.get("target_selection_mode", "apex")).strip().lower()
+    valid_sel = ("apex", "nearest", "nearest_center", "valoai", "apex_yolo_fusion")
+    if sel not in valid_sel:
+        raise ConfigError(
+            f"target_selection_mode must be one of {sorted(valid_sel)}, got {sel!r}"
+        )
+    cfg["target_selection_mode"] = sel
+
+    cfg["yolo_assist_enabled"] = bool(cfg.get("yolo_assist_enabled", False))
+    cfg["yolo_weights_path"] = str(cfg.get("yolo_weights_path", "") or "").strip()
+    cfg["yolo_yolov5_root"] = str(cfg.get("yolo_yolov5_root", "") or "").strip()
+    _yolo_imgsz = 416.0 if mode == "yolo" else 320.0
+    _yolo_conf = 0.55 if mode == "yolo" else 0.35
+    cfg["yolo_inference_size"] = int(
+        _require_number(cfg, "yolo_inference_size", default=_yolo_imgsz, minimum=160, maximum=1280)
+    )
+    cfg["yolo_confidence_min"] = _require_number(
+        cfg, "yolo_confidence_min", default=_yolo_conf, minimum=0.05, maximum=0.99
+    )
+    cfg["yolo_fusion_boost"] = _require_number(
+        cfg, "yolo_fusion_boost", default=0.30, minimum=0.0, maximum=1.5
+    )
+    cfg["yolo_fusion_min_iou"] = _require_number(
+        cfg, "yolo_fusion_min_iou", default=0.28, minimum=0.05, maximum=0.95
+    )
+    raw_dev = str(cfg.get("yolo_device", "") or "").strip().lower()
+    if raw_dev in ("auto", "cuda"):
+        raw_dev = ""
+    cfg["yolo_device"] = raw_dev
+    if raw_dev and raw_dev not in ("cpu", "mps") and not raw_dev.isdigit():
+        raise ConfigError("yolo_device must be empty, auto, cpu, cuda, mps, or a GPU index like 0")
+    cfg["yolo_iou_thres"] = _require_number(
+        cfg, "yolo_iou_thres", default=0.8, minimum=0.05, maximum=0.95
+    )
+    cfg["yolo_max_det"] = int(
+        _require_number(cfg, "yolo_max_det", default=5.0, minimum=1, maximum=100)
+    )
+    cfg["yolo_use_fp16"] = bool(cfg.get("yolo_use_fp16", True))
+    cfg["yolo_apex_nearest_lock"] = bool(cfg.get("yolo_apex_nearest_lock", True))
+    cfg["yolo_skip_motion_smooth"] = bool(cfg.get("yolo_skip_motion_smooth", True))
+    cfg["yolo_fixed_square_capture"] = bool(
+        cfg.get("yolo_fixed_square_capture", True)
+    )
+    cfg["yolo_direct_overlay"] = bool(cfg.get("yolo_direct_overlay", True))
+    cfg["yolo_pull_stale_grace_frames"] = int(
+        _require_number(
+            cfg, "yolo_pull_stale_grace_frames", default=12.0, minimum=0, maximum=60
+        )
+    )
+    cfg["yolo_switch_confirm_frames"] = int(
+        _require_number(
+            cfg, "yolo_switch_confirm_frames", default=2.0, minimum=1, maximum=4
+        )
+    )
+    _apex_sub_default = (
+        120.0
+        if str(cfg.get("pull_mode", "aba")).strip().lower() == "apexaimbot_pid"
+        and mode == "yolo"
+        else 0.0
+    )
+    cfg["apex_pid_subtick_hz"] = int(
+        _require_number(
+            cfg, "apex_pid_subtick_hz", default=_apex_sub_default, minimum=0, maximum=480
+        )
+    )
+    cfg["apexaimbot_mouse_modifier"] = _require_number(
+        cfg, "apexaimbot_mouse_modifier", default=0.8, minimum=0.05, maximum=4.0
+    )
+    cfg["apexaimbot_scale_pid_by_modifier"] = bool(
+        cfg.get("apexaimbot_scale_pid_by_modifier", False)
+    )
+    cfg["apexaimbot_recoil_enabled"] = bool(cfg.get("apexaimbot_recoil_enabled", False))
+    cfg["apexaimbot_recoil_weapon"] = str(
+        cfg.get("apexaimbot_recoil_weapon", "R-301")
+    ).strip().upper()
+    cfg["apexaimbot_auto_sens_modifier"] = bool(
+        cfg.get("apexaimbot_auto_sens_modifier", True)
+    )
+    cfg["apexaimbot_sens"] = _require_number(
+        cfg, "apexaimbot_sens", default=5.0, minimum=0.5, maximum=20.0
+    )
+    cfg["apexaimbot_ads_sens"] = _require_number(
+        cfg, "apexaimbot_ads_sens", default=1.0, minimum=0.1, maximum=10.0
+    )
+    cfg["apexaimbot_recoil_modifier"] = _require_number(
+        cfg,
+        "apexaimbot_recoil_modifier",
+        default=float(cfg.get("apexaimbot_mouse_modifier", 0.8)),
+        minimum=0.05,
+        maximum=4.0,
+    )
+    cfg["yolo_switch_reset_pixels"] = _require_number(
+        cfg, "yolo_switch_reset_pixels", default=80.0, minimum=20.0, maximum=400.0
+    )
+    cfg["yolo_aim_fraction"] = _require_number(
+        cfg,
+        "yolo_aim_fraction",
+        default=0.2 if mode == "yolo" else 0.38,
+        minimum=0.1,
+        maximum=0.9,
+    )
+    cfg["yolo_target_pick"] = str(cfg.get("yolo_target_pick", "nearest")).strip().lower()
+    excl = cfg.get("yolo_exclude_labels", ["teammate"])
+    if isinstance(excl, str):
+        cfg["yolo_exclude_labels"] = [
+            x.strip().lower() for x in excl.split(",") if x.strip()
+        ]
+    else:
+        cfg["yolo_exclude_labels"] = [str(x).strip().lower() for x in excl]
+
+    cfg["pull_mode"] = str(cfg.get("pull_mode", "aba")).strip().lower()
+    if cfg["pull_mode"] not in ("aba", "apexaimbot_pid"):
+        raise ConfigError("pull_mode must be aba or apexaimbot_pid")
+    cfg["yolo_grab_width"] = int(
+        _require_number(cfg, "yolo_grab_width", default=416.0, minimum=64, maximum=1920)
+    )
+    cfg["yolo_grab_height"] = int(
+        _require_number(cfg, "yolo_grab_height", default=416.0, minimum=64, maximum=1920)
+    )
+    if not cfg.get("yolo_yolov5_root"):
+        from pathlib import Path
+
+        vend = Path(__file__).resolve().parent / "third_party" / "apexaimbot"
+        if vend.is_dir():
+            cfg["yolo_yolov5_root"] = str(vend)
+
+    if mode == "yolo":
+        wp = str(cfg.get("yolo_weights_path", "") or "").strip()
+        if not wp:
+            raise ConfigError("detection_mode=yolo requires yolo_weights_path")
+        from pathlib import Path
+
+        app_root = Path(__file__).resolve().parent
+        p = Path(wp)
+        if not p.is_file() and not (app_root / wp).is_file():
+            raise ConfigError(f"yolo_weights_path not found: {wp}")
 
     return cfg
