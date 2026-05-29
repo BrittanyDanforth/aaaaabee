@@ -360,7 +360,7 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     cfg["yolo_weights_path"] = str(cfg.get("yolo_weights_path", "") or "").strip()
     cfg["yolo_yolov5_root"] = str(cfg.get("yolo_yolov5_root", "") or "").strip()
     _yolo_imgsz = 416.0 if mode == "yolo" else 320.0
-    _yolo_conf = 0.5 if mode == "yolo" else 0.35
+    _yolo_conf = 0.55 if mode == "yolo" else 0.35
     cfg["yolo_inference_size"] = int(
         _require_number(cfg, "yolo_inference_size", default=_yolo_imgsz, minimum=160, maximum=1280)
     )
@@ -380,12 +380,12 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     if raw_dev and raw_dev not in ("cpu", "mps") and not raw_dev.isdigit():
         raise ConfigError("yolo_device must be empty, auto, cpu, cuda, mps, or a GPU index like 0")
     cfg["yolo_iou_thres"] = _require_number(
-        cfg, "yolo_iou_thres", default=0.25, minimum=0.05, maximum=0.95
+        cfg, "yolo_iou_thres", default=0.8, minimum=0.05, maximum=0.95
     )
     cfg["yolo_max_det"] = int(
-        _require_number(cfg, "yolo_max_det", default=3.0, minimum=1, maximum=100)
+        _require_number(cfg, "yolo_max_det", default=5.0, minimum=1, maximum=100)
     )
-    cfg["yolo_use_fp16"] = bool(cfg.get("yolo_use_fp16", False))
+    cfg["yolo_use_fp16"] = bool(cfg.get("yolo_use_fp16", True))
     cfg["yolo_apex_nearest_lock"] = bool(cfg.get("yolo_apex_nearest_lock", True))
     cfg["yolo_skip_motion_smooth"] = bool(cfg.get("yolo_skip_motion_smooth", True))
     cfg["yolo_fixed_square_capture"] = bool(

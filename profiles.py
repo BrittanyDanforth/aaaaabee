@@ -254,14 +254,14 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "pull_mode": "apexaimbot_pid",
         "mouse_backend": "apexaimbot",
         "target_selection_mode": "nearest",
-        "yolo_weights_path": "third_party/apexaimbot/weights/APEX416SFP32.engine",
+        "yolo_weights_path": "third_party/apexaimbot/weights/APEX22W.pt",
         "yolo_yolov5_root": "third_party/apexaimbot",
         "yolo_inference_size": 416,
         "yolo_grab_width": 416,
         "yolo_grab_height": 416,
-        "yolo_confidence_min": 0.5,
-        "yolo_iou_thres": 0.25,
-        "yolo_max_det": 3,
+        "yolo_confidence_min": 0.55,
+        "yolo_iou_thres": 0.8,
+        "yolo_max_det": 5,
         "yolo_aim_fraction": 0.2,
         "yolo_exclude_labels": ["teammate"],
         "yolo_device": "",
@@ -271,15 +271,18 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "yolo_direct_overlay": True,
         "yolo_pull_stale_grace_frames": 12,
         "yolo_switch_confirm_frames": 2,
+        "yolo_use_fp16": True,
         "detection_motion_assist": False,
         "humanoid_min_height_pixels": 0,
         "min_target_area_pixels": 1,
         "apex_pid_subtick_hz": 120,
         "apexaimbot_mouse_modifier": 0.8,
-        "apexaimbot_pid_x_p": 0.36,
-        "apexaimbot_pid_x_i": 0.032,
-        "apexaimbot_pid_x_d": 0.01,
-        "apexaimbot_pid_y_p": 0.2,
+        "apexaimbot_pid_x_p": 0.5,
+        "apexaimbot_pid_x_i": 0.1,
+        "apexaimbot_pid_x_d": 0.1,
+        "apexaimbot_pid_y_p": 0.35,
+        "apexaimbot_pid_y_i": 0.05,
+        "apexaimbot_pid_y_d": 0.05,
         "apexaimbot_min_step": 10,
         "apexaimbot_max_step": 6,
         "pull_strength": 0.92,
@@ -379,7 +382,7 @@ def _is_yolo_mode(config: dict[str, Any]) -> bool:
 
 
 def effective_yolo_grab_half(config: dict[str, Any]) -> int:
-    """Half-width of Apex 416×416 grab in pixels."""
+    """Half-width of YOLO grab region in pixels (default 416→208)."""
     gw = int(config.get("yolo_grab_width", config.get("yolo_inference_size", 416)))
     gh = int(config.get("yolo_grab_height", config.get("yolo_inference_size", 416)))
     return max(80, max(gw, gh) // 2)

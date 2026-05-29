@@ -22,8 +22,8 @@ def test_prepare_apex_cfg_merges_ini_defaults() -> None:
             "yolo_yolov5_root": "third_party/apexaimbot",
         }
     )
-    assert cfg.get("yolo_iou_thres") == 0.25
-    assert cfg.get("yolo_max_det") == 3
+    assert cfg.get("yolo_iou_thres") == 0.8
+    assert cfg.get("yolo_max_det") == 5
     assert "yolo_weights_path" in cfg
 
 

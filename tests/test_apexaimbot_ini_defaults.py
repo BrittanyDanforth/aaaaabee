@@ -15,9 +15,9 @@ def test_ini_config_matches_shipped_1bit() -> None:
     from ini_config import load_1bit_defaults, merge_app_config
 
     ini = load_1bit_defaults()
-    assert ini.get("iou_thres") == 0.25
+    assert ini.get("iou_thres") == 0.8
     assert ini.get("grab_width") == 416
-    assert ini.get("weight") == "APEX416SFP32.engine"
+    assert ini.get("weight") == "APEX22W.pt"
     merged = merge_app_config({})
-    assert merged["yolo_iou_thres"] == 0.25
-    assert merged["yolo_max_det"] == 3
+    assert merged["yolo_iou_thres"] == 0.8
+    assert merged["yolo_max_det"] == 5

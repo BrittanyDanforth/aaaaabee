@@ -67,7 +67,7 @@ def merge_app_config(cfg: dict[str, Any]) -> dict[str, Any]:
         w = ini.get("weight", "APEX416SFP32.engine")
         out["yolo_weights_path"] = f"third_party/apexaimbot/weights/{w}"
     if out.get("yolo_max_det") in (None, "", 12):
-        out["yolo_max_det"] = 3
+        out["yolo_max_det"] = 5
     if "yolo_aim_fraction" not in out or out.get("yolo_aim_fraction") in ("", None):
         out["yolo_aim_fraction"] = 0.2
     return out

@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 def test_normalize_app_config_merges_ini_before_validate() -> None:
     raw = apply_profile({"profile": PROFILE_APEXAIMBOT})
     cfg = normalize_app_config(raw)
-    assert cfg["yolo_iou_thres"] == 0.25
+    assert cfg["yolo_iou_thres"] == 0.8
     assert cfg["yolo_inference_size"] == 416
     assert cfg.get("apexaimbot_sens") == 5.0
 
