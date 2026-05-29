@@ -99,7 +99,6 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "target_stickiness_pixels": 100,
         "body_shape_min_score": 0.50,
         "deadzone_pixels": 4,
-        "detection_mode": "apex",
         "detection_motion_assist": True,
         "detection_motion_threshold": 12,
     },
@@ -113,7 +112,6 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "target_stickiness_pixels": 60,
         "body_shape_min_score": 0.40,
         "deadzone_pixels": 2,
-        "detection_mode": "apex",
         "detection_motion_assist": True,
         "detection_motion_threshold": 9,
     },
@@ -183,7 +181,6 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "max_pull_speed_pixels_per_frame": 32.0,
         "torso_aim_fraction": 0.40,
         "deadzone_pixels": 2,
-        "detection_mode": "apex",
         "detection_motion_assist": True,
         "detection_motion_threshold": 9,
         "recoil_compensation_enabled": False,
@@ -208,7 +205,6 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "target_stickiness_pixels": 45,
         "body_shape_min_score": 0.35,
         "deadzone_pixels": 1,
-        "detection_mode": "apex",
         "detection_motion_assist": True,
         "detection_motion_threshold": 8,
         # Strong is the only built-in preset that arms the recoil/jitter
@@ -230,7 +226,6 @@ TUNING_PRESETS: dict[str, dict[str, Any]] = {
         "target_stickiness_pixels": 60,
         "body_shape_min_score": 0.40,
         "deadzone_pixels": 2,
-        "detection_mode": "apex",
         "detection_motion_assist": True,
         "detection_motion_threshold": 9,
         "enable_overlay": True,
@@ -901,7 +896,16 @@ class AbaApplication:
     def _apply_preset(self, name: str) -> None:
         if name not in TUNING_PRESETS:
             return
-        preset = merge_leave_yolo_stack(dict(TUNING_PRESETS[name]))
+        preset = dict(TUNING_PRESETS[name])
+        if name == "ApexAimBot":
+            from config_pipeline import merge_enter_yolo_stack
+
+            preset = merge_enter_yolo_stack(preset)
+        else:
+            preset.pop("detection_mode", None)
+            preset.pop("profile", None)
+            preset.pop("pull_mode", None)
+            preset.pop("mouse_backend", None)
         try:
             self.config = self._controller.apply_config_patch(preset, persist=False)
             self._sync_controls_from_config()
@@ -1208,12 +1212,12 @@ class AbaApplication:
             mode = "apex"
         patch: dict[str, Any] = {"detection_mode": mode}
         if mode == "yolo":
-            patch.update(
+            from config_pipeline import merge_enter_yolo_stack
+
+            patch = merge_enter_yolo_stack(
                 {
-                    "profile": "apexaimbot",
-                    "pull_mode": "apexaimbot_pid",
-                    "mouse_backend": "apexaimbot",
-                    "yolo_weights_path": "third_party/apexaimbot/weights/APEX416SFP32.engine",
+                    **patch,
+                    "yolo_weights_path": "third_party/apexaimbot/weights/APEX22W.pt",
                     "yolo_yolov5_root": "third_party/apexaimbot",
                 }
             )
@@ -1252,9 +1256,17 @@ class AbaApplication:
             val = var.get().strip().lower()
             if val not in values:
                 return
+            patch: dict[str, Any] = {config_key: val}
+            if (
+                config_key == "pull_mode"
+                and val != "apexaimbot_pid"
+                and str(self.config.get("detection_mode", "")).strip().lower()
+                == "yolo"
+            ):
+                patch = merge_leave_yolo_stack({"detection_mode": "apex"})
             try:
                 self.config = self._controller.apply_config_patch(
-                    {config_key: val}, persist=False
+                    patch, persist=False
                 )
                 self._sync_controls_from_config()
             except Exception as exc:

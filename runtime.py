@@ -514,6 +514,34 @@ class AssistRuntime:
             oy = fov_cy_mon + ody * s
         return frame_from_monitor(ox, oy, cap_region)
 
+    @staticmethod
+    def _yolo_overlay_point_from_target(
+        target: Target,
+        cap_region,
+        *,
+        center_x: float,
+        center_y: float,
+        detect_fov: float,
+        display_fov: float,
+    ) -> tuple[float, float] | None:
+        """Ring-clamp the YOLO aim point (same coords as Apex PID pull)."""
+        motion = TargetMotion(
+            target.centroid_x,
+            target.centroid_y,
+            0.0,
+            0.0,
+            overlay_x=target.centroid_x,
+            overlay_y=target.centroid_y,
+        )
+        return AssistRuntime._frame_overlay_point(
+            motion,
+            cap_region,
+            center_x=center_x,
+            center_y=center_y,
+            detect_fov=detect_fov,
+            display_fov=display_fov,
+        )
+
     def stop(self) -> None:
         with self._lock:
             self.running = False
@@ -1293,6 +1321,15 @@ class AssistRuntime:
             from yolo_targeting import resolve_yolo_engine, yolo_detect_and_lock
 
             self._yolo_engine = resolve_yolo_engine(cfg, self._yolo_engine)
+            if self._yolo_engine is None:
+                if not getattr(self, "_yolo_engine_warned", False):
+                    logger.error(
+                        "detection_mode=yolo but ApexAimBot engine failed to load — "
+                        "check yolo_weights_path and run_windows.bat / self-check"
+                    )
+                    self._yolo_engine_warned = True
+            else:
+                self._yolo_engine_warned = False
             result, box = yolo_detect_and_lock(
                 cfg,
                 frame_bgr,
@@ -1722,6 +1759,9 @@ class AssistRuntime:
                         firing_for_detect = self._is_firing
                     detect_assist = ads_for_assist or (
                         apex_pid_loop and firing_for_detect
+                    ) or (
+                        det_mode_loop == "yolo"
+                        and bool(cfg.get("dry_run_force_detect", False))
                     )
                     if detect_assist and not paused:
                         cfg["_ads_active"] = ads_for_assist
@@ -1810,10 +1850,11 @@ class AssistRuntime:
                     # frozen anchor for one frame so pull/overlay don't teleport
                     # on the exact frame the lock expires. Previously hardcoded
                     # False made the entire CRIT2 block dead code.
-                    yolo_pure = det_mode_loop == "yolo" and bool(
-                        cfg.get("yolo_skip_motion_smooth", False)
+                    use_yolo_aim_motion = det_mode_loop == "yolo" and (
+                        bool(cfg.get("yolo_direct_overlay", True))
+                        or bool(cfg.get("yolo_skip_motion_smooth", False))
                     )
-                    if yolo_pure:
+                    if use_yolo_aim_motion:
                         motion = self._motion_from_yolo_target(
                             target,
                             t0,
@@ -1920,16 +1961,24 @@ class AssistRuntime:
                         if (
                             det_mode_loop == "yolo"
                             and bool(cfg.get("yolo_direct_overlay", True))
-                            and motion is not None
                         ):
-                            frame_overlay = self._frame_overlay_point(
-                                motion,
+                            frame_overlay = self._yolo_overlay_point_from_target(
+                                target,
                                 cap_region,
                                 center_x=float(center_x),
                                 center_y=float(center_y),
                                 detect_fov=float(detect_fov),
                                 display_fov=float(overlay_fov),
                             )
+                            if frame_overlay is None and motion is not None:
+                                frame_overlay = self._frame_overlay_point(
+                                    motion,
+                                    cap_region,
+                                    center_x=float(center_x),
+                                    center_y=float(center_y),
+                                    detect_fov=float(detect_fov),
+                                    display_fov=float(overlay_fov),
+                                )
                         elif motion is not None:
                             frame_overlay = self._frame_overlay_point(
                                 motion,
