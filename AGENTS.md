@@ -46,6 +46,12 @@ python3 scripts/inspect_detection_frame.py           # shows cluster/body scorin
 python3 scripts/save_detection_artifacts.py --all-references  # writes proof JSON to artifacts/
 ```
 
+**Note**: `save_detection_artifacts.py --all-references` currently hits a pre-existing `NameError` (`ads_active` not defined in `targeting_runtime.py`). Use `inspect_detection_frame.py` for CV pipeline validation instead.
+
+### Full test suite vs focused suite
+
+The full `pytest tests/` run has ~46 pre-existing failures in CV tuning/screenshot regression tests (e.g. `test_real_apex_*`, `test_img*`, `test_long_ads_drift`, `test_runtime_wiring`). These are known and do not indicate environment issues. Always use the focused suite (`pre_merge_sanity.py --pytest`, 152 tests) as the Cloud validation gate.
+
 ### Dependencies
 
 `requirements.txt` includes the Python runtime dependencies. System packages needed in the VM image: `python3-dev` (for evdev/pynput C extension builds) and `python3-tk` (for tkinter overlay smoke checks).
