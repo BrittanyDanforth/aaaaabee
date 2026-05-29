@@ -137,13 +137,16 @@ def run_apex_subtick_window(
     sub_dt = 1.0 / float(subtick_hz)
     bw, bh = box_wh
     next_tick = time.perf_counter()
-    while next_tick < deadline:
-        if not is_firing():
+    ticked = False
+    while next_tick < deadline or (pid_enabled and not ticked):
+        deadline_missed = next_tick >= deadline
+        firing_now = is_firing()
+        if not firing_now and not pid_enabled:
             break
         wait = next_tick - time.perf_counter()
         if wait > 0.0005:
             sleep(min(wait, max(0.0, deadline - time.perf_counter())))
-        if time.perf_counter() >= deadline:
+        if not deadline_missed and time.perf_counter() >= deadline:
             break
         moved_x = False
         if pid_enabled:
@@ -174,8 +177,9 @@ def run_apex_subtick_window(
                             overlay_at_aim(float(target.centroid_x), float(target.centroid_y))
             else:
                 reset_apexaimbot_pid(engine)
-        if recoil_enabled and is_firing():
+        if recoil_enabled and firing_now:
             recoil_tick(cfg, skip_x=moved_x)
+        ticked = True
         next_tick += sub_dt
 
 

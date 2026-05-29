@@ -394,7 +394,12 @@ def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
     cfg["yolo_direct_overlay"] = bool(cfg.get("yolo_direct_overlay", True))
     cfg["yolo_pull_stale_grace_frames"] = int(
         _require_number(
-            cfg, "yolo_pull_stale_grace_frames", default=8.0, minimum=0, maximum=60
+            cfg, "yolo_pull_stale_grace_frames", default=12.0, minimum=0, maximum=60
+        )
+    )
+    cfg["yolo_switch_confirm_frames"] = int(
+        _require_number(
+            cfg, "yolo_switch_confirm_frames", default=2.0, minimum=1, maximum=4
         )
     )
     _apex_sub_default = (

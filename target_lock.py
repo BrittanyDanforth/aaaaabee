@@ -650,15 +650,46 @@ def apply_yolo_target_lock(
     lost_max = int(cfg.get("target_lost_frames_before_unlock", 18))
     if result.target is not None:
         prev = state.locked_target
-        if prev is not None and on_new_target is not None:
-            import math
-
+        if prev is not None:
             switch_px = float(cfg.get("yolo_switch_reset_pixels", 80.0))
             dist = math.hypot(
                 result.target.centroid_x - prev.centroid_x,
                 result.target.centroid_y - prev.centroid_y,
             )
-            if dist > switch_px:
+            confirm_frames = int(cfg.get("yolo_switch_confirm_frames", 2) or 1)
+            confirm_frames = max(1, min(4, confirm_frames))
+            needs_stale_reacquire_confirm = (
+                state.target_lost_frames > 0
+                and dist > switch_px
+                and confirm_frames > 1
+            )
+            if needs_stale_reacquire_confirm:
+                if (
+                    state.switch_candidate is not None
+                    and _same_lock_identity(state.switch_candidate, result.target)
+                ):
+                    state.switch_frames += 1
+                else:
+                    state.switch_candidate = result.target
+                    state.switch_frames = 1
+                if state.switch_frames < confirm_frames:
+                    state.target_lost_frames += 1
+                    if state.target_lost_frames >= lost_max:
+                        state.reset()
+                        if on_lock_expired is not None:
+                            on_lock_expired()
+                        return DetectionResult(None, result.candidates, 0.0), False
+                    return (
+                        DetectionResult(
+                            prev,
+                            result.candidates,
+                            prev.confidence,
+                            debug_lines=(result.debug_lines or []) + ["yolo_switch_pending"],
+                            active=True,
+                        ),
+                        True,
+                    )
+            if dist > switch_px and on_new_target is not None:
                 on_new_target()
         state.locked_target = result.target
         state.target_lost_frames = 0
@@ -668,6 +699,8 @@ def apply_yolo_target_lock(
         state.overlay_confirm_frames = 999
         return result, False
     state.target_lost_frames += 1
+    state.switch_candidate = None
+    state.switch_frames = 0
     locked = state.locked_target
     if locked is not None and state.target_lost_frames <= lost_max:
         return (
