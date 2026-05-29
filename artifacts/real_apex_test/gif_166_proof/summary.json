@@ -1,12 +1,12 @@
 {
   "summary": {
     "total_frames": 166,
-    "tracked_frames": 42,
-    "implausible_lock_frames": 6,
-    "stale_plausible_frames": 16,
-    "active_frames": 19,
-    "stale_frames": 20,
-    "inactive_frames": 124,
+    "tracked_frames": 64,
+    "implausible_lock_frames": 7,
+    "stale_plausible_frames": 30,
+    "active_frames": 23,
+    "stale_frames": 35,
+    "inactive_frames": 102,
     "sky_aim_violations": 0,
     "detector_bbox_top_in_sky": 0,
     "chest_band_violations": 0,
@@ -117,7 +117,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 8,
@@ -129,7 +129,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 7
+      "lost_frames": 6
     },
     {
       "frame_idx": 9,
@@ -141,7 +141,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 8
+      "lost_frames": 7
     },
     {
       "frame_idx": 10,
@@ -153,31 +153,48 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 11,
       "file": "frame_0011.png",
-      "active": false,
+      "active": true,
       "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 10
+      "plausible_lock": true,
+      "aim_x": 399.3,
+      "aim_y": 133.9,
+      "overlay_x": 399.6,
+      "overlay_y": 143.5,
+      "lost_frames": 0,
+      "bbox_x": 386,
+      "bbox_y": 90,
+      "bbox_w": 57,
+      "bbox_h": 107,
+      "bbox_top_frac": 0.2,
+      "chest_y_lo": 120.0,
+      "chest_y_hi": 143.5,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 12,
       "file": "frame_0012.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 11
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 399.3,
+      "aim_y": 133.9,
+      "overlay_x": 399.6,
+      "overlay_y": 143.5,
+      "lost_frames": 1,
+      "stale_with_dot_risk": true,
+      "bbox_x": 386,
+      "bbox_y": 90,
+      "bbox_w": 57,
+      "bbox_h": 107,
+      "bbox_top_frac": 0.2,
+      "chest_y_lo": 120.0,
+      "chest_y_hi": 143.5,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 13,
@@ -189,7 +206,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 12
+      "lost_frames": 0
     },
     {
       "frame_idx": 14,
@@ -201,7 +218,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 13
+      "lost_frames": 1
     },
     {
       "frame_idx": 15,
@@ -213,7 +230,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 13
+      "lost_frames": 2
     },
     {
       "frame_idx": 16,
@@ -305,7 +322,7 @@
       "aim_y": 133.3,
       "overlay_x": 402.7,
       "overlay_y": 136.0,
-      "lost_frames": 3,
+      "lost_frames": 4,
       "bbox_x": 367,
       "bbox_y": 101,
       "bbox_w": 51,
@@ -318,21 +335,21 @@
     {
       "frame_idx": 21,
       "file": "frame_0021.png",
-      "active": true,
-      "is_stale": false,
+      "active": false,
+      "is_stale": true,
       "plausible_lock": false,
-      "aim_x": 400.8,
-      "aim_y": 243.0,
-      "overlay_x": 400.2,
-      "overlay_y": 243.0,
-      "lost_frames": 0,
-      "bbox_x": 353,
-      "bbox_y": 217,
-      "bbox_w": 93,
-      "bbox_h": 93,
-      "bbox_top_frac": 0.482,
-      "chest_y_lo": 243.0,
-      "chest_y_hi": 263.5,
+      "aim_x": 404.7,
+      "aim_y": 133.3,
+      "overlay_x": 402.7,
+      "overlay_y": 136.0,
+      "lost_frames": 4,
+      "bbox_x": 367,
+      "bbox_y": 101,
+      "bbox_w": 51,
+      "bbox_h": 70,
+      "bbox_top_frac": 0.224,
+      "chest_y_lo": 120.6,
+      "chest_y_hi": 136.0,
       "overlay_in_body": true
     },
     {
@@ -344,7 +361,7 @@
       "aim_x": 389.4,
       "aim_y": 217.0,
       "overlay_x": 389.4,
-      "overlay_y": 217.0,
+      "overlay_y": 214.0,
       "lost_frames": 0,
       "bbox_x": 364,
       "bbox_y": 205,
@@ -361,18 +378,18 @@
       "active": true,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 387.8,
-      "aim_y": 220.5,
-      "overlay_x": 387.8,
-      "overlay_y": 220.5,
+      "aim_x": 388.1,
+      "aim_y": 219.5,
+      "overlay_x": 388.1,
+      "overlay_y": 216.8,
       "lost_frames": 0,
-      "bbox_x": 364,
-      "bbox_y": 205,
-      "bbox_w": 29,
-      "bbox_h": 31,
-      "bbox_top_frac": 0.456,
-      "chest_y_lo": 213.7,
-      "chest_y_hi": 220.5,
+      "bbox_x": 366,
+      "bbox_y": 203,
+      "bbox_w": 27,
+      "bbox_h": 33,
+      "bbox_top_frac": 0.451,
+      "chest_y_lo": 212.2,
+      "chest_y_hi": 219.5,
       "overlay_in_body": true
     },
     {
@@ -381,18 +398,18 @@
       "active": true,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 387.8,
-      "aim_y": 220.3,
-      "overlay_x": 387.8,
-      "overlay_y": 220.5,
-      "lost_frames": 0,
-      "bbox_x": 364,
-      "bbox_y": 205,
-      "bbox_w": 29,
-      "bbox_h": 31,
-      "bbox_top_frac": 0.456,
-      "chest_y_lo": 213.7,
-      "chest_y_hi": 220.5,
+      "aim_x": 388.1,
+      "aim_y": 219.4,
+      "overlay_x": 388.1,
+      "overlay_y": 218.1,
+      "lost_frames": 1,
+      "bbox_x": 366,
+      "bbox_y": 203,
+      "bbox_w": 27,
+      "bbox_h": 33,
+      "bbox_top_frac": 0.451,
+      "chest_y_lo": 212.2,
+      "chest_y_hi": 219.5,
       "overlay_in_body": true
     },
     {
@@ -401,19 +418,19 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 387.8,
-      "aim_y": 220.3,
-      "overlay_x": 387.8,
-      "overlay_y": 220.5,
-      "lost_frames": 1,
+      "aim_x": 388.1,
+      "aim_y": 219.4,
+      "overlay_x": 388.1,
+      "overlay_y": 218.1,
+      "lost_frames": 2,
       "stale_with_dot_risk": true,
-      "bbox_x": 364,
-      "bbox_y": 205,
-      "bbox_w": 29,
-      "bbox_h": 31,
-      "bbox_top_frac": 0.456,
-      "chest_y_lo": 213.7,
-      "chest_y_hi": 220.5,
+      "bbox_x": 366,
+      "bbox_y": 203,
+      "bbox_w": 27,
+      "bbox_h": 33,
+      "bbox_top_frac": 0.451,
+      "chest_y_lo": 212.2,
+      "chest_y_hi": 219.5,
       "overlay_in_body": true
     },
     {
@@ -422,19 +439,19 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 387.8,
-      "aim_y": 220.3,
-      "overlay_x": 387.8,
-      "overlay_y": 220.5,
-      "lost_frames": 2,
+      "aim_x": 388.1,
+      "aim_y": 219.4,
+      "overlay_x": 388.1,
+      "overlay_y": 218.1,
+      "lost_frames": 3,
       "stale_with_dot_risk": true,
-      "bbox_x": 364,
-      "bbox_y": 205,
-      "bbox_w": 29,
-      "bbox_h": 31,
-      "bbox_top_frac": 0.456,
-      "chest_y_lo": 213.7,
-      "chest_y_hi": 220.5,
+      "bbox_x": 366,
+      "bbox_y": 203,
+      "bbox_w": 27,
+      "bbox_h": 33,
+      "bbox_top_frac": 0.451,
+      "chest_y_lo": 212.2,
+      "chest_y_hi": 219.5,
       "overlay_in_body": true
     },
     {
@@ -445,7 +462,7 @@
       "plausible_lock": true,
       "aim_x": 394.3,
       "aim_y": 208.5,
-      "overlay_x": 395.1,
+      "overlay_x": 395.3,
       "overlay_y": 208.5,
       "lost_frames": 0,
       "bbox_x": 390,
@@ -463,9 +480,9 @@
       "active": true,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 395.0,
+      "aim_x": 395.6,
       "aim_y": 208.5,
-      "overlay_x": 397.9,
+      "overlay_x": 398.0,
       "overlay_y": 208.5,
       "lost_frames": 1,
       "bbox_x": 390,
@@ -483,9 +500,9 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 395.0,
+      "aim_x": 395.6,
       "aim_y": 208.5,
-      "overlay_x": 397.9,
+      "overlay_x": 398.0,
       "overlay_y": 208.5,
       "lost_frames": 1,
       "stale_with_dot_risk": true,
@@ -501,15 +518,14 @@
     {
       "frame_idx": 30,
       "file": "frame_0030.png",
-      "active": false,
-      "is_stale": true,
+      "active": true,
+      "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 395.0,
-      "aim_y": 208.5,
-      "overlay_x": 397.9,
-      "overlay_y": 208.5,
-      "lost_frames": 2,
-      "stale_with_dot_risk": true,
+      "aim_x": 394.8,
+      "aim_y": 202.1,
+      "overlay_x": 395.9,
+      "overlay_y": 206.9,
+      "lost_frames": 0,
       "bbox_x": 390,
       "bbox_y": 187,
       "bbox_w": 24,
@@ -525,18 +541,18 @@
       "active": true,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 374.2,
-      "aim_y": 220.5,
-      "overlay_x": 382.1,
-      "overlay_y": 220.6,
+      "aim_x": 405.0,
+      "aim_y": 221.2,
+      "overlay_x": 402.6,
+      "overlay_y": 218.2,
       "lost_frames": 0,
       "bbox_x": 351,
       "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
+      "bbox_w": 72,
+      "bbox_h": 60,
       "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "chest_y_lo": 214.8,
+      "chest_y_hi": 228.0,
       "overlay_in_body": true
     },
     {
@@ -545,58 +561,60 @@
       "active": true,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 380.5,
-      "overlay_y": 220.2,
-      "lost_frames": 1,
+      "aim_x": 373.0,
+      "aim_y": 224.6,
+      "overlay_x": 375.2,
+      "overlay_y": 222.8,
+      "lost_frames": 0,
       "bbox_x": 351,
       "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
+      "bbox_w": 72,
+      "bbox_h": 60,
       "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "chest_y_lo": 214.8,
+      "chest_y_hi": 228.0,
       "overlay_in_body": true
     },
     {
       "frame_idx": 33,
       "file": "frame_0033.png",
-      "active": true,
-      "is_stale": false,
+      "active": false,
+      "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 380.0,
-      "overlay_y": 219.9,
-      "lost_frames": 2,
+      "aim_x": 373.0,
+      "aim_y": 224.6,
+      "overlay_x": 375.2,
+      "overlay_y": 222.8,
+      "lost_frames": 1,
+      "stale_with_dot_risk": true,
       "bbox_x": 351,
       "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
+      "bbox_w": 72,
+      "bbox_h": 60,
       "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "chest_y_lo": 214.8,
+      "chest_y_hi": 228.0,
       "overlay_in_body": true
     },
     {
       "frame_idx": 34,
       "file": "frame_0034.png",
       "active": false,
-      "is_stale": false,
+      "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.7,
-      "overlay_y": 219.8,
-      "lost_frames": 3,
+      "aim_x": 373.0,
+      "aim_y": 224.6,
+      "overlay_x": 375.2,
+      "overlay_y": 222.8,
+      "lost_frames": 2,
+      "stale_with_dot_risk": true,
       "bbox_x": 351,
       "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
+      "bbox_w": 72,
+      "bbox_h": 60,
       "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "chest_y_lo": 214.8,
+      "chest_y_hi": 228.0,
       "overlay_in_body": true
     },
     {
@@ -605,40 +623,39 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.7,
-      "overlay_y": 219.8,
-      "lost_frames": 4,
+      "aim_x": 373.0,
+      "aim_y": 224.6,
+      "overlay_x": 375.2,
+      "overlay_y": 222.8,
+      "lost_frames": 3,
       "stale_with_dot_risk": true,
       "bbox_x": 351,
       "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
+      "bbox_w": 72,
+      "bbox_h": 60,
       "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "chest_y_lo": 214.8,
+      "chest_y_hi": 228.0,
       "overlay_in_body": true
     },
     {
       "frame_idx": 36,
       "file": "frame_0036.png",
-      "active": false,
-      "is_stale": true,
+      "active": true,
+      "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.7,
-      "overlay_y": 219.8,
-      "lost_frames": 5,
-      "stale_with_dot_risk": true,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "aim_x": 406.9,
+      "aim_y": 219.0,
+      "overlay_x": 406.0,
+      "overlay_y": 219.0,
+      "lost_frames": 0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -647,19 +664,19 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.7,
-      "overlay_y": 219.8,
-      "lost_frames": 6,
+      "aim_x": 406.9,
+      "aim_y": 219.0,
+      "overlay_x": 406.0,
+      "overlay_y": 219.0,
+      "lost_frames": 1,
       "stale_with_dot_risk": true,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -668,18 +685,18 @@
       "active": false,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.6,
-      "overlay_y": 219.7,
+      "aim_x": 409.0,
+      "aim_y": 219.0,
+      "overlay_x": 407.8,
+      "overlay_y": 219.0,
       "lost_frames": 0,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -688,19 +705,19 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.6,
-      "overlay_y": 219.7,
+      "aim_x": 409.0,
+      "aim_y": 219.0,
+      "overlay_x": 407.8,
+      "overlay_y": 219.0,
       "lost_frames": 1,
       "stale_with_dot_risk": true,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -709,18 +726,18 @@
       "active": false,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.5,
-      "overlay_y": 219.7,
+      "aim_x": 409.0,
+      "aim_y": 219.0,
+      "overlay_x": 408.5,
+      "overlay_y": 219.0,
       "lost_frames": 0,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -729,19 +746,19 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.5,
-      "overlay_y": 219.7,
+      "aim_x": 409.0,
+      "aim_y": 219.0,
+      "overlay_x": 408.5,
+      "overlay_y": 219.0,
       "lost_frames": 1,
       "stale_with_dot_risk": true,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -750,19 +767,19 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.5,
-      "overlay_y": 219.7,
+      "aim_x": 409.0,
+      "aim_y": 219.0,
+      "overlay_x": 408.5,
+      "overlay_y": 219.0,
       "lost_frames": 2,
       "stale_with_dot_risk": true,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -771,19 +788,19 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.5,
-      "overlay_y": 219.7,
+      "aim_x": 409.0,
+      "aim_y": 219.0,
+      "overlay_x": 408.5,
+      "overlay_y": 219.0,
       "lost_frames": 3,
       "stale_with_dot_risk": true,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -792,19 +809,19 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.5,
-      "overlay_y": 219.7,
+      "aim_x": 409.0,
+      "aim_y": 219.0,
+      "overlay_x": 408.5,
+      "overlay_y": 219.0,
       "lost_frames": 4,
       "stale_with_dot_risk": true,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -813,19 +830,19 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.5,
-      "overlay_y": 219.7,
+      "aim_x": 409.0,
+      "aim_y": 219.0,
+      "overlay_x": 408.5,
+      "overlay_y": 219.0,
       "lost_frames": 5,
       "stale_with_dot_risk": true,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -834,19 +851,19 @@
       "active": false,
       "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 379.5,
-      "aim_y": 219.7,
-      "overlay_x": 379.5,
-      "overlay_y": 219.7,
+      "aim_x": 409.0,
+      "aim_y": 219.0,
+      "overlay_x": 408.5,
+      "overlay_y": 219.0,
       "lost_frames": 6,
       "stale_with_dot_risk": true,
-      "bbox_x": 351,
-      "bbox_y": 198,
-      "bbox_w": 66,
-      "bbox_h": 62,
-      "bbox_top_frac": 0.44,
-      "chest_y_lo": 215.4,
-      "chest_y_hi": 229.0,
+      "bbox_x": 401,
+      "bbox_y": 209,
+      "bbox_w": 28,
+      "bbox_h": 20,
+      "bbox_top_frac": 0.464,
+      "chest_y_lo": 214.6,
+      "chest_y_hi": 219.0,
       "overlay_in_body": true
     },
     {
@@ -855,10 +872,10 @@
       "active": true,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 389.8,
-      "aim_y": 218.8,
-      "overlay_x": 387.7,
-      "overlay_y": 219.0,
+      "aim_x": 395.5,
+      "aim_y": 218.9,
+      "overlay_x": 395.5,
+      "overlay_y": 218.8,
       "lost_frames": 0,
       "bbox_x": 366,
       "bbox_y": 205,
@@ -875,18 +892,18 @@
       "active": true,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 395.2,
-      "aim_y": 218.7,
-      "overlay_x": 392.1,
-      "overlay_y": 218.8,
-      "lost_frames": 1,
-      "bbox_x": 366,
-      "bbox_y": 205,
-      "bbox_w": 36,
-      "bbox_h": 28,
-      "bbox_top_frac": 0.456,
-      "chest_y_lo": 212.8,
-      "chest_y_hi": 219.0,
+      "aim_x": 395.8,
+      "aim_y": 219.1,
+      "overlay_x": 393.0,
+      "overlay_y": 219.1,
+      "lost_frames": 0,
+      "bbox_x": 369,
+      "bbox_y": 206,
+      "bbox_w": 32,
+      "bbox_h": 27,
+      "bbox_top_frac": 0.458,
+      "chest_y_lo": 213.6,
+      "chest_y_hi": 219.5,
       "overlay_in_body": true
     },
     {
@@ -895,59 +912,61 @@
       "active": true,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 392.9,
-      "aim_y": 218.7,
-      "overlay_x": 392.8,
-      "overlay_y": 218.8,
-      "lost_frames": 2,
-      "bbox_x": 366,
-      "bbox_y": 205,
-      "bbox_w": 36,
-      "bbox_h": 28,
-      "bbox_top_frac": 0.456,
-      "chest_y_lo": 212.8,
+      "aim_x": 390.5,
+      "aim_y": 219.6,
+      "overlay_x": 391.8,
+      "overlay_y": 219.4,
+      "lost_frames": 1,
+      "bbox_x": 371,
+      "bbox_y": 206,
+      "bbox_w": 31,
+      "bbox_h": 26,
+      "bbox_top_frac": 0.458,
+      "chest_y_lo": 213.3,
       "chest_y_hi": 219.0,
-      "overlay_in_body": true
+      "overlay_in_body": false
     },
     {
       "frame_idx": 50,
       "file": "frame_0050.png",
-      "active": true,
-      "is_stale": false,
+      "active": false,
+      "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 395.7,
-      "aim_y": 218.5,
-      "overlay_x": 397.7,
-      "overlay_y": 218.5,
-      "lost_frames": 0,
-      "bbox_x": 386,
-      "bbox_y": 207,
-      "bbox_w": 16,
-      "bbox_h": 23,
-      "bbox_top_frac": 0.46,
-      "chest_y_lo": 213.4,
-      "chest_y_hi": 218.5,
-      "overlay_in_body": true
+      "aim_x": 390.5,
+      "aim_y": 219.6,
+      "overlay_x": 391.8,
+      "overlay_y": 219.4,
+      "lost_frames": 1,
+      "stale_with_dot_risk": true,
+      "bbox_x": 371,
+      "bbox_y": 206,
+      "bbox_w": 31,
+      "bbox_h": 26,
+      "bbox_top_frac": 0.458,
+      "chest_y_lo": 213.3,
+      "chest_y_hi": 219.0,
+      "overlay_in_body": false
     },
     {
       "frame_idx": 51,
       "file": "frame_0051.png",
-      "active": true,
-      "is_stale": false,
+      "active": false,
+      "is_stale": true,
       "plausible_lock": true,
-      "aim_x": 399.1,
-      "aim_y": 218.5,
-      "overlay_x": 399.1,
-      "overlay_y": 218.5,
+      "aim_x": 390.5,
+      "aim_y": 219.6,
+      "overlay_x": 391.8,
+      "overlay_y": 219.4,
       "lost_frames": 1,
-      "bbox_x": 386,
-      "bbox_y": 207,
-      "bbox_w": 16,
-      "bbox_h": 23,
-      "bbox_top_frac": 0.46,
-      "chest_y_lo": 213.4,
-      "chest_y_hi": 218.5,
-      "overlay_in_body": true
+      "stale_with_dot_risk": true,
+      "bbox_x": 371,
+      "bbox_y": 206,
+      "bbox_w": 31,
+      "bbox_h": 26,
+      "bbox_top_frac": 0.458,
+      "chest_y_lo": 213.3,
+      "chest_y_hi": 219.0,
+      "overlay_in_body": false
     },
     {
       "frame_idx": 52,
@@ -955,14 +974,14 @@
       "active": true,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 399.6,
-      "aim_y": 217.5,
-      "overlay_x": 399.9,
+      "aim_x": 402.5,
+      "aim_y": 217.1,
+      "overlay_x": 397.2,
       "overlay_y": 217.5,
       "lost_frames": 0,
       "bbox_x": 390,
       "bbox_y": 198,
-      "bbox_w": 25,
+      "bbox_w": 38,
       "bbox_h": 39,
       "bbox_top_frac": 0.44,
       "chest_y_lo": 208.9,
@@ -975,14 +994,14 @@
       "active": true,
       "is_stale": false,
       "plausible_lock": true,
-      "aim_x": 399.9,
+      "aim_x": 400.0,
       "aim_y": 217.5,
-      "overlay_x": 399.9,
+      "overlay_x": 398.6,
       "overlay_y": 217.5,
       "lost_frames": 1,
       "bbox_x": 390,
       "bbox_y": 198,
-      "bbox_w": 25,
+      "bbox_w": 38,
       "bbox_h": 39,
       "bbox_top_frac": 0.44,
       "chest_y_lo": 208.9,
@@ -1074,242 +1093,413 @@
     {
       "frame_idx": 58,
       "file": "frame_0058.png",
-      "active": false,
+      "active": true,
       "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 0
+      "plausible_lock": true,
+      "aim_x": 401.6,
+      "aim_y": 213.4,
+      "overlay_x": 401.6,
+      "overlay_y": 210.4,
+      "lost_frames": 3,
+      "bbox_x": 393,
+      "bbox_y": 197,
+      "bbox_w": 48,
+      "bbox_h": 33,
+      "bbox_top_frac": 0.438,
+      "chest_y_lo": 206.2,
+      "chest_y_hi": 213.5,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 59,
       "file": "frame_0059.png",
-      "active": false,
+      "active": true,
       "is_stale": false,
       "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 1
+      "aim_x": 399.0,
+      "aim_y": 210.0,
+      "overlay_x": 400.1,
+      "overlay_y": 210.4,
+      "lost_frames": 0,
+      "bbox_x": 393,
+      "bbox_y": 196,
+      "bbox_w": 33,
+      "bbox_h": 29,
+      "bbox_top_frac": 0.436,
+      "chest_y_lo": 204.1,
+      "chest_y_hi": 210.5,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 60,
       "file": "frame_0060.png",
-      "active": false,
+      "active": true,
       "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 2
+      "plausible_lock": true,
+      "aim_x": 404.5,
+      "aim_y": 218.0,
+      "overlay_x": 402.7,
+      "overlay_y": 215.1,
+      "lost_frames": 0,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 61,
       "file": "frame_0061.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 3
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 404.5,
+      "aim_y": 218.0,
+      "overlay_x": 402.7,
+      "overlay_y": 215.1,
+      "lost_frames": 1,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 62,
       "file": "frame_0062.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 4
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 404.5,
+      "aim_y": 218.0,
+      "overlay_x": 402.7,
+      "overlay_y": 215.1,
+      "lost_frames": 2,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 63,
       "file": "frame_0063.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 5
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 404.5,
+      "aim_y": 218.0,
+      "overlay_x": 402.7,
+      "overlay_y": 215.1,
+      "lost_frames": 3,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 64,
       "file": "frame_0064.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 6
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 404.5,
+      "aim_y": 218.0,
+      "overlay_x": 402.7,
+      "overlay_y": 215.1,
+      "lost_frames": 4,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 65,
       "file": "frame_0065.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 7
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 404.5,
+      "aim_y": 218.0,
+      "overlay_x": 402.7,
+      "overlay_y": 215.1,
+      "lost_frames": 5,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 66,
       "file": "frame_0066.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 8
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 404.5,
+      "aim_y": 218.0,
+      "overlay_x": 402.7,
+      "overlay_y": 215.1,
+      "lost_frames": 6,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 67,
       "file": "frame_0067.png",
-      "active": false,
+      "active": true,
       "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 9
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.4,
+      "overlay_y": 216.8,
+      "lost_frames": 7,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 68,
       "file": "frame_0068.png",
-      "active": false,
+      "active": true,
       "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 10
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.6,
+      "overlay_y": 217.4,
+      "lost_frames": 8,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 69,
       "file": "frame_0069.png",
       "active": false,
       "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 11
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.7,
+      "overlay_y": 217.7,
+      "lost_frames": 9,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 70,
       "file": "frame_0070.png",
       "active": false,
       "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 12
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.8,
+      "overlay_y": 217.8,
+      "lost_frames": 10,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 71,
       "file": "frame_0071.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 13
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.8,
+      "overlay_y": 217.8,
+      "lost_frames": 11,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 72,
       "file": "frame_0072.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 14
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.8,
+      "overlay_y": 217.8,
+      "lost_frames": 12,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 73,
       "file": "frame_0073.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 15
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.8,
+      "overlay_y": 217.8,
+      "lost_frames": 13,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 74,
       "file": "frame_0074.png",
       "active": false,
       "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 16
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.8,
+      "overlay_y": 217.9,
+      "lost_frames": 14,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 75,
       "file": "frame_0075.png",
       "active": false,
       "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 17
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.8,
+      "overlay_y": 218.0,
+      "lost_frames": 15,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 76,
       "file": "frame_0076.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 0
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.8,
+      "overlay_y": 218.0,
+      "lost_frames": 16,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 77,
       "file": "frame_0077.png",
       "active": false,
-      "is_stale": false,
-      "plausible_lock": false,
-      "aim_x": 400.0,
-      "aim_y": 225.0,
-      "overlay_x": 0.0,
-      "overlay_y": 0.0,
-      "lost_frames": 1
+      "is_stale": true,
+      "plausible_lock": true,
+      "aim_x": 403.9,
+      "aim_y": 218.0,
+      "overlay_x": 403.8,
+      "overlay_y": 218.0,
+      "lost_frames": 17,
+      "stale_with_dot_risk": true,
+      "bbox_x": 395,
+      "bbox_y": 202,
+      "bbox_w": 17,
+      "bbox_h": 32,
+      "bbox_top_frac": 0.449,
+      "chest_y_lo": 211.0,
+      "chest_y_hi": 218.0,
+      "overlay_in_body": true
     },
     {
       "frame_idx": 78,
@@ -1321,7 +1511,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 2
+      "lost_frames": 0
     },
     {
       "frame_idx": 79,
@@ -1333,7 +1523,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 3
+      "lost_frames": 1
     },
     {
       "frame_idx": 80,
@@ -1345,7 +1535,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 4
+      "lost_frames": 2
     },
     {
       "frame_idx": 81,
@@ -1357,7 +1547,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 5
+      "lost_frames": 3
     },
     {
       "frame_idx": 82,
@@ -1369,7 +1559,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 4
     },
     {
       "frame_idx": 83,
@@ -1381,7 +1571,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 84,
@@ -1393,7 +1583,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 85,
@@ -1405,7 +1595,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 86,
@@ -1417,7 +1607,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 87,
@@ -1429,7 +1619,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 88,
@@ -1441,7 +1631,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 89,
@@ -1453,7 +1643,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 90,
@@ -1465,7 +1655,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 91,
@@ -1477,7 +1667,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 92,
@@ -1489,7 +1679,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 7
+      "lost_frames": 6
     },
     {
       "frame_idx": 93,
@@ -1501,7 +1691,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 8
+      "lost_frames": 7
     },
     {
       "frame_idx": 94,
@@ -1513,7 +1703,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 95,
@@ -1525,7 +1715,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 96,
@@ -1537,7 +1727,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 97,
@@ -1549,7 +1739,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 98,
@@ -1561,7 +1751,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 99,
@@ -1573,7 +1763,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 100,
@@ -1585,7 +1775,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 101,
@@ -1597,7 +1787,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 102,
@@ -1609,7 +1799,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 103,
@@ -1621,7 +1811,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 10
+      "lost_frames": 9
     },
     {
       "frame_idx": 104,
@@ -1633,7 +1823,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 11
+      "lost_frames": 10
     },
     {
       "frame_idx": 105,
@@ -1645,7 +1835,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 12
+      "lost_frames": 11
     },
     {
       "frame_idx": 106,
@@ -1657,7 +1847,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 13
+      "lost_frames": 12
     },
     {
       "frame_idx": 107,
@@ -1669,7 +1859,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 14
+      "lost_frames": 13
     },
     {
       "frame_idx": 108,
@@ -1681,7 +1871,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 15
+      "lost_frames": 14
     },
     {
       "frame_idx": 109,
@@ -1693,7 +1883,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 16
+      "lost_frames": 15
     },
     {
       "frame_idx": 110,
@@ -1705,7 +1895,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 17
+      "lost_frames": 16
     },
     {
       "frame_idx": 111,
@@ -1717,7 +1907,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 0
+      "lost_frames": 17
     },
     {
       "frame_idx": 112,
@@ -1729,7 +1919,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 1
+      "lost_frames": 0
     },
     {
       "frame_idx": 113,
@@ -1741,7 +1931,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 1
+      "lost_frames": 0
     },
     {
       "frame_idx": 114,
@@ -1753,7 +1943,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 1
+      "lost_frames": 0
     },
     {
       "frame_idx": 115,
@@ -1765,7 +1955,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 2
+      "lost_frames": 1
     },
     {
       "frame_idx": 116,
@@ -1777,7 +1967,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 3
+      "lost_frames": 2
     },
     {
       "frame_idx": 117,
@@ -1789,7 +1979,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 4
+      "lost_frames": 3
     },
     {
       "frame_idx": 118,
@@ -1801,7 +1991,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 5
+      "lost_frames": 4
     },
     {
       "frame_idx": 119,
@@ -1813,7 +2003,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 120,
@@ -1825,7 +2015,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 7
+      "lost_frames": 6
     },
     {
       "frame_idx": 121,
@@ -1837,7 +2027,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 8
+      "lost_frames": 7
     },
     {
       "frame_idx": 122,
@@ -1849,7 +2039,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 123,
@@ -1861,7 +2051,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 124,
@@ -1873,7 +2063,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 10
+      "lost_frames": 9
     },
     {
       "frame_idx": 125,
@@ -1885,7 +2075,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 11
+      "lost_frames": 10
     },
     {
       "frame_idx": 126,
@@ -1897,7 +2087,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 12
+      "lost_frames": 11
     },
     {
       "frame_idx": 127,
@@ -1909,7 +2099,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 13
+      "lost_frames": 12
     },
     {
       "frame_idx": 128,
@@ -1921,7 +2111,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 14
+      "lost_frames": 13
     },
     {
       "frame_idx": 129,
@@ -1933,7 +2123,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 15
+      "lost_frames": 14
     },
     {
       "frame_idx": 130,
@@ -1945,7 +2135,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 16
+      "lost_frames": 15
     },
     {
       "frame_idx": 131,
@@ -1957,7 +2147,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 17
+      "lost_frames": 16
     },
     {
       "frame_idx": 132,
@@ -1969,7 +2159,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 17
+      "lost_frames": 16
     },
     {
       "frame_idx": 133,
@@ -1981,7 +2171,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 17
+      "lost_frames": 16
     },
     {
       "frame_idx": 134,
@@ -1993,7 +2183,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 0
+      "lost_frames": 17
     },
     {
       "frame_idx": 135,
@@ -2005,7 +2195,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 0
+      "lost_frames": 17
     },
     {
       "frame_idx": 136,
@@ -2017,7 +2207,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 0
+      "lost_frames": 17
     },
     {
       "frame_idx": 137,
@@ -2029,7 +2219,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 1
+      "lost_frames": 0
     },
     {
       "frame_idx": 138,
@@ -2041,7 +2231,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 1
+      "lost_frames": 0
     },
     {
       "frame_idx": 139,
@@ -2053,7 +2243,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 2
+      "lost_frames": 1
     },
     {
       "frame_idx": 140,
@@ -2065,7 +2255,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 2
+      "lost_frames": 1
     },
     {
       "frame_idx": 141,
@@ -2077,7 +2267,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 2
+      "lost_frames": 1
     },
     {
       "frame_idx": 142,
@@ -2089,7 +2279,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 2
+      "lost_frames": 1
     },
     {
       "frame_idx": 143,
@@ -2101,7 +2291,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 3
+      "lost_frames": 2
     },
     {
       "frame_idx": 144,
@@ -2113,7 +2303,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 4
+      "lost_frames": 3
     },
     {
       "frame_idx": 145,
@@ -2125,7 +2315,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 5
+      "lost_frames": 4
     },
     {
       "frame_idx": 146,
@@ -2137,7 +2327,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 5
+      "lost_frames": 4
     },
     {
       "frame_idx": 147,
@@ -2149,7 +2339,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 6
+      "lost_frames": 5
     },
     {
       "frame_idx": 148,
@@ -2161,7 +2351,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 7
+      "lost_frames": 6
     },
     {
       "frame_idx": 149,
@@ -2173,7 +2363,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 8
+      "lost_frames": 7
     },
     {
       "frame_idx": 150,
@@ -2185,7 +2375,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 151,
@@ -2197,7 +2387,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 9
+      "lost_frames": 8
     },
     {
       "frame_idx": 152,
@@ -2209,7 +2399,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 10
+      "lost_frames": 9
     },
     {
       "frame_idx": 153,
@@ -2221,7 +2411,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 11
+      "lost_frames": 10
     },
     {
       "frame_idx": 154,
@@ -2233,7 +2423,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 12
+      "lost_frames": 11
     },
     {
       "frame_idx": 155,
@@ -2245,7 +2435,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 13
+      "lost_frames": 12
     },
     {
       "frame_idx": 156,
@@ -2257,7 +2447,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 13
+      "lost_frames": 12
     },
     {
       "frame_idx": 157,
@@ -2269,7 +2459,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 14
+      "lost_frames": 13
     },
     {
       "frame_idx": 158,
@@ -2281,7 +2471,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 14
+      "lost_frames": 13
     },
     {
       "frame_idx": 159,
@@ -2293,7 +2483,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 15
+      "lost_frames": 14
     },
     {
       "frame_idx": 160,
@@ -2305,7 +2495,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 16
+      "lost_frames": 15
     },
     {
       "frame_idx": 161,
@@ -2317,7 +2507,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 17
+      "lost_frames": 16
     },
     {
       "frame_idx": 162,
@@ -2329,7 +2519,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 0
+      "lost_frames": 17
     },
     {
       "frame_idx": 163,
@@ -2341,7 +2531,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 1
+      "lost_frames": 0
     },
     {
       "frame_idx": 164,
@@ -2353,7 +2543,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 2
+      "lost_frames": 1
     },
     {
       "frame_idx": 165,
@@ -2365,7 +2555,7 @@
       "aim_y": 225.0,
       "overlay_x": 0.0,
       "overlay_y": 0.0,
-      "lost_frames": 3
+      "lost_frames": 2
     }
   ]
 }
