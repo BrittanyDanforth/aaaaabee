@@ -310,11 +310,36 @@ class AssistRuntime:
         *,
         cap_region: Any,
         ads_for_assist: bool,
+        center_x: float,
+        center_y: float,
+        detect_fov: float,
+        display_fov: float,
     ) -> None:
-        """Refresh overlay dot during Apex PID subticks (not only on detect frames)."""
+        """Subtick overlay refresh — smoothed follow + ring clamp (never raw YOLO snap)."""
         if self._overlay is None or not ads_for_assist:
             return
-        mon = to_monitor_coords(aim_x, aim_y, cap_region)
+        cfg = self.config
+        subtick_hz = max(1, int(cfg.get("apex_pid_subtick_hz", 120) or 120))
+        dt = max(1.0 / subtick_hz, 1e-4)
+        if bool(cfg.get("yolo_skip_motion_smooth", False)):
+            ox, oy = self._aim_tracker._advance_overlay_follow(aim_x, aim_y, dt)
+        else:
+            held = self._aim_tracker.peek_overlay_smooth()
+            ox, oy = held if held is not None else (aim_x, aim_y)
+        motion = TargetMotion(aim_x, aim_y, 0.0, 0.0, overlay_x=ox, overlay_y=oy)
+        frame_pt = self._frame_overlay_point(
+            motion,
+            cap_region,
+            center_x=center_x,
+            center_y=center_y,
+            detect_fov=detect_fov,
+            display_fov=display_fov,
+        )
+        if frame_pt is None:
+            return
+        self._aim_tracker.sync_overlay_follow_frame(frame_pt[0], frame_pt[1])
+        mon = to_monitor_coords(frame_pt[0], frame_pt[1], cap_region)
+        self._aim_tracker.set_monitor_overlay_point(mon[0], mon[1])
         self._overlay.set_state(ads_for_assist, mon)
 
     def _motion_from_yolo_target(
@@ -324,7 +349,7 @@ class AssistRuntime:
         *,
         stale: bool = False,
     ) -> TargetMotion | None:
-        """Apex YOLO path: raw detect aim — no chest-band EMA stack."""
+        """YOLO fast path: raw centroids for PID; overlay still uses follow drag."""
         if target is None:
             if stale and self._last_motion is not None:
                 return self._last_motion
@@ -333,13 +358,30 @@ class AssistRuntime:
             return self._last_motion
         from motion import TargetMotion
 
+        cfg = self.config
+        cap_fps = max(1, int(cfg.get("capture_fps", 60) or 60))
+        dt = max(1.0 / cap_fps, 1e-4)
+        self._aim_tracker._body_bbox = (
+            int(target.bbox_x),
+            int(target.bbox_y),
+            int(target.bbox_w),
+            int(target.bbox_h),
+        )
+        if self._last_motion is not None:
+            self._aim_tracker._vx = (target.centroid_x - self._last_motion.x) / dt
+            self._aim_tracker._vy = (target.centroid_y - self._last_motion.y) / dt
+        ox, oy = self._aim_tracker._advance_overlay_follow(
+            target.centroid_x,
+            target.centroid_y,
+            dt,
+        )
         m = TargetMotion(
             target.centroid_x,
             target.centroid_y,
             0.0,
             0.0,
-            overlay_x=target.centroid_x,
-            overlay_y=target.centroid_y,
+            overlay_x=ox,
+            overlay_y=oy,
         )
         self._last_motion = m
         return m
@@ -471,6 +513,34 @@ class AssistRuntime:
             ox = fov_cx_mon + odx * s
             oy = fov_cy_mon + ody * s
         return frame_from_monitor(ox, oy, cap_region)
+
+    @staticmethod
+    def _yolo_overlay_point_from_target(
+        target: Target,
+        cap_region,
+        *,
+        center_x: float,
+        center_y: float,
+        detect_fov: float,
+        display_fov: float,
+    ) -> tuple[float, float] | None:
+        """Ring-clamp the YOLO aim point (same coords as Apex PID pull)."""
+        motion = TargetMotion(
+            target.centroid_x,
+            target.centroid_y,
+            0.0,
+            0.0,
+            overlay_x=target.centroid_x,
+            overlay_y=target.centroid_y,
+        )
+        return AssistRuntime._frame_overlay_point(
+            motion,
+            cap_region,
+            center_x=center_x,
+            center_y=center_y,
+            detect_fov=detect_fov,
+            display_fov=display_fov,
+        )
 
     def stop(self) -> None:
         with self._lock:
@@ -1251,6 +1321,15 @@ class AssistRuntime:
             from yolo_targeting import resolve_yolo_engine, yolo_detect_and_lock
 
             self._yolo_engine = resolve_yolo_engine(cfg, self._yolo_engine)
+            if self._yolo_engine is None:
+                if not getattr(self, "_yolo_engine_warned", False):
+                    logger.error(
+                        "detection_mode=yolo but ApexAimBot engine failed to load — "
+                        "check yolo_weights_path and run_windows.bat / self-check"
+                    )
+                    self._yolo_engine_warned = True
+            else:
+                self._yolo_engine_warned = False
             result, box = yolo_detect_and_lock(
                 cfg,
                 frame_bgr,
@@ -1680,6 +1759,9 @@ class AssistRuntime:
                         firing_for_detect = self._is_firing
                     detect_assist = ads_for_assist or (
                         apex_pid_loop and firing_for_detect
+                    ) or (
+                        det_mode_loop == "yolo"
+                        and bool(cfg.get("dry_run_force_detect", False))
                     )
                     if detect_assist and not paused:
                         cfg["_ads_active"] = ads_for_assist
@@ -1768,10 +1850,11 @@ class AssistRuntime:
                     # frozen anchor for one frame so pull/overlay don't teleport
                     # on the exact frame the lock expires. Previously hardcoded
                     # False made the entire CRIT2 block dead code.
-                    yolo_pure = det_mode_loop == "yolo" and bool(
-                        cfg.get("yolo_skip_motion_smooth", True)
+                    use_yolo_aim_motion = det_mode_loop == "yolo" and (
+                        bool(cfg.get("yolo_direct_overlay", True))
+                        or bool(cfg.get("yolo_skip_motion_smooth", False))
                     )
-                    if yolo_pure:
+                    if use_yolo_aim_motion:
                         motion = self._motion_from_yolo_target(
                             target,
                             t0,
@@ -1878,16 +1961,24 @@ class AssistRuntime:
                         if (
                             det_mode_loop == "yolo"
                             and bool(cfg.get("yolo_direct_overlay", True))
-                            and motion is not None
                         ):
-                            frame_overlay = self._frame_overlay_point(
-                                motion,
+                            frame_overlay = self._yolo_overlay_point_from_target(
+                                target,
                                 cap_region,
                                 center_x=float(center_x),
                                 center_y=float(center_y),
                                 detect_fov=float(detect_fov),
                                 display_fov=float(overlay_fov),
                             )
+                            if frame_overlay is None and motion is not None:
+                                frame_overlay = self._frame_overlay_point(
+                                    motion,
+                                    cap_region,
+                                    center_x=float(center_x),
+                                    center_y=float(center_y),
+                                    detect_fov=float(detect_fov),
+                                    display_fov=float(overlay_fov),
+                                )
                         elif motion is not None:
                             frame_overlay = self._frame_overlay_point(
                                 motion,
@@ -2344,16 +2435,25 @@ class AssistRuntime:
                                 self, "_apex_pid_moved_this_frame", True
                             ),
                             sleep=self._sleep_interruptible,
+                            # Subtick overlay off by default: raw 120 Hz aim snaps
+                            # fought Tk glide and _advance_overlay_follow. Dot
+                            # updates on detect frames; mouse still subticks.
                             overlay_at_aim=(
                                 (
-                                    lambda ax, ay: self._subtick_overlay_aim(
+                                    lambda ax, ay, _cx=center_x, _cy=center_y: self._subtick_overlay_aim(
                                         ax,
                                         ay,
                                         cap_region=cap_region,
                                         ads_for_assist=ads_for_assist,
+                                        center_x=float(_cx),
+                                        center_y=float(_cy),
+                                        detect_fov=float(detect_fov),
+                                        display_fov=float(overlay_fov),
                                     )
                                 )
-                                if pid_enabled and cap_region is not None
+                                if pid_enabled
+                                and cap_region is not None
+                                and bool(cfg.get("yolo_subtick_overlay", False))
                                 else None
                             ),
                         )

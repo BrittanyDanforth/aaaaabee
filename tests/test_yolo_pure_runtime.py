@@ -11,7 +11,7 @@ def test_profile_apexaimbot_has_yolo_keys() -> None:
     p = PROFILE_DEFAULTS[PROFILE_APEXAIMBOT]
     assert p["detection_mode"] == "yolo"
     assert p["pull_mode"] == "apexaimbot_pid"
-    assert p["yolo_skip_motion_smooth"] is True
+    assert p["yolo_skip_motion_smooth"] is False
     assert p["apex_pid_subtick_hz"] == 120
     assert p["yolo_pull_stale_grace_frames"] == 12
     assert p["yolo_switch_confirm_frames"] == 2
