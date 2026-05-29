@@ -33,16 +33,31 @@ from setup_doctor import format_report, run_setup_doctor
 logger = logging.getLogger("aba.gui")
 
 POLL_MS = 150
-UI_BG = "#141414"
-UI_PANEL = "#1c1c1c"
-UI_SIDEBAR = "#101010"
-UI_ACCENT = "#2a2a2a"
-UI_TEXT = "#e8e8e8"
-UI_MUTED = "#9a9a9a"
-UI_SLIDER = "#ffffff"
-UI_ACTIVE_TAB = "#2e2e2e"
-UI_PRESET_BG = "#1a3a2a"
-UI_PRESET_FG = "#7dffb0"
+UI_BG = "#0e0e10"
+UI_PANEL = "#18181b"
+UI_SIDEBAR = "#111114"
+UI_ACCENT = "#27272a"
+UI_TEXT = "#fafafa"
+UI_MUTED = "#a1a1aa"
+UI_DIM = "#71717a"
+UI_SLIDER = "#e4e4e7"
+UI_ACTIVE_TAB = "#27272a"
+UI_HOVER_TAB = "#1e1e22"
+UI_PRESET_BG = "#14332a"
+UI_PRESET_FG = "#6ee7b7"
+UI_CARD = "#1c1c20"
+UI_CARD_BORDER = "#27272a"
+UI_GREEN = "#22c55e"
+UI_GREEN_DIM = "#166534"
+UI_RED = "#ef4444"
+UI_RED_DIM = "#7f1d1d"
+UI_BLUE = "#3b82f6"
+UI_BLUE_DIM = "#1e3a5f"
+UI_AMBER = "#f59e0b"
+UI_AMBER_DIM = "#78350f"
+UI_SECTION_FG = "#d4d4d8"
+UI_FONT = "Segoe UI"
+UI_MONO = "Consolas"
 
 # Sliders that only affect CV / ABA pull — inert when YOLO + apexaimbot_pid.
 CV_ONLY_SLIDER_KEYS = frozenset({
@@ -64,13 +79,13 @@ CV_ONLY_SLIDER_KEYS = frozenset({
 })
 
 STATUS_COLORS = {
-    AbaStatus.GAME_CLOSED: ("#2e2e2e", "#b0b0b0"),
-    AbaStatus.TARGET_DETECTED: ("#1a4d32", "#7dffb0"),
-    AbaStatus.IDLE: ("#4a4020", "#ffd966"),
-    AbaStatus.ACTIVE_SIMULATED: ("#2a3550", "#9ec8ff"),
-    AbaStatus.ACTIVE_LIVE: ("#4a1818", "#ff9999"),
-    AbaStatus.STOPPING: ("#4a3518", "#ffcc66"),
-    AbaStatus.ERROR: ("#4a1818", "#ff8888"),
+    AbaStatus.GAME_CLOSED: ("#1c1c20", "#a1a1aa"),
+    AbaStatus.TARGET_DETECTED: ("#052e16", "#6ee7b7"),
+    AbaStatus.IDLE: ("#422006", "#fbbf24"),
+    AbaStatus.ACTIVE_SIMULATED: ("#172554", "#93c5fd"),
+    AbaStatus.ACTIVE_LIVE: ("#450a0a", "#fca5a5"),
+    AbaStatus.STOPPING: ("#431407", "#fdba74"),
+    AbaStatus.ERROR: ("#450a0a", "#f87171"),
 }
 
 TUNING_PRESETS: dict[str, dict[str, Any]] = {
@@ -264,17 +279,21 @@ class _ConfigControl:
     ) -> None:
         self.key = key
         self.frame = tk.Frame(parent, bg=UI_PANEL)
-        self.frame.pack(fill=tk.X, pady=3)
+        self.frame.pack(fill=tk.X, pady=4)
         self._tip = tooltip
+        top_row = tk.Frame(self.frame, bg=UI_PANEL)
+        top_row.pack(fill=tk.X)
         lbl_text = label
-        if tooltip:
-            lbl_text = f"{label}  ({tooltip})"
         self._title_label = tk.Label(
-            self.frame, text=lbl_text, bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9)
+            top_row, text=lbl_text, bg=UI_PANEL, fg=UI_SECTION_FG, font=(UI_FONT, 9)
         )
-        self._title_label.pack(anchor="w")
+        self._title_label.pack(side=tk.LEFT, anchor="w")
+        if tooltip:
+            tk.Label(
+                top_row, text=tooltip, bg=UI_PANEL, fg=UI_DIM, font=(UI_FONT, 8),
+            ).pack(side=tk.RIGHT, anchor="e")
         inner = tk.Frame(self.frame, bg=UI_PANEL)
-        inner.pack(fill=tk.X)
+        inner.pack(fill=tk.X, pady=(2, 0))
         self._var = tk.DoubleVar(value=default)
         self._scale = tk.Scale(
             inner,
@@ -285,23 +304,28 @@ class _ConfigControl:
             variable=self._var,
             bg=UI_PANEL,
             fg=UI_TEXT,
-            troughcolor=UI_ACCENT,
-            activebackground=UI_SLIDER,
+            troughcolor="#27272a",
+            activebackground="#6ee7b7",
             highlightthickness=0,
             sliderrelief=tk.FLAT,
             showvalue=False,
+            sliderlength=16,
+            width=8,
             command=lambda _v: on_change(self.key, self.value()),
         )
-        self._scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
         self._val_label = tk.Label(
             inner,
             text=str(default),
-            bg=UI_PANEL,
+            bg="#27272a",
             fg=UI_TEXT,
-            font=("Consolas", 9),
-            width=8,
+            font=(UI_MONO, 9),
+            width=7,
+            relief=tk.FLAT,
+            padx=6,
+            pady=1,
         )
-        self._val_label.pack(side=tk.RIGHT, padx=(8, 0))
+        self._val_label.pack(side=tk.RIGHT)
         self._is_int = is_int
 
     def value(self) -> float:
@@ -341,89 +365,110 @@ class AbaApplication:
 
         self._root = tk.Tk()
         self._root.title("ABA")
-        self._root.geometry("920x720")
-        self._root.minsize(860, 640)
+        self._root.geometry("960x760")
+        self._root.minsize(900, 680)
         self._root.configure(bg=UI_BG)
         try:
             self._root.attributes("-topmost", False)
         except tk.TclError:
             pass
 
-        header = tk.Frame(self._root, bg=UI_BG, padx=16, pady=12)
+        header = tk.Frame(self._root, bg=UI_BG, padx=20, pady=14)
         header.pack(fill=tk.X)
-        tk.Label(header, text="ABA", bg=UI_BG, fg=UI_TEXT, font=("Segoe UI", 20, "bold")).pack(
+        brand = tk.Frame(header, bg=UI_BG)
+        brand.pack(side=tk.LEFT)
+        tk.Label(brand, text="ABA", bg=UI_BG, fg=UI_TEXT, font=(UI_FONT, 22, "bold")).pack(
             side=tk.LEFT
         )
         tk.Label(
-            header,
-            text="Apex reference · external overlay · hold RMB to ADS",
+            brand,
+            text="v2",
             bg=UI_BG,
-            fg=UI_MUTED,
-            font=("Segoe UI", 9),
-        ).pack(side=tk.LEFT, padx=(12, 0))
+            fg=UI_DIM,
+            font=(UI_FONT, 10),
+        ).pack(side=tk.LEFT, padx=(4, 0), anchor="s", pady=(0, 3))
+        tk.Label(
+            header,
+            text="Apex reference  ·  external overlay  ·  hold RMB to ADS",
+            bg=UI_BG,
+            fg=UI_DIM,
+            font=(UI_FONT, 9),
+        ).pack(side=tk.LEFT, padx=(16, 0), anchor="s", pady=(0, 2))
 
         self._adv_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(
+        adv_btn = tk.Checkbutton(
             header,
-            text="Advanced",
+            text="⚙ Advanced",
             variable=self._adv_var,
             bg=UI_BG,
             fg=UI_MUTED,
             selectcolor=UI_ACCENT,
             activebackground=UI_BG,
             activeforeground=UI_TEXT,
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             command=self._toggle_advanced,
-        ).pack(side=tk.RIGHT, padx=(0, 8))
+            indicatoron=False,
+            relief=tk.FLAT,
+            padx=10,
+            pady=4,
+            borderwidth=0,
+        )
+        adv_btn.pack(side=tk.RIGHT, padx=(0, 4))
 
-        ban_frame = tk.Frame(self._root, bg="#4a1515", padx=12, pady=6)
-        ban_frame.pack(fill=tk.X, padx=12, pady=(0, 4))
+        ban_frame = tk.Frame(self._root, bg="#3b0d0d", padx=14, pady=5)
+        ban_frame.pack(fill=tk.X, padx=16, pady=(0, 6))
         tk.Label(
             ban_frame,
-            text="BAN RISK: capture + hooks + synthetic mouse on live EAC. Offline/private only.",
-            font=("Segoe UI", 8, "bold"),
-            fg="#ffcccc",
-            bg="#4a1515",
-            wraplength=860,
+            text="⚠  BAN RISK: capture + hooks + synthetic mouse on live EAC. Offline / private only.",
+            font=(UI_FONT, 8),
+            fg="#fca5a5",
+            bg="#3b0d0d",
+            wraplength=880,
             justify=tk.LEFT,
         ).pack(anchor="w")
 
         body = tk.Frame(self._root, bg=UI_BG)
-        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        body.pack(fill=tk.BOTH, expand=True, padx=16, pady=4)
 
-        sidebar = tk.Frame(body, bg=UI_SIDEBAR, width=130)
-        sidebar.pack(side=tk.LEFT, fill=tk.Y)
+        sidebar = tk.Frame(body, bg=UI_SIDEBAR, width=150)
+        sidebar.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
         sidebar.pack_propagate(False)
+        tk.Label(
+            sidebar, text="Navigation", bg=UI_SIDEBAR, fg=UI_DIM,
+            font=(UI_FONT, 8), anchor="w", padx=14,
+        ).pack(fill=tk.X, pady=(10, 4))
         self._tab_buttons: dict[str, tk.Button] = {}
         self._tab_defs = [
-            ("basic", "Basic"),
-            ("body", "Body Targeting"),
-            ("motion", "Motion"),
-            ("debug", "Debug"),
-            ("setup", "Setup"),
+            ("basic", "○  Basic"),
+            ("body", "○  Body"),
+            ("motion", "○  Motion"),
+            ("debug", "○  Debug"),
+            ("setup", "○  Setup"),
         ]
         self._advanced_tabs = {
-            ("aim_adv", "Aim Advanced"),
-            ("detector_adv", "Detector Adv"),
-            ("overlay_adv", "Overlay Adv"),
+            ("aim_adv", "○  Aim Adv"),
+            ("detector_adv", "○  Detector"),
+            ("overlay_adv", "○  Overlay"),
         }
         for tab_id, title in self._tab_defs:
             btn = tk.Button(
                 sidebar,
                 text=title,
                 anchor="w",
-                padx=10,
-                pady=8,
+                padx=14,
+                pady=7,
                 bg=UI_SIDEBAR,
                 fg=UI_MUTED,
                 activebackground=UI_ACTIVE_TAB,
                 activeforeground=UI_TEXT,
                 relief=tk.FLAT,
                 borderwidth=0,
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 command=lambda t=tab_id: self._show_tab(t),
             )
-            btn.pack(fill=tk.X)
+            btn.pack(fill=tk.X, pady=1)
+            btn.bind("<Enter>", lambda e, b=btn: b.config(bg=UI_HOVER_TAB) if b.cget("bg") != UI_ACTIVE_TAB else None)
+            btn.bind("<Leave>", lambda e, b=btn: b.config(bg=UI_SIDEBAR) if b.cget("bg") != UI_ACTIVE_TAB else None)
             self._tab_buttons[tab_id] = btn
 
         self._adv_tab_btns: dict[str, tk.Button] = {}
@@ -432,31 +477,33 @@ class AbaApplication:
                 sidebar,
                 text=title,
                 anchor="w",
-                padx=10,
-                pady=8,
+                padx=14,
+                pady=7,
                 bg=UI_SIDEBAR,
-                fg=UI_MUTED,
+                fg=UI_DIM,
                 activebackground=UI_ACTIVE_TAB,
                 activeforeground=UI_TEXT,
                 relief=tk.FLAT,
                 borderwidth=0,
-                font=("Segoe UI", 8),
+                font=(UI_FONT, 8),
                 command=lambda t=tab_id: self._show_tab(t),
             )
+            btn.bind("<Enter>", lambda e, b=btn: b.config(bg=UI_HOVER_TAB) if b.cget("bg") != UI_ACTIVE_TAB else None)
+            btn.bind("<Leave>", lambda e, b=btn: b.config(bg=UI_SIDEBAR) if b.cget("bg") != UI_ACTIVE_TAB else None)
             self._adv_tab_btns[tab_id] = btn
 
         right = tk.Frame(body, bg=UI_BG)
-        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         status_row = tk.Frame(right, bg=UI_BG)
-        status_row.pack(fill=tk.X)
-        self._status_badge = tk.Frame(status_row, bg=STATUS_COLORS[AbaStatus.IDLE][0], padx=12, pady=8)
+        status_row.pack(fill=tk.X, pady=(0, 4))
+        self._status_badge = tk.Frame(status_row, bg=STATUS_COLORS[AbaStatus.IDLE][0], padx=16, pady=10)
         self._status_badge.pack(fill=tk.X)
         self._status_var = tk.StringVar(value="STATUS: IDLE")
         self._status_label = tk.Label(
             self._status_badge,
             textvariable=self._status_var,
-            font=("Segoe UI", 14, "bold"),
+            font=(UI_FONT, 13, "bold"),
             bg=STATUS_COLORS[AbaStatus.IDLE][0],
             fg=STATUS_COLORS[AbaStatus.IDLE][1],
         )
@@ -467,17 +514,17 @@ class AbaApplication:
             textvariable=self._detail_var,
             bg=UI_BG,
             fg=UI_MUTED,
-            wraplength=680,
+            wraplength=700,
             justify=tk.LEFT,
-            font=("Segoe UI", 9),
-        ).pack(anchor="w", pady=(4, 6))
+            font=(UI_FONT, 9),
+        ).pack(anchor="w", pady=(2, 6))
 
         self._panels: dict[str, tk.Frame] = {}
         scroll_host = tk.Frame(right, bg=UI_BG)
         scroll_host.pack(fill=tk.BOTH, expand=True)
         all_tabs = [t[0] for t in self._tab_defs] + [t[0] for t in self._advanced_tabs]
         for tab_id in all_tabs:
-            panel = tk.Frame(scroll_host, bg=UI_PANEL, padx=14, pady=10)
+            panel = tk.Frame(scroll_host, bg=UI_PANEL, padx=18, pady=14)
             self._panels[tab_id] = panel
 
         self._build_basic_panel(self._panels["basic"])
@@ -490,20 +537,17 @@ class AbaApplication:
         self._build_overlay_adv_panel(self._panels["overlay_adv"])
         self._show_tab("basic")
 
-        live = tk.LabelFrame(
-            right,
-            text=" Live telemetry ",
-            bg=UI_PANEL,
-            fg=UI_MUTED,
-            font=("Segoe UI", 9),
-            padx=8,
-            pady=6,
-            labelanchor="nw",
-        )
-        live.pack(fill=tk.X, pady=(6, 0))
+        telem_frame = tk.Frame(right, bg=UI_CARD, padx=12, pady=8)
+        telem_frame.pack(fill=tk.X, pady=(6, 0))
+        tk.Label(
+            telem_frame, text="Live Telemetry", bg=UI_CARD, fg=UI_DIM,
+            font=(UI_FONT, 8), anchor="w",
+        ).pack(fill=tk.X, pady=(0, 4))
         self._live_vars: dict[str, tk.StringVar] = {}
-        live_grid = tk.Frame(live, bg=UI_PANEL)
+        live_grid = tk.Frame(telem_frame, bg=UI_CARD)
         live_grid.pack(fill=tk.X)
+        live_grid.columnconfigure(1, weight=1)
+        live_grid.columnconfigure(3, weight=1)
         live_rows = [
             ("Target", "has_target"),
             ("Confidence", "conf"),
@@ -518,75 +562,98 @@ class AbaApplication:
         ]
         for i, (label, key) in enumerate(live_rows):
             r, c = divmod(i, 2)
-            tk.Label(live_grid, text=f"{label}:", bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8)).grid(
-                row=r, column=c * 2, sticky="w", padx=(0, 4), pady=1
+            tk.Label(live_grid, text=f"{label}:", bg=UI_CARD, fg=UI_DIM, font=(UI_FONT, 8)).grid(
+                row=r, column=c * 2, sticky="w", padx=(0, 6), pady=2
             )
             var = tk.StringVar(value="—")
             self._live_vars[key] = var
-            tk.Label(live_grid, textvariable=var, bg=UI_PANEL, fg=UI_TEXT, font=("Consolas", 8)).grid(
-                row=r, column=c * 2 + 1, sticky="w", padx=(0, 14)
+            tk.Label(live_grid, textvariable=var, bg=UI_CARD, fg=UI_TEXT, font=(UI_MONO, 8)).grid(
+                row=r, column=c * 2 + 1, sticky="w", padx=(0, 16)
             )
 
-        btn = tk.Frame(right, bg=UI_BG)
-        btn.pack(fill=tk.X, pady=8)
+        btn_bar = tk.Frame(right, bg=UI_BG)
+        btn_bar.pack(fill=tk.X, pady=(10, 4))
         self._start_btn = tk.Button(
-            btn,
-            text="Start ABA",
+            btn_bar,
+            text="▶  Start ABA",
             command=self._on_start,
-            bg="#2d5a3d",
-            fg=UI_TEXT,
+            bg="#166534",
+            fg="#dcfce7",
+            activebackground="#15803d",
+            activeforeground="#f0fdf4",
             relief=tk.FLAT,
-            padx=14,
-            pady=6,
+            padx=16,
+            pady=7,
+            font=(UI_FONT, 9, "bold"),
+            cursor="hand2",
         )
-        self._start_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self._start_btn.pack(side=tk.LEFT, padx=(0, 6))
         self._stop_btn = tk.Button(
-            btn,
-            text="Stop ABA",
+            btn_bar,
+            text="■  Stop",
             command=self._on_stop,
             state=tk.DISABLED,
-            bg="#5a2d2d",
-            fg=UI_TEXT,
+            bg="#7f1d1d",
+            fg="#fecaca",
+            activebackground="#991b1b",
+            activeforeground="#fef2f2",
             relief=tk.FLAT,
             padx=14,
-            pady=6,
+            pady=7,
+            font=(UI_FONT, 9),
+            cursor="hand2",
         )
-        self._stop_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self._stop_btn.pack(side=tk.LEFT, padx=(0, 6))
+
+        sep = tk.Frame(btn_bar, bg=UI_CARD_BORDER, width=1)
+        sep.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=3)
+
         tk.Button(
-            btn,
-            text="Save Settings",
+            btn_bar,
+            text="Save",
             command=self._on_save_settings,
             bg=UI_ACCENT,
             fg=UI_TEXT,
+            activebackground="#3f3f46",
+            activeforeground=UI_TEXT,
             relief=tk.FLAT,
-            padx=10,
+            padx=12,
             pady=6,
-        ).pack(side=tk.LEFT, padx=(0, 8))
+            font=(UI_FONT, 9),
+            cursor="hand2",
+        ).pack(side=tk.LEFT, padx=(0, 4))
         tk.Button(
-            btn,
+            btn_bar,
             text="Debug HUD",
             command=self._on_debug,
             bg=UI_ACCENT,
-            fg=UI_TEXT,
+            fg=UI_MUTED,
+            activebackground="#3f3f46",
+            activeforeground=UI_TEXT,
             relief=tk.FLAT,
             padx=10,
             pady=6,
-        ).pack(side=tk.LEFT, padx=(0, 8))
+            font=(UI_FONT, 9),
+            cursor="hand2",
+        ).pack(side=tk.LEFT, padx=(0, 4))
         tk.Button(
-            btn,
+            btn_bar,
             text="Close",
             command=self._on_close,
             bg=UI_ACCENT,
-            fg=UI_TEXT,
+            fg=UI_MUTED,
+            activebackground="#3f3f46",
+            activeforeground=UI_TEXT,
             relief=tk.FLAT,
             padx=10,
             pady=6,
+            font=(UI_FONT, 9),
+            cursor="hand2",
         ).pack(side=tk.RIGHT)
 
         self._error_var = tk.StringVar(value="")
-        tk.Label(right, textvariable=self._error_var, bg=UI_BG, fg="#cc6666", wraplength=680).pack(
-            anchor="w"
-        )
+        tk.Label(right, textvariable=self._error_var, bg=UI_BG, fg="#f87171", wraplength=700,
+                 font=(UI_FONT, 9)).pack(anchor="w", pady=(2, 0))
 
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._sync_controls_from_config()
@@ -624,17 +691,19 @@ class AbaApplication:
         var = tk.BooleanVar(value=bool(self.config.get(key, False)))
         self._bool_vars[key] = var
         row = tk.Frame(parent, bg=UI_PANEL)
-        row.pack(fill=tk.X, pady=2)
+        row.pack(fill=tk.X, pady=3)
         tk.Checkbutton(
             row,
             text=label,
             variable=var,
             bg=UI_PANEL,
-            fg=UI_TEXT,
-            selectcolor=UI_ACCENT,
+            fg=UI_SECTION_FG,
+            selectcolor="#27272a",
             activebackground=UI_PANEL,
             activeforeground=UI_TEXT,
+            font=(UI_FONT, 9),
             command=lambda k=key: self._on_bool_change(k),
+            cursor="hand2",
         ).pack(anchor="w")
 
     def _on_slider_change(self, key: str, _value: float) -> None:
@@ -789,15 +858,25 @@ class AbaApplication:
             panel.pack_forget()
         self._panels[tab_id].pack(fill=tk.BOTH, expand=True)
         for tid, btn in self._tab_buttons.items():
+            raw_title = btn.cget("text")
             if tid == tab_id:
                 btn.config(bg=UI_ACTIVE_TAB, fg=UI_TEXT)
+                if raw_title.startswith("○"):
+                    btn.config(text="●" + raw_title[1:])
             else:
                 btn.config(bg=UI_SIDEBAR, fg=UI_MUTED)
+                if raw_title.startswith("●"):
+                    btn.config(text="○" + raw_title[1:])
         for tid, btn in self._adv_tab_btns.items():
+            raw_title = btn.cget("text")
             if tid == tab_id:
                 btn.config(bg=UI_ACTIVE_TAB, fg=UI_TEXT)
+                if raw_title.startswith("○"):
+                    btn.config(text="●" + raw_title[1:])
             else:
-                btn.config(bg=UI_SIDEBAR, fg=UI_MUTED)
+                btn.config(bg=UI_SIDEBAR, fg=UI_DIM)
+                if raw_title.startswith("●"):
+                    btn.config(text="○" + raw_title[1:])
 
     def _toggle_advanced(self) -> None:
         self._advanced_mode = bool(self._adv_var.get())
@@ -811,8 +890,11 @@ class AbaApplication:
                 self._show_tab("basic")
 
     def _section(self, parent: tk.Widget, title: str) -> tk.Frame:
-        tk.Label(parent, text=title, bg=UI_PANEL, fg=UI_TEXT, font=("Segoe UI", 11, "bold")).pack(
-            anchor="w", pady=(0, 4)
+        sep = tk.Frame(parent, bg=UI_CARD_BORDER, height=1)
+        sep.pack(fill=tk.X, pady=(8, 6))
+        tk.Label(parent, text=title.upper(), bg=UI_PANEL, fg=UI_SECTION_FG,
+                 font=(UI_FONT, 9, "bold"), anchor="w").pack(
+            fill=tk.X, pady=(0, 6)
         )
         return parent
 
@@ -834,30 +916,37 @@ class AbaApplication:
             parent,
             text="",
             bg=UI_PANEL,
-            fg=UI_MUTED,
-            font=("Segoe UI", 9),
-            wraplength=520,
+            fg=UI_DIM,
+            font=(UI_FONT, 8),
+            wraplength=580,
             justify=tk.LEFT,
         )
-        self._yolo_mode_hint.pack(anchor="w", pady=(0, 6))
+        self._yolo_mode_hint.pack(anchor="w", pady=(0, 8))
 
         preset_row = tk.Frame(parent, bg=UI_PANEL)
-        preset_row.pack(fill=tk.X, pady=(0, 8))
-        tk.Label(preset_row, text="Presets:", bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9)).pack(
-            side=tk.LEFT, padx=(0, 8)
+        preset_row.pack(fill=tk.X, pady=(0, 10))
+        tk.Label(preset_row, text="Presets", bg=UI_PANEL, fg=UI_DIM, font=(UI_FONT, 8)).pack(
+            side=tk.LEFT, padx=(0, 10)
         )
         for name in TUNING_PRESETS:
-            tk.Button(
+            pbtn = tk.Button(
                 preset_row,
                 text=name,
                 command=lambda n=name: self._apply_preset(n),
                 bg=UI_PRESET_BG,
                 fg=UI_PRESET_FG,
+                activebackground="#1a4d35",
+                activeforeground="#a7f3d0",
                 relief=tk.FLAT,
-                padx=10,
-                pady=3,
-                font=("Segoe UI", 9),
-            ).pack(side=tk.LEFT, padx=2)
+                padx=12,
+                pady=4,
+                font=(UI_FONT, 8, "bold"),
+                cursor="hand2",
+                borderwidth=0,
+            )
+            pbtn.pack(side=tk.LEFT, padx=2)
+            pbtn.bind("<Enter>", lambda e, b=pbtn: b.config(bg="#1a4d35"))
+            pbtn.bind("<Leave>", lambda e, b=pbtn: b.config(bg=UI_PRESET_BG))
 
         self._slider(
             parent, "Tracking Strength", "pull_strength",
@@ -899,7 +988,7 @@ class AbaApplication:
             textvariable=self._fov_summary_var,
             fg=UI_MUTED,
             bg=UI_PANEL,
-            font=("DejaVu Sans", 9),
+            font=(UI_FONT, 9),
             wraplength=420,
             justify="left",
         ).pack(anchor="w", pady=(4, 0))
@@ -984,7 +1073,7 @@ class AbaApplication:
                 "over ~0.2s). Lateral hold adds sideways correction only when aim is off-center "
                 "— on-target it stays straight (no sine shake). ABA must be running."
             ),
-            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
+            bg=UI_PANEL, fg=UI_MUTED, font=(UI_FONT, 8), wraplength=600,
             justify=tk.LEFT,
         ).pack(anchor="w", pady=(0, 6))
         self._toggle(parent, "Recoil pull-down (counter muzzle climb)",
@@ -1016,7 +1105,7 @@ class AbaApplication:
         tk.Label(
             parent,
             text="Live telemetry shows real values from the running pipeline below.",
-            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9),
+            bg=UI_PANEL, fg=UI_MUTED, font=(UI_FONT, 9),
         ).pack(anchor="w", pady=(0, 6))
         self._toggle(parent, "Verbose logging", "verbose_logging")
         self._toggle(parent, "Pull trace log", "trace_pull")
@@ -1026,19 +1115,23 @@ class AbaApplication:
             command=self._on_save_debug_frame,
             bg=UI_ACCENT,
             fg=UI_TEXT,
+            activebackground="#3f3f46",
+            activeforeground=UI_TEXT,
             relief=tk.FLAT,
-            padx=10,
+            padx=12,
             pady=5,
+            font=(UI_FONT, 9),
+            cursor="hand2",
         ).pack(anchor="w", pady=8)
         tk.Label(
             parent,
             text=f"Debug frames: {self.config.get('debug_frames_dir', 'artifacts/debug_frames')}",
-            bg=UI_PANEL, fg=UI_MUTED, font=("Consolas", 8),
+            bg=UI_PANEL, fg=UI_MUTED, font=(UI_MONO, 8),
         ).pack(anchor="w")
         tk.Label(
             parent,
             text=f"Pull trace: {self.config.get('trace_pull_log_file', 'logs/pull_trace.log')}",
-            bg=UI_PANEL, fg=UI_MUTED, font=("Consolas", 8),
+            bg=UI_PANEL, fg=UI_MUTED, font=(UI_MONO, 8),
         ).pack(anchor="w")
 
     # === ADVANCED: Aim ===
@@ -1048,7 +1141,7 @@ class AbaApplication:
             parent,
             text="Prediction is auto-disabled with body-anchor mode (default). "
             "These only apply if aim_is_body_anchor is False.",
-            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
+            bg=UI_PANEL, fg=UI_MUTED, font=(UI_FONT, 8), wraplength=600,
         ).pack(anchor="w", pady=(0, 6))
         self._toggle(parent, "Prediction enabled", "prediction_enabled")
         self._slider(
@@ -1097,7 +1190,7 @@ class AbaApplication:
             text="yolo = shipped ApexAimBot primary detect (requires requirements-yolo.txt).\n"
                  "apex = red outline + shape/chroma/motion CV fallback.\n"
                  "shape/hsv/hybrid = legacy CV modes.",
-            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 8), wraplength=600,
+            bg=UI_PANEL, fg=UI_MUTED, font=(UI_FONT, 8), wraplength=600,
         ).pack(anchor="w", pady=(0, 8))
 
         self._section(parent, "Advanced body scoring weights")
@@ -1200,12 +1293,12 @@ class AbaApplication:
         tk.Label(
             parent,
             text="ADS input mode (config): " + str(self.config.get("ads_input_mode", "both")),
-            bg=UI_PANEL, fg=UI_TEXT, font=("Consolas", 9),
+            bg=UI_PANEL, fg=UI_TEXT, font=(UI_MONO, 9),
         ).pack(anchor="w", pady=4)
         tk.Label(
             parent,
             text="Trigger = hold RIGHT MOUSE BUTTON (ADS). No extra keybinds.",
-            bg=UI_PANEL, fg=UI_MUTED, font=("Segoe UI", 9), wraplength=600,
+            bg=UI_PANEL, fg=UI_MUTED, font=(UI_FONT, 9), wraplength=600,
         ).pack(anchor="w", pady=4)
 
     # === SETUP TAB ===
@@ -1226,7 +1319,7 @@ class AbaApplication:
             textvariable=self._mode_var,
             bg=UI_PANEL,
             fg=UI_TEXT,
-            font=("Segoe UI", 10, "bold"),
+            font=(UI_FONT, 10, "bold"),
         ).pack(anchor="w", pady=4)
         if dry_run_mode(self.config):
             tk.Label(
@@ -1235,7 +1328,7 @@ class AbaApplication:
                 bg=UI_PANEL,
                 fg=UI_MUTED,
                 wraplength=640,
-                font=("Segoe UI", 8),
+                font=(UI_FONT, 8),
             ).pack(anchor="w")
         self._live_cfg_var = tk.StringVar()
         live_on = bool(self.config.get("allow_live_mouse", False))
@@ -1249,7 +1342,7 @@ class AbaApplication:
             textvariable=self._live_cfg_var,
             bg=UI_PANEL,
             fg="#7dffb0" if live_on else UI_MUTED,
-            font=("Segoe UI", 9, "bold"),
+            font=(UI_FONT, 9, "bold"),
             wraplength=640,
         ).pack(anchor="w", pady=(2, 4))
         tk.Label(
@@ -1257,7 +1350,7 @@ class AbaApplication:
             text=f"Profile: {self._profile} · FPS cap: {self._configured_fps} · Monitor: {self._monitor_index}",
             bg=UI_PANEL,
             fg=UI_TEXT,
-            font=("Consolas", 9),
+            font=(UI_MONO, 9),
         ).pack(anchor="w", pady=4)
         self._fov_summary_var = tk.StringVar()
         self._update_fov_summary_label()
@@ -1266,14 +1359,14 @@ class AbaApplication:
             textvariable=self._fov_summary_var,
             bg=UI_PANEL,
             fg=UI_MUTED,
-            font=("Consolas", 8),
+            font=(UI_MONO, 8),
         ).pack(anchor="w")
         tk.Label(
             parent,
             textvariable=self._proc_detect_var,
             bg=UI_PANEL,
             fg=UI_MUTED,
-            font=("Consolas", 8),
+            font=(UI_MONO, 8),
         ).pack(anchor="w", pady=4)
         tk.Button(
             parent,
@@ -1281,7 +1374,13 @@ class AbaApplication:
             command=self._on_setup_doctor,
             bg=UI_ACCENT,
             fg=UI_TEXT,
+            activebackground="#3f3f46",
+            activeforeground=UI_TEXT,
             relief=tk.FLAT,
+            padx=12,
+            pady=5,
+            font=(UI_FONT, 9),
+            cursor="hand2",
         ).pack(anchor="w", pady=4)
         tk.Button(
             parent,
@@ -1289,9 +1388,15 @@ class AbaApplication:
             command=self._on_benchmark,
             bg=UI_ACCENT,
             fg=UI_TEXT,
+            activebackground="#3f3f46",
+            activeforeground=UI_TEXT,
             relief=tk.FLAT,
+            padx=12,
+            pady=5,
+            font=(UI_FONT, 9),
+            cursor="hand2",
         ).pack(anchor="w", pady=2)
-        tk.Label(parent, textvariable=self._bench_var, bg=UI_PANEL, fg=UI_MUTED, font=("Consolas", 8)).pack(
+        tk.Label(parent, textvariable=self._bench_var, bg=UI_PANEL, fg=UI_MUTED, font=(UI_MONO, 8)).pack(
             anchor="w"
         )
         tk.Button(
@@ -1300,7 +1405,13 @@ class AbaApplication:
             command=self._on_self_check,
             bg=UI_ACCENT,
             fg=UI_TEXT,
+            activebackground="#3f3f46",
+            activeforeground=UI_TEXT,
             relief=tk.FLAT,
+            padx=12,
+            pady=5,
+            font=(UI_FONT, 9),
+            cursor="hand2",
         ).pack(anchor="w", pady=8)
         tk.Label(parent, textvariable=self._selfcheck_var, bg=UI_PANEL, fg=UI_MUTED, wraplength=640).pack(
             anchor="w"
@@ -1310,15 +1421,21 @@ class AbaApplication:
             text="Open Logs Folder",
             command=self._on_open_logs,
             bg=UI_ACCENT,
-            fg=UI_TEXT,
+            fg=UI_MUTED,
+            activebackground="#3f3f46",
+            activeforeground=UI_TEXT,
             relief=tk.FLAT,
+            padx=12,
+            pady=5,
+            font=(UI_FONT, 9),
+            cursor="hand2",
         ).pack(anchor="w", pady=4)
         tk.Label(
             parent,
             text=f"setup: {SETUP_LOG.name} · self-check: {SELFCHECK_LOG.name}",
             bg=UI_PANEL,
             fg=UI_MUTED,
-            font=("Consolas", 8),
+            font=(UI_MONO, 8),
         ).pack(anchor="w")
 
     @staticmethod
