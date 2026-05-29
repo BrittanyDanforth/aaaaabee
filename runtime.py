@@ -1014,11 +1014,18 @@ class AssistRuntime:
             mouse_enabled = self._mouse_enabled
             has_target = self._locked_target is not None
             detection_fresh = self._frame_has_target
-            stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
             budget_scale = float(cfg.get("mouse_gate_pull_budget_scale", 3.5))
             det_mode = str(cfg.get("detection_mode", "apex")).strip().lower()
             pull_mode = str(cfg.get("pull_mode", "aba")).strip().lower()
             apex_pid_gate = pull_mode == "apexaimbot_pid" and det_mode == "yolo"
+            stale_grace = int(
+                cfg.get(
+                    "yolo_pull_stale_grace_frames"
+                    if apex_pid_gate
+                    else "mouse_gate_stale_grace_frames",
+                    12,
+                )
+            )
             with self._lock:
                 firing_gate = self._is_firing
             ctx = MouseGateContext(
@@ -1782,7 +1789,7 @@ class AssistRuntime:
                         )
                     stale_grace = int(cfg.get("mouse_gate_stale_grace_frames", 12))
                     overlay_stale_grace = (
-                        int(cfg.get("yolo_pull_stale_grace_frames", 8))
+                        int(cfg.get("yolo_pull_stale_grace_frames", 12))
                         if det_mode_loop == "yolo"
                         else stale_grace
                     )
@@ -1807,7 +1814,7 @@ class AssistRuntime:
                         )
                     if det_mode_loop == "yolo":
                         yolo_grace = int(
-                            cfg.get("yolo_pull_stale_grace_frames", 8)
+                            cfg.get("yolo_pull_stale_grace_frames", 12)
                         )
                         may_assist_pull = may_assist_pull_target_yolo(
                             target,

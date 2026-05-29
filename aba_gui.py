@@ -645,7 +645,10 @@ class AbaApplication:
         ):
             cfg_key = self._aim_height_config_key()
             key = cfg_key
-        patch = {cfg_key: self._sliders[key].value()}
+        value = self._sliders[key].value()
+        patch = {cfg_key: value}
+        if cfg_key == "mouse_gate_stale_grace_frames" and self._is_yolo_pure_config():
+            patch["yolo_pull_stale_grace_frames"] = value
         try:
             self.config = self._controller.apply_config_patch(patch, persist=False)
         except Exception as exc:

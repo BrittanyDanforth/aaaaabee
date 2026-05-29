@@ -233,6 +233,62 @@ class RuntimeGateWiringTests(unittest.TestCase):
         self.assertIn("target_lost_frames=self._target_lost_frames", text)
         self.assertIn("stale_grace_frames=stale_grace", text)
 
+    def test_yolo_apex_pid_gate_uses_yolo_stale_grace(self) -> None:
+        from pathlib import Path
+
+        from config_pipeline import normalize_app_config
+        from runtime import AssistRuntime
+
+        class _Ads:
+            def is_ads_active(self) -> bool:
+                return True
+
+            def clear(self) -> None:
+                pass
+
+        class _Mouse:
+            name = "recording"
+
+            def __init__(self) -> None:
+                self.moves: list[tuple[int, int]] = []
+
+            def move_relative(self, dx: int, dy: int) -> None:
+                self.moves.append((dx, dy))
+
+            def close(self) -> None:
+                pass
+
+        cfg = normalize_app_config(
+            {
+                "profile": "apexaimbot",
+                "allow_live_mouse": True,
+                "offline_dev_mode": True,
+                "target_process_required": False,
+                "pause_on_target_closed": False,
+                "mouse_gate_stale_grace_frames": 8,
+                "yolo_pull_stale_grace_frames": 12,
+            }
+        )
+        mouse = _Mouse()
+        with patch("yolo_targeting.reload_yolo_engine", return_value=MagicMock()):
+            rt = AssistRuntime(cfg, Path("/workspace/config.json"), mouse_backend=mouse, ads_input=_Ads())
+        rt._mouse_enabled = True
+        rt._frame_has_target = False
+        rt._locked_target = Target(208.0, 208.0, 5000.0, 0.0, 0.9, bbox_w=80, bbox_h=160)
+        rt._target_lost_frames = 10
+
+        result = rt._safe_mouse_move(6, -4)
+
+        self.assertTrue(result.allowed, result.reason)
+        self.assertEqual(mouse.moves, [(6, -4)])
+
+    def test_gui_stale_grace_slider_updates_yolo_pull_key(self) -> None:
+        from pathlib import Path as P
+
+        text = P("/workspace/aba_gui.py").read_text(encoding="utf-8")
+        self.assertIn('cfg_key == "mouse_gate_stale_grace_frames"', text)
+        self.assertIn('patch["yolo_pull_stale_grace_frames"] = value', text)
+
 
 if __name__ == "__main__":
     unittest.main()
