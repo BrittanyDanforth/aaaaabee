@@ -16,7 +16,7 @@ def test_apexaimbot_profile_flags() -> None:
     assert is_yolo_detection(p)
     assert uses_apex_pid_pull(p)
     assert p.get("detection_motion_assist") is False
-    assert p.get("yolo_skip_motion_smooth") is False
+    assert p.get("yolo_skip_motion_smooth") is True
 
 
 def test_find_best_yolo_target_respects_confidence() -> None:

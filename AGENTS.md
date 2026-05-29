@@ -6,7 +6,7 @@
 
 ABA (OverlayAssist) is a Python desktop application for real-time aim-assist overlay targeting Apex Legends. It uses OpenCV for detection, numpy for math, mss for screen capture, pynput for input, and tkinter for the overlay HUD.
 
-**Important**: The `main` branch is empty — all code lives on feature branches (e.g. `cursor/shape-detection-no-color-65d9`).
+**Important**: The `main` branch is empty — all code lives on feature branches. For the YOLO-only stack (ApexAimBot profile, direct overlay dot, no CV red-mask path), use **`cursor/yolo-clean`** (forked from `cursor/yolo-overlay-smooth-6a66`).
 
 ### Running tests
 
@@ -73,7 +73,11 @@ The GUI (`aba_gui.py`) uses Basic/Advanced mode split:
 
 **Presets**: Stable, Responsive, ApexAimBot, Tracking, Strong, Debug — apply via buttons on the Basic tab.
 
-**Overlay dot FPS**: `overlay_fps` (default 90) controls Tk redraw; `capture_fps` (60 on live trace) controls how often dot coordinates update. Frame drag: `_advance_overlay_follow` on chest-clamped aim (not deadband 2px cap); FOV uses `min(detect,display)*0.96`; `overlay_dot_smooth_alpha` tunes both capture follow (`configure_overlay_dot_alpha`) and Tk glide (`set_dot_glide_alpha`). After ring clamp, `sync_overlay_follow_frame` keeps follow state aligned. Pull uses ring-clamped `frame_overlay` (same as dot). **Ring + white crosshair (+)** share `_cx/_cy` via `set_fov_center(center_x, center_y)` each frame (`crosshair_offset_*`); dot glides from that center on first show.
+**YOLO overlay path (default on `apexaimbot`)**: `yolo_direct_overlay=True` places the red dot from YOLO bbox aim (`_yolo_overlay_point_from_target`), not CV chest smoothing (`_smooth_aim`). `yolo_skip_motion_smooth=True` skips the motion tracker on YOLO frames so the dot does not lag behind detect. Mouse pull uses vendored **`apexaimbot_pid`** (not legacy ABA `pull.py` CV path). CV `detection_mode=apex` remains in the tree for tests/legacy presets only.
+
+**Overlay dot FPS**: `overlay_fps` (default 90) controls Tk redraw; `capture_fps` (60 on live trace) controls how often dot coordinates update. FOV uses `min(detect,display)*0.96`; `overlay_dot_smooth_alpha` tunes Tk glide (`set_dot_glide_alpha`). **Ring + white crosshair (+)** share `_cx/_cy` via `set_fov_center(center_x, center_y)` each frame (`crosshair_offset_*`).
+
+**Linux Cloud**: Tk `-transparentcolor` overlay fails on headless/Xvfb (`Transparent overlay background is not supported`). Validate overlay with `tests/test_overlay_glide.py`; full transparent overlay requires Windows.
 
 **False detection guards**: `viewmodel_exclude_bottom_frac` (default 0.28) masks the gun HUD. Low `red_coverage` + sparse fill + viewmodel-column geometry reject scope/gun FPs (img7). Pan motion fusion disables above 18% frame coverage.
 

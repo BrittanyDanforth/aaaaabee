@@ -265,7 +265,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "yolo_aim_fraction": 0.2,
         "yolo_exclude_labels": ["teammate"],
         "yolo_device": "",
-        "yolo_skip_motion_smooth": False,
+        "yolo_skip_motion_smooth": True,
         "yolo_apex_nearest_lock": True,
         "yolo_fixed_square_capture": True,
         "yolo_direct_overlay": True,

@@ -29,7 +29,7 @@ ENTER_YOLO_STACK_PATCH: dict[str, Any] = {
     "min_target_area_pixels": 1,
     "body_shape_min_score": 0.40,
     "yolo_direct_overlay": True,
-    "yolo_skip_motion_smooth": False,
+    "yolo_skip_motion_smooth": True,
 }
 
 # Back-compat alias (docs / older branches).
@@ -53,7 +53,8 @@ def merge_enter_yolo_stack(patch: dict[str, Any]) -> dict[str, Any]:
     out = dict(patch)
     if str(out.get("detection_mode", "")).strip().lower() != "yolo":
         return out
-    out.update(ENTER_YOLO_STACK_PATCH)
+    for key, value in ENTER_YOLO_STACK_PATCH.items():
+        out.setdefault(key, value)
     return out
 
 

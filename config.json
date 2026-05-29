@@ -1,12 +1,14 @@
 {
   "profile": "apexaimbot",
+  "detection_mode": "yolo",
   "allow_live_mouse": true,
   "offline_dev_mode": true,
   "enable_overlay": true,
+  "yolo_direct_overlay": true,
   "ads_input_mode": "both",
   "capture_fps": 60,
   "overlay_fps": 90,
-  "overlay_dot_smooth_alpha": 0.52,
+  "overlay_dot_smooth_alpha": 0.45,
   "viewmodel_exclude_bottom_frac": 0.28,
   "verbose_logging": false,
   "trace_pull": false
